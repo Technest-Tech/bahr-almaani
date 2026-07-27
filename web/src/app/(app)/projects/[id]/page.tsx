@@ -7,18 +7,26 @@ import { useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  BadgeCheck,
   Calculator,
   Download,
+  Eye,
+  FileCheck2,
   FileText,
   History,
   Paperclip,
+  RotateCcw,
   Send,
+  Timer,
   Trash2,
+  Undo2,
   Upload,
+  UserRound,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError, downloadFile, getToken } from "@/lib/api";
+import { formatDuration } from "@/lib/format";
 import {
   COUNT_STATUS_LABELS,
   PRIORITY_LABELS,
@@ -59,7 +67,7 @@ function formatBytes(bytes: number): string {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useAuth();
-  const { prompt } = useConfirm();
+  const { prompt, confirm } = useConfirm();
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
 
@@ -98,6 +106,32 @@ export default function ProjectDetailPage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
+  const withdrawMutation = useMutation({
+    mutationFn: (reason: string) =>
+      api(`/projects/${id}/withdraw`, { method: "POST", json: { reason } }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("تم سحب الملف وإعادته للمتاح");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
+  });
+
+  const reviewAction = useMutation({
+    mutationFn: ({ action, note }: { action: string; note?: string }) =>
+      api(`/projects/${id}/review/${action}`, { method: "POST", json: note ? { note } : undefined }),
+    onSuccess: (_, { action }) => {
+      invalidate();
+      toast.success(
+        action === "approve"
+          ? "تم الاعتماد — جارِ إنهاء الملف النهائي"
+          : action === "request-revision"
+            ? "أُعيد الملف للمترجم مع الملاحظات"
+            : "فُتحت المراجعة",
+      );
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
+  });
+
   if (isLoading || !project) {
     return (
       <div className="w-full space-y-6">
@@ -117,8 +151,12 @@ export default function ProjectDetailPage() {
   }
 
   const canManage = can("projects.manage");
+  const canReview = can("projects.review");
   const sourceFiles = project.files?.filter((f) => f.category === "source") ?? [];
   const referenceFiles = project.files?.filter((f) => f.category === "reference") ?? [];
+  const deliverableFiles = project.files?.filter((f) => f.category === "deliverable") ?? [];
+  const finalFiles = project.files?.filter((f) => f.category === "final") ?? [];
+  const assignment = project.assignment;
 
   return (
     <div className="w-full space-y-6">
@@ -148,40 +186,108 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        {canManage && (
-          <div className="flex gap-2">
-            {project.status === "draft" && (
+        <div className="flex flex-wrap gap-2">
+          {canManage && project.status === "draft" && (
+            <Button
+              onClick={() => publishMutation.mutate()}
+              loading={publishMutation.isPending}
+              disabled={sourceFiles.length === 0}
+              title={sourceFiles.length === 0 ? "أضف ملف عمل أولاً" : undefined}
+            >
+              <Send className="size-4" />
+              نشر للمترجمين
+            </Button>
+          )}
+
+          {canReview && project.status === "delivered" && (
+            <Button
+              onClick={() => reviewAction.mutate({ action: "open" })}
+              loading={reviewAction.isPending}
+            >
+              <Eye className="size-4" />
+              فتح المراجعة
+            </Button>
+          )}
+
+          {canReview && project.status === "in_review" && (
+            <>
               <Button
-                onClick={() => publishMutation.mutate()}
-                loading={publishMutation.isPending}
-                disabled={sourceFiles.length === 0}
-                title={sourceFiles.length === 0 ? "أضف ملف عمل أولاً" : undefined}
-              >
-                <Send className="size-4" />
-                نشر للمترجمين
-              </Button>
-            )}
-            {["draft", "available"].includes(project.status) && (
-              <Button
-                variant="destructive"
                 onClick={async () => {
-                  const reason = await prompt({
-                    title: "إلغاء المشروع",
-                    description: "سيتم إيقاف المشروع نهائياً ويُسجل السبب في سجل الحالات.",
-                    label: "سبب الإلغاء",
-                    placeholder: "مثال: ألغى العميل الطلب…",
-                    confirmLabel: "إلغاء المشروع",
-                    destructive: true,
+                  if (
+                    await confirm({
+                      title: "اعتماد الترجمة؟",
+                      description:
+                        "سيُعتمد العمل ويُجهّز الملف النهائي تلقائياً ويُغلق المشروع.",
+                      confirmLabel: "اعتماد وإنهاء",
+                    })
+                  )
+                    reviewAction.mutate({ action: "approve" });
+                }}
+                loading={reviewAction.isPending}
+              >
+                <BadgeCheck className="size-4" />
+                اعتماد وإنهاء
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  const note = await prompt({
+                    title: "طلب تعديل",
+                    description: "تُرسل الملاحظات للمترجم ويُعاد قفله حتى تسليم التعديل.",
+                    label: "ملاحظات المراجعة",
+                    placeholder: "وضّح المطلوب تعديله…",
+                    confirmLabel: "إرسال للمترجم",
                   });
-                  if (reason) cancelMutation.mutate(reason);
+                  if (note) reviewAction.mutate({ action: "request-revision", note });
                 }}
               >
-                <XCircle className="size-4" />
-                إلغاء المشروع
+                <RotateCcw className="size-4" />
+                طلب تعديل
               </Button>
-            )}
-          </div>
-        )}
+            </>
+          )}
+
+          {canManage && project.status === "claimed" && (
+            <Button
+              variant="outline"
+              onClick={async () => {
+                const reason = await prompt({
+                  title: "سحب الملف من المترجم",
+                  description:
+                    "يُسحب الملف فوراً ويعود متاحاً لباقي المترجمين — يُسجل السبب في السجل.",
+                  label: "سبب السحب",
+                  placeholder: "مثال: المترجم في إجازة مرضية…",
+                  confirmLabel: "سحب الملف",
+                  destructive: true,
+                });
+                if (reason) withdrawMutation.mutate(reason);
+              }}
+            >
+              <Undo2 className="size-4" />
+              سحب الملف
+            </Button>
+          )}
+
+          {canManage && ["draft", "available"].includes(project.status) && (
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                const reason = await prompt({
+                  title: "إلغاء المشروع",
+                  description: "سيتم إيقاف المشروع نهائياً ويُسجل السبب في سجل الحالات.",
+                  label: "سبب الإلغاء",
+                  placeholder: "مثال: ألغى العميل الطلب…",
+                  confirmLabel: "إلغاء المشروع",
+                  destructive: true,
+                });
+                if (reason) cancelMutation.mutate(reason);
+              }}
+            >
+              <XCircle className="size-4" />
+              إلغاء المشروع
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Info grid */}
@@ -233,6 +339,32 @@ export default function ProjectDetailPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
+          {!!finalFiles.length && (
+            <FilesCard
+              title="الملف النهائي"
+              icon={<FileCheck2 className="size-4" />}
+              files={finalFiles}
+              project={project}
+              category="final"
+              canUpload={false}
+              canDelete={false}
+              onChanged={invalidate}
+              onManualCount={setCountFile}
+            />
+          )}
+          {!!deliverableFiles.length && (
+            <FilesCard
+              title="تسليمات المترجم"
+              icon={<Send className="size-4" />}
+              files={deliverableFiles}
+              project={project}
+              category="deliverable"
+              canUpload={false}
+              canDelete={false}
+              onChanged={invalidate}
+              onManualCount={setCountFile}
+            />
+          )}
           <FilesCard
             title="ملفات العمل"
             icon={<FileText className="size-4" />}
@@ -258,6 +390,49 @@ export default function ProjectDetailPage() {
             onManualCount={setCountFile}
           />
         </div>
+
+        <div className="space-y-6 self-start">
+        {assignment && (
+          <Card className="gap-0 py-0">
+            <CardHeader className="border-b py-4!">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <UserRound className="size-4" />
+                المترجم المكلّف
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2.5 p-4 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">الاسم</span>
+                <span className="font-medium">{assignment.translator?.name}</span>
+              </div>
+              {assignment.claimed_at && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">الاستلام</span>
+                  <span className="text-xs">
+                    {dateFormatter.format(new Date(assignment.claimed_at))}
+                  </span>
+                </div>
+              )}
+              {assignment.delivered_at && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">التسليم</span>
+                  <span className="text-xs">
+                    {dateFormatter.format(new Date(assignment.delivered_at))}
+                  </span>
+                </div>
+              )}
+              {assignment.work_seconds != null && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">مدة العمل</span>
+                  <span className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-primary">
+                    <Timer className="size-3.5" />
+                    {formatDuration(assignment.work_seconds)}
+                  </span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Timeline */}
         <Card className="self-start">
@@ -287,6 +462,7 @@ export default function ProjectDetailPage() {
             </ol>
           </CardContent>
         </Card>
+        </div>
       </div>
 
       <ManualCountDialog
@@ -324,7 +500,7 @@ function FilesCard({
   icon: React.ReactNode;
   files: ProjectFile[];
   project: Project;
-  category: "source" | "reference";
+  category: ProjectFile["category"];
   canUpload: boolean;
   canDelete: boolean;
   onChanged: () => void;

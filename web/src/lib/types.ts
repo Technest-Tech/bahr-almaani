@@ -97,6 +97,29 @@ export interface Transition {
   created_at: string;
 }
 
+export interface Assignment {
+  id: number;
+  status: "active" | "delivered" | "withdrawn";
+  claimed_at: string | null;
+  delivered_at: string | null;
+  work_seconds: number | null;
+  withdraw_reason: string | null;
+  translator?: { id: number; name: string };
+  project?: Project;
+}
+
+export interface AppNotification {
+  id: string;
+  data: {
+    type: string;
+    project_id?: number;
+    code?: string;
+    message: string;
+  };
+  read_at: string | null;
+  created_at: string;
+}
+
 export interface Project {
   id: number;
   code: string;
@@ -125,6 +148,8 @@ export interface Project {
   creator?: { id: number; name: string };
   files?: ProjectFile[];
   files_count?: number;
+  source_files_count?: number;
+  assignment?: Assignment | null;
 }
 
 export const STATUS_TONES: Record<ProjectStatus, "green" | "red" | "slate" | "teal" | "amber" | "blue"> = {

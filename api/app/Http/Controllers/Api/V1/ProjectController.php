@@ -49,6 +49,7 @@ class ProjectController extends Controller
     {
         return ProjectResource::make($project->load([
             'client', 'sourceLanguage', 'targetLanguage', 'creator:id,name',
+            'assignments.translator:id,name',
             'files' => fn ($q) => $q->with('uploader:id,name')->orderBy('category')->orderByDesc('created_at'),
         ]));
     }

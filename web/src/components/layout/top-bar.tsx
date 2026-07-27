@@ -25,6 +25,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { CommandPalette } from "@/components/layout/command-palette";
+import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { BREADCRUMB_LABELS } from "@/components/layout/nav";
 import { useAuth } from "@/lib/auth";
 import { ROLE_LABELS, type Role } from "@/lib/types";
@@ -93,6 +94,8 @@ export function TopBar() {
             ⌘K
           </kbd>
         </button>
+
+        <NotificationsBell />
 
         <Button
           variant="ghost"
