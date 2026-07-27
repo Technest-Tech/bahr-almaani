@@ -100,7 +100,7 @@ export default function ProjectDetailPage() {
 
   if (isLoading || !project) {
     return (
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="w-full space-y-6">
         <Skeleton className="h-5 w-40" />
         <div className="space-y-2">
           <Skeleton className="h-8 w-72" />
@@ -121,7 +121,7 @@ export default function ProjectDetailPage() {
   const referenceFiles = project.files?.filter((f) => f.category === "reference") ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="w-full space-y-6">
       <Link
         href="/projects"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
