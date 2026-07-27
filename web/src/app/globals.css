@@ -84,7 +84,7 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-plex-arabic), "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-sans: var(--font-almarai), "Almarai", system-ui, sans-serif;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

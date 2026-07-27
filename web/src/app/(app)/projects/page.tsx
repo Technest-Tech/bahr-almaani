@@ -15,7 +15,7 @@ import {
   type Project,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
+import { DataTable, SortableHeader } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -72,7 +72,8 @@ export default function ProjectsPage() {
   const columns: ColumnDef<Project, unknown>[] = [
     {
       accessorKey: "title",
-      header: "المشروع",
+      enableHiding: false,
+      header: ({ column }) => <SortableHeader column={column}>المشروع</SortableHeader>,
       cell: ({ row }) => (
         <div>
           <p className="font-medium">{row.original.title}</p>
@@ -84,6 +85,7 @@ export default function ProjectsPage() {
     },
     {
       id: "client",
+      meta: { label: "العميل" },
       header: "العميل",
       cell: ({ row }) => (
         <span className="text-muted-foreground">{row.original.client?.name ?? "—"}</span>
@@ -91,6 +93,7 @@ export default function ProjectsPage() {
     },
     {
       id: "languages",
+      meta: { label: "اللغات" },
       header: "اللغات",
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
@@ -100,7 +103,8 @@ export default function ProjectsPage() {
     },
     {
       accessorKey: "priority",
-      header: "الأولوية",
+      meta: { label: "الأولوية" },
+      header: ({ column }) => <SortableHeader column={column}>الأولوية</SortableHeader>,
       cell: ({ row }) => (
         <ToneBadge tone={PRIORITY_TONES[row.original.priority]}>
           {PRIORITY_LABELS[row.original.priority]}
@@ -109,7 +113,8 @@ export default function ProjectsPage() {
     },
     {
       accessorKey: "status",
-      header: "الحالة",
+      meta: { label: "الحالة" },
+      header: ({ column }) => <SortableHeader column={column}>الحالة</SortableHeader>,
       cell: ({ row }) => (
         <ToneBadge tone={STATUS_TONES[row.original.status]}>
           {row.original.status_label}
@@ -117,8 +122,9 @@ export default function ProjectsPage() {
       ),
     },
     {
-      id: "counts",
-      header: "كلمات / صفحات",
+      accessorKey: "total_words",
+      meta: { label: "كلمات / صفحات" },
+      header: ({ column }) => <SortableHeader column={column}>كلمات / صفحات</SortableHeader>,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {row.original.total_words?.toLocaleString("ar-EG") ?? "—"} /{" "}
@@ -128,7 +134,8 @@ export default function ProjectsPage() {
     },
     {
       accessorKey: "deadline_at",
-      header: "موعد التسليم",
+      meta: { label: "موعد التسليم" },
+      header: ({ column }) => <SortableHeader column={column}>موعد التسليم</SortableHeader>,
       cell: ({ row }) => (
         <span
           className={`inline-flex items-center gap-1.5 text-xs ${

@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Client, Paginated } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
+import { DataTable, SortableHeader } from "@/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -67,11 +67,13 @@ export default function ClientsPage() {
   const columns: ColumnDef<Client, unknown>[] = [
     {
       accessorKey: "name",
-      header: "العميل",
+      enableHiding: false,
+      header: ({ column }) => <SortableHeader column={column}>العميل</SortableHeader>,
       cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
     },
     {
       accessorKey: "type",
+      meta: { label: "النوع" },
       header: "النوع",
       cell: ({ row }) => (
         <ToneBadge tone={row.original.type === "company" ? "blue" : "slate"}>
@@ -81,6 +83,7 @@ export default function ClientsPage() {
     },
     {
       id: "contact",
+      meta: { label: "التواصل" },
       header: "التواصل",
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
@@ -96,12 +99,14 @@ export default function ClientsPage() {
     },
     {
       accessorKey: "projects_count",
-      header: "المشاريع",
+      meta: { label: "المشاريع" },
+      header: ({ column }) => <SortableHeader column={column}>المشاريع</SortableHeader>,
       cell: ({ row }) => row.original.projects_count ?? 0,
     },
     {
       accessorKey: "created_at",
-      header: "أضيف في",
+      meta: { label: "أضيف في" },
+      header: ({ column }) => <SortableHeader column={column}>أضيف في</SortableHeader>,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {dateFormatter.format(new Date(row.original.created_at))}
@@ -110,6 +115,7 @@ export default function ClientsPage() {
     },
     {
       id: "actions",
+      enableHiding: false,
       header: "",
       cell: ({ row }) => {
         const client = row.original;

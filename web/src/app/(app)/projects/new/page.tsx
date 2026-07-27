@@ -105,7 +105,7 @@ export default function NewProjectPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="w-full space-y-6">
       <div className="space-y-3">
         <Link
           href="/projects"

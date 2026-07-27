@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ROLE_LABELS, type Paginated, type Role, type User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
+import { DataTable, SortableHeader } from "@/components/ui/data-table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,7 +90,8 @@ export default function UsersPage() {
   const columns: ColumnDef<User, unknown>[] = [
     {
       accessorKey: "name",
-      header: "المستخدم",
+      enableHiding: false,
+      header: ({ column }) => <SortableHeader column={column}>المستخدم</SortableHeader>,
       cell: ({ row }) => (
         <div>
           <p className="font-medium">{row.original.name}</p>
@@ -102,6 +103,7 @@ export default function UsersPage() {
     },
     {
       id: "roles",
+      meta: { label: "الدور" },
       header: "الدور",
       cell: ({ row }) => (
         <ToneBadge tone={row.original.roles.includes("admin") ? "teal" : "blue"}>
@@ -111,7 +113,8 @@ export default function UsersPage() {
     },
     {
       accessorKey: "status",
-      header: "الحالة",
+      meta: { label: "الحالة" },
+      header: ({ column }) => <SortableHeader column={column}>الحالة</SortableHeader>,
       cell: ({ row }) =>
         row.original.status === "active" ? (
           <ToneBadge tone="green">نشط</ToneBadge>
@@ -121,7 +124,8 @@ export default function UsersPage() {
     },
     {
       accessorKey: "last_login_at",
-      header: "آخر دخول",
+      meta: { label: "آخر دخول" },
+      header: ({ column }) => <SortableHeader column={column}>آخر دخول</SortableHeader>,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {row.original.last_login_at
@@ -132,6 +136,7 @@ export default function UsersPage() {
     },
     {
       id: "actions",
+      enableHiding: false,
       header: "",
       cell: ({ row }) => {
         const user = row.original;
