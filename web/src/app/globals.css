@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-plex-arabic), "IBM Plex Sans Arabic", system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* Thin, subtle scrollbars for data tables */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme(colors.slate.300) transparent;
+}

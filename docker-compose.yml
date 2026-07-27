@@ -1,0 +1,55 @@
+name: bahr-almaaani
+
+# Local development backing services.
+# Host ports: Postgres 5434 (5432 = local brew postgres, 5433 = infra-postgres-1),
+# Gotenberg 3300 (3000 = Next.js dev, 3030 = infra-gotenberg-1).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bahr
+      POSTGRES_USER: bahr
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bahr -d bahr"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: local_dev_master_key
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilidata:/meili_data
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    ports:
+      - "3300:3000"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # web UI
+      - "1025:1025"   # SMTP
+
+volumes:
+  pgdata:
+  redisdata:
+  meilidata:
