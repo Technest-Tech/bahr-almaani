@@ -55,3 +55,21 @@ export async function api<T = unknown>(
   if (response.status === 204) return undefined as T;
   return response.json();
 }
+
+/** Authenticated file download via blob (Authorization headers don't work on <a href>). */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: {
+      Accept: "application/octet-stream",
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
+  });
+  if (!response.ok) throw new ApiError(response.status, "تعذر تحميل الملف");
+
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}

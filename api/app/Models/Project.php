@@ -119,6 +119,20 @@ class Project extends Model
         return $this->belongsTo(LetterheadTemplate::class, 'stamp_id');
     }
 
+    /** Recompute cached totals from counted source files. */
+    public function refreshTotals(): void
+    {
+        $totals = $this->files()
+            ->where('category', ProjectFile::CATEGORY_SOURCE)
+            ->selectRaw('COALESCE(SUM(word_count), 0) AS words, COALESCE(SUM(page_count), 0) AS pages')
+            ->first();
+
+        $this->forceFill([
+            'total_words' => (int) $totals->words ?: null,
+            'total_pages' => (int) $totals->pages ?: null,
+        ])->saveQuietly();
+    }
+
     public function isLate(): bool
     {
         return $this->deadline_at->isPast() && ! in_array($this->status, self::SETTLED_STATUSES, true);

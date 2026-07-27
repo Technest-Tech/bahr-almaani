@@ -18,6 +18,12 @@ class ProjectFile extends Model
     public const COUNT_FAILED = 'failed';
     public const COUNT_NOT_APPLICABLE = 'not_applicable';
 
+    protected $attributes = [
+        'count_status' => self::COUNT_PENDING,
+        'count_source' => 'auto',
+        'version' => 1,
+    ];
+
     protected $fillable = [
         'project_id',
         'category',

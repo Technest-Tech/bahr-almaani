@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect } from "react";
 import {
+  Contact,
   FolderKanban,
   LayoutDashboard,
   Loader2,
@@ -17,8 +18,9 @@ import { ROLE_LABELS, type Role } from "@/lib/types";
 
 const NAV_ITEMS = [
   { href: "/", label: "لوحة التحكم", icon: LayoutDashboard, permission: null },
+  { href: "/projects", label: "المشاريع", icon: FolderKanban, permission: "projects.view" },
+  { href: "/clients", label: "العملاء", icon: Contact, permission: "clients.view" },
   { href: "/users", label: "المستخدمون", icon: Users, permission: "users.view" },
-  { href: "/projects", label: "المشاريع", icon: FolderKanban, permission: "projects.view", soon: true },
 ] as const;
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -57,28 +59,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             (item) => {
               const active =
                 item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-              const soon = "soon" in item && item.soon;
               return (
                 <Link
                   key={item.href}
-                  href={soon ? "#" : item.href}
-                  aria-disabled={soon}
+                  href={item.href}
                   className={clsx(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                     active
                       ? "bg-teal-50 text-teal-800"
-                      : soon
-                        ? "cursor-default text-slate-300"
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
                   )}
                 >
                   <item.icon className="size-4.5 shrink-0" />
                   <span className="flex-1">{item.label}</span>
-                  {soon && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-400">
-                      قريباً
-                    </span>
-                  )}
                 </Link>
               );
             },

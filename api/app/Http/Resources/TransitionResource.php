@@ -1,0 +1,27 @@
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/** @mixin \App\Models\StatusTransition */
+class TransitionResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'from_status' => $this->from_status,
+            'from_label' => __("projects.status.{$this->from_status}"),
+            'to_status' => $this->to_status,
+            'to_label' => __("projects.status.{$this->to_status}"),
+            'note' => $this->note,
+            'actor' => $this->whenLoaded('actor', fn () => $this->actor ? [
+                'id' => $this->actor->id,
+                'name' => $this->actor->name,
+            ] : null),
+            'created_at' => $this->created_at?->toIso8601String(),
+        ];
+    }
+}
