@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useAuth } from "@/lib/auth";
 
@@ -142,14 +143,8 @@ export default function ProjectsPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">المشاريع</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            رحلة الملف من الاستلام إلى التسليم
-          </p>
-        </div>
+    <div className="space-y-5">
+      <PageHeader title="المشاريع" description="رحلة الملف من الاستلام إلى التسليم">
         {can("projects.manage") && (
           <Button asChild>
             <Link href="/projects/new">
@@ -158,59 +153,7 @@ export default function ProjectsPage() {
             </Link>
           </Button>
         )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-60 flex-1">
-          <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="بحث بالعنوان أو الكود…"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
-            className="pe-9"
-          />
-        </div>
-        <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="الحالة" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>كل الحالات</SelectItem>
-            {STATUS_OPTIONS.map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={priority} onValueChange={(v) => { setPriority(v); setPage(1); }}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="الأولوية" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>كل الأولويات</SelectItem>
-            <SelectItem value="normal">عادي</SelectItem>
-            <SelectItem value="urgent">عاجل</SelectItem>
-            <SelectItem value="critical">حرج</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="late-only"
-            checked={lateOnly}
-            onCheckedChange={(checked) => {
-              setLateOnly(checked);
-              setPage(1);
-            }}
-          />
-          <Label htmlFor="late-only" className="cursor-pointer text-sm font-normal">
-            المتأخرة فقط
-          </Label>
-        </div>
-      </div>
+      </PageHeader>
 
       <DataTable
         columns={columns}
@@ -222,6 +165,59 @@ export default function ProjectsPage() {
         emptyTitle="لا توجد مشاريع مطابقة"
         emptyDescription="جرّب تعديل الفلاتر أو أنشئ مشروعاً جديداً."
         totalLabel={(total) => `${total} مشروع`}
+        toolbar={
+          <>
+            <div className="relative min-w-56 flex-1">
+              <Search className="absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="بحث بالعنوان أو الكود…"
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setPage(1);
+                }}
+                className="h-8 border-transparent bg-background pe-8 text-[13px] shadow-none focus-visible:border-ring"
+              />
+            </div>
+            <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
+              <SelectTrigger size="sm" className="w-40 bg-background text-[13px]">
+                <SelectValue placeholder="الحالة" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>كل الحالات</SelectItem>
+                {STATUS_OPTIONS.map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={priority} onValueChange={(v) => { setPriority(v); setPage(1); }}>
+              <SelectTrigger size="sm" className="w-32 bg-background text-[13px]">
+                <SelectValue placeholder="الأولوية" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>كل الأولويات</SelectItem>
+                <SelectItem value="normal">عادي</SelectItem>
+                <SelectItem value="urgent">عاجل</SelectItem>
+                <SelectItem value="critical">حرج</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2 ps-1">
+              <Switch
+                id="late-only"
+                checked={lateOnly}
+                onCheckedChange={(checked) => {
+                  setLateOnly(checked);
+                  setPage(1);
+                }}
+              />
+              <Label htmlFor="late-only" className="cursor-pointer text-[13px] font-normal">
+                المتأخرة فقط
+              </Label>
+            </div>
+          </>
+        }
       />
     </div>
   );

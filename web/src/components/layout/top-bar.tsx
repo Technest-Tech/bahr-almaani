@@ -57,8 +57,8 @@ export function TopBar() {
   ];
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur-md">
-      <SidebarTrigger className="-ms-1" />
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 rounded-t-xl border-b bg-background/90 px-4 backdrop-blur-md lg:px-5">
+      <SidebarTrigger className="-ms-1 text-muted-foreground" />
       <Separator orientation="vertical" className="me-2 h-4!" />
 
       <Breadcrumb>
@@ -83,18 +83,16 @@ export function TopBar() {
       </Breadcrumb>
 
       <div className="ms-auto flex items-center gap-1.5">
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 text-muted-foreground"
+        <button
           onClick={() => setPaletteOpen(true)}
+          className="flex h-8 items-center gap-2 rounded-lg border border-transparent bg-muted/70 px-3 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted sm:w-56"
         >
           <Search className="size-3.5" />
-          <span className="hidden sm:inline">بحث سريع…</span>
-          <kbd className="pointer-events-none hidden select-none items-center gap-0.5 rounded border bg-muted px-1.5 font-mono text-[10px] sm:flex">
+          <span className="hidden flex-1 text-start sm:block">بحث سريع…</span>
+          <kbd className="pointer-events-none hidden select-none items-center rounded border bg-background px-1.5 py-0.5 font-mono text-[10px] sm:flex">
             ⌘K
           </kbd>
-        </Button>
+        </button>
 
         <Button
           variant="ghost"

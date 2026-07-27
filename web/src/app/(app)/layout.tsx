@@ -18,8 +18,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   if (loading || !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-primary" />
+      <div className="flex min-h-screen items-center justify-center bg-sidebar">
+        <Loader2 className="size-8 animate-spin text-sidebar-primary" />
       </div>
     );
   }
@@ -27,9 +27,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset className="bg-muted/40 dark:bg-background">
+      <SidebarInset>
         <TopBar />
-        <main className="flex-1 p-4 md:p-6 lg:p-8">{children}</main>
+        <main className="flex-1 px-5 py-6 lg:px-8">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

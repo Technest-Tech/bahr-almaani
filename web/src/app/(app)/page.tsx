@@ -21,7 +21,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight">
           أهلاً، {user?.name?.split(" ")[0]} 👋
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -31,21 +31,30 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {PLACEHOLDER_STATS.map((stat) => (
-          <Card key={stat.label} className="py-5">
-            <CardContent className="flex items-center gap-4 px-5">
-              <div className={`flex size-11 items-center justify-center rounded-xl ${stat.chip}`}>
-                <stat.icon className="size-5" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-muted-foreground/40">—</p>
-                <p className="text-xs text-muted-foreground">{stat.label}</p>
+          <Card
+            key={stat.label}
+            className="group gap-0 py-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <CardContent className="px-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-[13px] text-muted-foreground">{stat.label}</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight text-muted-foreground/30">
+                    —
+                  </p>
+                </div>
+                <div
+                  className={`flex size-10 items-center justify-center rounded-lg ${stat.chip} transition-transform group-hover:scale-110`}
+                >
+                  <stat.icon className="size-5" />
+                </div>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      <Card className="border-dashed py-10">
+      <Card className="border-dashed bg-transparent py-10 shadow-none">
         <CardContent className="text-center text-sm text-muted-foreground">
           بورتال المترجم والتحديثات اللحظية قيد التطوير — Sprint 3
         </CardContent>

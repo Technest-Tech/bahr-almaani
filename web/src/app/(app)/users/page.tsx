@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { UserFormDialog } from "@/components/users/user-form-dialog";
@@ -204,57 +205,13 @@ export default function UsersPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">المستخدمون</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            إدارة فريق العمل والأدوار والصلاحيات
-          </p>
-        </div>
+    <div className="space-y-5">
+      <PageHeader title="المستخدمون" description="إدارة فريق العمل والأدوار والصلاحيات">
         <Button onClick={() => setFormUser("new")}>
           <Plus className="size-4" />
           مستخدم جديد
         </Button>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <div className="relative min-w-60 flex-1">
-          <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="بحث بالاسم أو البريد…"
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
-            className="pe-9"
-          />
-        </div>
-        <Select value={role} onValueChange={(v) => { setRole(v); setPage(1); }}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="الدور" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>كل الأدوار</SelectItem>
-            {Object.entries(ROLE_LABELS).map(([value, label]) => (
-              <SelectItem key={value} value={value}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="الحالة" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>كل الحالات</SelectItem>
-            <SelectItem value="active">نشط</SelectItem>
-            <SelectItem value="suspended">موقوف</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      </PageHeader>
 
       <DataTable
         columns={columns}
@@ -265,6 +222,45 @@ export default function UsersPage() {
         emptyTitle="لا يوجد مستخدمون مطابقون"
         emptyDescription="جرّب تعديل الفلاتر أو أضف مستخدماً جديداً."
         totalLabel={(total) => `${total} مستخدم`}
+        toolbar={
+          <>
+            <div className="relative min-w-56 flex-1">
+              <Search className="absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="بحث بالاسم أو البريد…"
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setPage(1);
+                }}
+                className="h-8 border-transparent bg-background pe-8 text-[13px] shadow-none focus-visible:border-ring"
+              />
+            </div>
+            <Select value={role} onValueChange={(v) => { setRole(v); setPage(1); }}>
+              <SelectTrigger size="sm" className="w-40 bg-background text-[13px]">
+                <SelectValue placeholder="الدور" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>كل الأدوار</SelectItem>
+                {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
+              <SelectTrigger size="sm" className="w-32 bg-background text-[13px]">
+                <SelectValue placeholder="الحالة" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>كل الحالات</SelectItem>
+                <SelectItem value="active">نشط</SelectItem>
+                <SelectItem value="suspended">موقوف</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        }
       />
 
       <UserFormDialog

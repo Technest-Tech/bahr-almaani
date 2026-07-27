@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import type { Client, Language, Paginated, Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,12 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/field";
+import { FormSection } from "@/components/form-section";
+import { PageHeader } from "@/components/page-header";
+
+function Required() {
+  return <span className="text-destructive">*</span>;
+}
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -99,163 +105,211 @@ export default function NewProjectPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <Link
-        href="/projects"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
-      >
-        <ArrowRight className="size-4" />
-        عودة إلى المشاريع
-      </Link>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="space-y-3">
+        <Link
+          href="/projects"
+          className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-primary"
+        >
+          <ArrowRight className="size-3.5" />
+          عودة إلى المشاريع
+        </Link>
+        <PageHeader
+          title="مشروع جديد"
+          description="يُنشأ المشروع كمسودة — ارفع ملفات العمل بعد الإنشاء ثم انشره ليظهر للمترجمين."
+        />
+      </div>
 
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle>مشروع جديد</CardTitle>
-          <CardDescription>
-            يُنشأ المشروع كمسودة — ارفع ملفات العمل ثم انشره ليظهر للمترجمين.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <Field label="عنوان المشروع" htmlFor="p-title" error={errors.title?.[0]}>
-              <Input
-                id="p-title"
-                required
-                placeholder="مثال: ترجمة عقد تأسيس شركة"
-                value={form.title}
-                onChange={(e) => set("title", e.target.value)}
-              />
-            </Field>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="العميل" htmlFor="p-client" error={errors.client_id?.[0]}>
-                <Combobox
-                  id="p-client"
-                  options={clientOptions}
-                  value={form.client_id}
-                  onChange={(value) => set("client_id", value)}
-                  placeholder="— بدون عميل —"
-                  searchPlaceholder="ابحث عن عميل…"
-                  clearable
-                />
-              </Field>
-              <Field label="دولة المستند" htmlFor="p-country" error={errors.country_code?.[0]}>
-                <Input
-                  id="p-country"
-                  dir="ltr"
-                  maxLength={2}
-                  placeholder="EG"
-                  value={form.country_code}
-                  onChange={(e) => set("country_code", e.target.value.toUpperCase())}
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="من لغة" htmlFor="p-source" error={errors.source_language_id?.[0]}>
-                <Combobox
-                  id="p-source"
-                  options={languageOptions}
-                  value={form.source_language_id}
-                  onChange={(value) => set("source_language_id", value)}
-                  placeholder="اختر اللغة…"
-                  searchPlaceholder="ابحث عن لغة…"
-                />
-              </Field>
-              <Field label="إلى لغة" htmlFor="p-target" error={errors.target_language_id?.[0]}>
-                <Combobox
-                  id="p-target"
-                  options={languageOptions}
-                  value={form.target_language_id}
-                  onChange={(value) => set("target_language_id", value)}
-                  placeholder="اختر اللغة…"
-                  searchPlaceholder="ابحث عن لغة…"
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <Field label="نوع الخدمة" htmlFor="p-service">
-                <Select value={form.service_type} onValueChange={(v) => set("service_type", v)}>
-                  <SelectTrigger id="p-service" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="certified">ترجمة معتمدة</SelectItem>
-                    <SelectItem value="regular">ترجمة عادية</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="الأولوية" htmlFor="p-priority">
-                <Select value={form.priority} onValueChange={(v) => set("priority", v)}>
-                  <SelectTrigger id="p-priority" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="normal">عادي</SelectItem>
-                    <SelectItem value="urgent">عاجل</SelectItem>
-                    <SelectItem value="critical">حرج</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="الصفحات المبدئية" htmlFor="p-pages" error={errors.declared_pages?.[0]}>
-                <Input
-                  id="p-pages"
-                  type="number"
-                  min={1}
-                  dir="ltr"
-                  value={form.declared_pages}
-                  onChange={(e) => set("declared_pages", e.target.value)}
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field label="موعد التسليم" htmlFor="p-deadline" error={errors.deadline_at?.[0]}>
-                <DateTimePicker
-                  id="p-deadline"
-                  value={form.deadline_at}
-                  onChange={(iso) => set("deadline_at", iso)}
-                />
-              </Field>
+      <form onSubmit={handleSubmit}>
+        <Card className="gap-0 overflow-hidden py-0">
+          <CardContent className="divide-y p-0">
+            <FormSection
+              title="البيانات الأساسية"
+              description="عنوان يظهر للمترجمين، والعميل صاحب الطلب، ودولة إصدار المستند."
+            >
               <Field
-                label="السعر المتفق عليه (جنيه)"
-                htmlFor="p-amount"
-                error={errors.quoted_amount?.[0]}
+                label={<>عنوان المشروع <Required /></>}
+                htmlFor="p-title"
+                error={errors.title?.[0]}
               >
                 <Input
-                  id="p-amount"
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  dir="ltr"
-                  value={form.quoted_amount}
-                  onChange={(e) => set("quoted_amount", e.target.value)}
+                  id="p-title"
+                  required
+                  placeholder="مثال: ترجمة عقد تأسيس شركة"
+                  value={form.title}
+                  onChange={(e) => set("title", e.target.value)}
                 />
               </Field>
-            </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="العميل" htmlFor="p-client" error={errors.client_id?.[0]}>
+                  <Combobox
+                    id="p-client"
+                    options={clientOptions}
+                    value={form.client_id}
+                    onChange={(value) => set("client_id", value)}
+                    placeholder="— بدون عميل —"
+                    searchPlaceholder="ابحث عن عميل…"
+                    clearable
+                  />
+                </Field>
+                <Field
+                  label="دولة المستند"
+                  htmlFor="p-country"
+                  error={errors.country_code?.[0]}
+                >
+                  <Input
+                    id="p-country"
+                    dir="ltr"
+                    maxLength={2}
+                    placeholder="EG"
+                    className="text-left uppercase"
+                    value={form.country_code}
+                    onChange={(e) => set("country_code", e.target.value.toUpperCase())}
+                  />
+                </Field>
+              </div>
+            </FormSection>
 
-            <Field label="تعليمات خاصة" htmlFor="p-instructions">
-              <Textarea
-                id="p-instructions"
-                rows={3}
-                placeholder="أي توجيهات للمترجم…"
-                value={form.instructions}
-                onChange={(e) => set("instructions", e.target.value)}
-              />
-            </Field>
+            <FormSection
+              title="اللغات والخدمة"
+              description="زوج اللغات يحدد أي المترجمين يرون المشروع في البورتال."
+            >
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  label={<>من لغة <Required /></>}
+                  htmlFor="p-source"
+                  error={errors.source_language_id?.[0]}
+                >
+                  <Combobox
+                    id="p-source"
+                    options={languageOptions}
+                    value={form.source_language_id}
+                    onChange={(value) => set("source_language_id", value)}
+                    placeholder="اختر اللغة…"
+                    searchPlaceholder="ابحث عن لغة…"
+                  />
+                </Field>
+                <Field
+                  label={<>إلى لغة <Required /></>}
+                  htmlFor="p-target"
+                  error={errors.target_language_id?.[0]}
+                >
+                  <Combobox
+                    id="p-target"
+                    options={languageOptions}
+                    value={form.target_language_id}
+                    onChange={(value) => set("target_language_id", value)}
+                    placeholder="اختر اللغة…"
+                    searchPlaceholder="ابحث عن لغة…"
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <Field label="نوع الخدمة" htmlFor="p-service">
+                  <Select
+                    value={form.service_type}
+                    onValueChange={(v) => set("service_type", v)}
+                  >
+                    <SelectTrigger id="p-service" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="certified">ترجمة معتمدة</SelectItem>
+                      <SelectItem value="regular">ترجمة عادية</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="الأولوية" htmlFor="p-priority">
+                  <Select value={form.priority} onValueChange={(v) => set("priority", v)}>
+                    <SelectTrigger id="p-priority" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="normal">عادي</SelectItem>
+                      <SelectItem value="urgent">عاجل</SelectItem>
+                      <SelectItem value="critical">حرج</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field
+                  label="الصفحات المبدئية"
+                  htmlFor="p-pages"
+                  error={errors.declared_pages?.[0]}
+                >
+                  <Input
+                    id="p-pages"
+                    type="number"
+                    min={1}
+                    dir="ltr"
+                    className="text-left"
+                    value={form.declared_pages}
+                    onChange={(e) => set("declared_pages", e.target.value)}
+                  />
+                </Field>
+              </div>
+            </FormSection>
 
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" asChild>
-                <Link href="/projects">إلغاء</Link>
-              </Button>
-              <Button type="submit" loading={submitting}>
-                إنشاء المشروع (مسودة)
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+            <FormSection
+              title="التسليم والتسعير"
+              description="يُحسب التأخير تلقائياً بعد هذا الموعد وتُرسل التنبيهات المبكرة قبله."
+            >
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  label={<>موعد التسليم <Required /></>}
+                  htmlFor="p-deadline"
+                  error={errors.deadline_at?.[0]}
+                >
+                  <DateTimePicker
+                    id="p-deadline"
+                    value={form.deadline_at}
+                    onChange={(iso) => set("deadline_at", iso)}
+                  />
+                </Field>
+                <Field
+                  label="السعر المتفق عليه (جنيه)"
+                  htmlFor="p-amount"
+                  error={errors.quoted_amount?.[0]}
+                >
+                  <Input
+                    id="p-amount"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    dir="ltr"
+                    className="text-left"
+                    value={form.quoted_amount}
+                    onChange={(e) => set("quoted_amount", e.target.value)}
+                  />
+                </Field>
+              </div>
+            </FormSection>
+
+            <FormSection
+              title="تعليمات خاصة"
+              description="تظهر للمترجم بشكل بارز داخل شاشة العمل."
+            >
+              <Field label="التعليمات" htmlFor="p-instructions">
+                <Textarea
+                  id="p-instructions"
+                  rows={3}
+                  placeholder="أي توجيهات للمترجم…"
+                  value={form.instructions}
+                  onChange={(e) => set("instructions", e.target.value)}
+                />
+              </Field>
+            </FormSection>
+          </CardContent>
+
+          <CardFooter className="justify-end gap-2 border-t bg-muted/40 py-4!">
+            <Button type="button" variant="outline" asChild>
+              <Link href="/projects">إلغاء</Link>
+            </Button>
+            <Button type="submit" loading={submitting}>
+              إنشاء المشروع (مسودة)
+            </Button>
+          </CardFooter>
+        </Card>
+      </form>
     </div>
   );
 }

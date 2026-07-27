@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/field";
+import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 
@@ -149,32 +150,13 @@ export default function ClientsPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">العملاء</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            سجل عملاء المكتب وبيانات التواصل
-          </p>
-        </div>
+    <div className="space-y-5">
+      <PageHeader title="العملاء" description="سجل عملاء المكتب وبيانات التواصل">
         <Button onClick={() => setEditing("new")}>
           <Plus className="size-4" />
           عميل جديد
         </Button>
-      </div>
-
-      <div className="relative max-w-md">
-        <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="بحث بالاسم أو الهاتف أو البريد…"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setPage(1);
-          }}
-          className="pe-9"
-        />
-      </div>
+      </PageHeader>
 
       <DataTable
         columns={columns}
@@ -185,6 +167,20 @@ export default function ClientsPage() {
         emptyTitle="لا يوجد عملاء بعد"
         emptyDescription="أضف أول عميل لبدء تسجيل المشاريع."
         totalLabel={(total) => `${total} عميل`}
+        toolbar={
+          <div className="relative min-w-56 max-w-md flex-1">
+            <Search className="absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="بحث بالاسم أو الهاتف أو البريد…"
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+              className="h-8 border-transparent bg-background pe-8 text-[13px] shadow-none focus-visible:border-ring"
+            />
+          </div>
+        }
       />
 
       <ClientFormDialog

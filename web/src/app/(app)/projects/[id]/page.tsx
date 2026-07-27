@@ -134,7 +134,7 @@ export default function ProjectDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight">{project.title}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{project.title}</h1>
             <ToneBadge tone={STATUS_TONES[project.status]}>{project.status_label}</ToneBadge>
             {project.is_late && (
               <ToneBadge tone="red">

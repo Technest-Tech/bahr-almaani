@@ -39,6 +39,8 @@ interface DataTableProps<TData> {
   onPageChange?: (page: number) => void;
   totalLabel?: (total: number) => string;
   onRowClick?: (row: TData) => void;
+  /** Filter controls rendered as an integrated toolbar above the table header. */
+  toolbar?: React.ReactNode;
 }
 
 export function DataTable<TData>({
@@ -51,6 +53,7 @@ export function DataTable<TData>({
   onPageChange,
   totalLabel,
   onRowClick,
+  toolbar,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([]);
 
@@ -65,6 +68,11 @@ export function DataTable<TData>({
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card shadow-xs">
+      {toolbar && (
+        <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2.5">
+          {toolbar}
+        </div>
+      )}
       <div className="max-h-[calc(100vh-20rem)] overflow-auto">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">

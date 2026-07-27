@@ -23,18 +23,18 @@ export function AppSidebar() {
   const { can } = useAuth();
 
   return (
-    <Sidebar side="right" collapsible="icon">
-      <SidebarHeader>
+    <Sidebar side="right" variant="inset" collapsible="icon">
+      <SidebarHeader className="pb-3">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
+            <SidebarMenuButton size="lg" asChild className="hover:bg-sidebar-accent/50">
               <Link href="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                  <Waves className="size-4" />
+                <div className="flex aspect-square size-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-700 text-white shadow-lg shadow-teal-950/40">
+                  <Waves className="size-5" />
                 </div>
                 <div className="grid flex-1 text-start leading-tight">
-                  <span className="truncate text-sm font-bold">بحر المعاني</span>
-                  <span className="truncate text-[11px] text-muted-foreground">
+                  <span className="truncate text-[15px] font-bold text-white">بحر المعاني</span>
+                  <span className="truncate text-[11px] text-sidebar-foreground/60">
                     إدارة خدمات الترجمة
                   </span>
                 </div>
@@ -46,19 +46,29 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>القائمة الرئيسية</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-sidebar-foreground/40">
+            القائمة الرئيسية
+          </SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-1">
               {NAV_ITEMS.filter((item) => !item.permission || can(item.permission)).map(
                 (item) => {
                   const active =
                     item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                   return (
                     <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild isActive={active} tooltip={item.label}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={active}
+                        tooltip={item.label}
+                        className="h-10 gap-3 px-3 text-[13.5px] font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-white data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-teal-300"
+                      >
                         <Link href={item.href}>
-                          <item.icon />
+                          <item.icon className="size-[18px]!" />
                           <span>{item.label}</span>
+                          {active && (
+                            <span className="absolute inset-y-2 -end-2 w-1 rounded-full bg-teal-400" />
+                          )}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -70,8 +80,8 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter>
-        <p className="px-2 py-1 text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+      <SidebarFooter className="border-t border-sidebar-border pt-3">
+        <p className="px-2 text-[10px] text-sidebar-foreground/40 group-data-[collapsible=icon]:hidden">
           الإصدار التجريبي — Sprint 2
         </p>
       </SidebarFooter>
