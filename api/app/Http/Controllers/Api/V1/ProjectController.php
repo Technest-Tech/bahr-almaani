@@ -7,13 +7,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Http\Resources\TransitionResource;
+use App\Models\Assignment;
 use App\Models\Project;
 use App\Models\ProjectFile;
+use App\Notifications\ProjectAvailableNotification;
+use App\Notifications\ProjectWithdrawnNotification;
 use App\Services\ProjectCodeGenerator;
 use App\Services\ProjectTransitionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 
 class ProjectController extends Controller
 {
@@ -83,6 +88,50 @@ class ProjectController extends Controller
         }
 
         $project = $this->transitions->transition($project, Project::STATUS_AVAILABLE, $request->user());
+
+        Notification::send(
+            $project->matchingTranslators(),
+            new ProjectAvailableNotification($project->load('sourceLanguage', 'targetLanguage')),
+        );
+
+        return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
+    }
+
+    /** claimed → available: release a sick/absent translator's file (reason required). */
+    public function withdraw(Request $request, Project $project): ProjectResource
+    {
+        $validated = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
+
+        $translator = null;
+
+        $project = DB::transaction(function () use ($request, $project, $validated, &$translator): Project {
+            $assignment = $project->activeAssignment();
+
+            $fresh = $this->transitions->transition(
+                $project,
+                Project::STATUS_AVAILABLE,
+                $request->user(),
+                $validated['reason'],
+            );
+
+            if ($assignment) {
+                $assignment->update([
+                    'status' => Assignment::STATUS_WITHDRAWN,
+                    'withdrawn_at' => now(),
+                    'withdrawn_by' => $request->user()->id,
+                    'withdraw_reason' => $validated['reason'],
+                ]);
+                $translator = $assignment->translator;
+            }
+
+            return $fresh;
+        });
+
+        $translator?->notify(new ProjectWithdrawnNotification($project, $validated['reason']));
+        Notification::send(
+            $project->matchingTranslators()->reject(fn ($t) => $t->is($translator)),
+            new ProjectAvailableNotification($project->load('sourceLanguage', 'targetLanguage')),
+        );
 
         return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
     }

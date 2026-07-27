@@ -119,6 +119,17 @@ class Project extends Model
         return $this->belongsTo(LetterheadTemplate::class, 'stamp_id');
     }
 
+    /** Active translators whose language pairs match this project (portal audience). */
+    public function matchingTranslators()
+    {
+        return User::role('translator')
+            ->where('status', User::STATUS_ACTIVE)
+            ->whereHas('languagePairs', fn ($q) => $q
+                ->where('source_language_id', $this->source_language_id)
+                ->where('target_language_id', $this->target_language_id))
+            ->get();
+    }
+
     /** Recompute cached totals from counted source files. */
     public function refreshTotals(): void
     {

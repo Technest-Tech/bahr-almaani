@@ -41,6 +41,12 @@ class ProjectResource extends JsonResource
             ]),
             'files' => ProjectFileResource::collection($this->whenLoaded('files')),
             'files_count' => $this->whenCounted('files'),
+            'assignment' => AssignmentResource::make($this->whenLoaded('assignments', function () {
+                return $this->assignments
+                    ->sortByDesc('claimed_at')
+                    ->first(fn ($a) => $a->status !== \App\Models\Assignment::STATUS_WITHDRAWN)
+                    ?? $this->assignments->sortByDesc('claimed_at')->first();
+            })),
         ];
     }
 }

@@ -3,8 +3,11 @@
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\LanguageController;
+use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
+use App\Http\Controllers\Api\V1\ReviewController;
 use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\UserController;
 use App\Http\Controllers\Api\V1\UserLanguagePairController;
@@ -69,9 +72,33 @@ Route::prefix('v1')->group(function (): void {
             Route::put('/projects/{project}', [ProjectController::class, 'update']);
             Route::post('/projects/{project}/publish', [ProjectController::class, 'publish']);
             Route::post('/projects/{project}/cancel', [ProjectController::class, 'cancel']);
+            Route::post('/projects/{project}/withdraw', [ProjectController::class, 'withdraw']);
             Route::post('/projects/{project}/files', [ProjectFileController::class, 'store']);
             Route::delete('/projects/{project}/files/{file}', [ProjectFileController::class, 'destroy']);
             Route::put('/projects/{project}/files/{file}/manual-count', [ProjectFileController::class, 'manualCount']);
         });
+
+        // Review flow (M5)
+        Route::middleware('permission:projects.review')->group(function (): void {
+            Route::post('/projects/{project}/review/open', [ReviewController::class, 'open']);
+            Route::post('/projects/{project}/review/request-revision', [ReviewController::class, 'requestRevision']);
+            Route::post('/projects/{project}/review/approve', [ReviewController::class, 'approve']);
+        });
+
+        // Translator portal (M4)
+        Route::middleware('permission:portal.access')->prefix('portal')->group(function (): void {
+            Route::get('/queue', [PortalController::class, 'queue']);
+            Route::post('/claim/{project}', [PortalController::class, 'claim'])
+                ->middleware('throttle:10,1');
+            Route::get('/current', [PortalController::class, 'current']);
+            Route::post('/deliver', [PortalController::class, 'deliver']);
+            Route::get('/history', [PortalController::class, 'history']);
+            Route::get('/files/{fileId}/download', [PortalController::class, 'downloadFile']);
+        });
+
+        // Notifications (M10)
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::put('/notifications/read', [NotificationController::class, 'markRead']);
+        Route::put('/notifications/read-all', [NotificationController::class, 'markAllRead']);
     });
 });
