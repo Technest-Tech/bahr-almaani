@@ -17,6 +17,7 @@ import {
   Upload,
   XCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api, ApiError, downloadFile, getToken } from "@/lib/api";
 import {
   COUNT_STATUS_LABELS,
@@ -27,11 +28,21 @@ import {
   type ProjectFile,
   type Transition,
 } from "@/lib/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog } from "@/components/ui/dialog";
-import { Input, Label } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Field } from "@/components/field";
+import { ToneBadge } from "@/components/tone-badge";
+import { useConfirm } from "@/components/confirm";
 import { useAuth } from "@/lib/auth";
 
 const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
@@ -48,6 +59,7 @@ function formatBytes(bytes: number): string {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useAuth();
+  const { prompt } = useConfirm();
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
 
@@ -69,19 +81,39 @@ export default function ProjectDetailPage() {
 
   const publishMutation = useMutation({
     mutationFn: () => api(`/projects/${id}/publish`, { method: "POST" }),
-    onSuccess: invalidate,
-    onError: (err) => alert(err instanceof Error ? err.message : "حدث خطأ"),
+    onSuccess: () => {
+      invalidate();
+      toast.success("تم نشر المشروع — أصبح متاحاً للمترجمين");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (reason: string) =>
       api(`/projects/${id}/cancel`, { method: "POST", json: { reason } }),
-    onSuccess: invalidate,
-    onError: (err) => alert(err instanceof Error ? err.message : "حدث خطأ"),
+    onSuccess: () => {
+      invalidate();
+      toast.success("تم إلغاء المشروع");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
   if (isLoading || !project) {
-    return <p className="py-20 text-center text-slate-400">جارِ التحميل…</p>;
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <Skeleton className="h-5 w-40" />
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-72" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
   }
 
   const canManage = can("projects.manage");
@@ -89,29 +121,29 @@ export default function ProjectDetailPage() {
   const referenceFiles = project.files?.filter((f) => f.category === "reference") ?? [];
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-5xl space-y-6">
       <Link
         href="/projects"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-teal-700"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
       >
         <ArrowRight className="size-4" />
         عودة إلى المشاريع
       </Link>
 
       {/* Header */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-slate-900">{project.title}</h1>
-            <Badge tone={STATUS_TONES[project.status]}>{project.status_label}</Badge>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-xl font-bold tracking-tight">{project.title}</h1>
+            <ToneBadge tone={STATUS_TONES[project.status]}>{project.status_label}</ToneBadge>
             {project.is_late && (
-              <Badge tone="red">
-                <AlertTriangle className="me-1 size-3" />
+              <ToneBadge tone="red">
+                <AlertTriangle />
                 متأخر
-              </Badge>
+              </ToneBadge>
             )}
           </div>
-          <p dir="ltr" className="mt-1 text-start font-mono text-sm text-slate-400">
+          <p dir="ltr" className="mt-1 text-start font-mono text-sm text-muted-foreground">
             {project.code}
           </p>
         </div>
@@ -123,7 +155,7 @@ export default function ProjectDetailPage() {
                 onClick={() => publishMutation.mutate()}
                 loading={publishMutation.isPending}
                 disabled={sourceFiles.length === 0}
-                title={sourceFiles.length === 0 ? "أضف ملف عمل أولاً" : ""}
+                title={sourceFiles.length === 0 ? "أضف ملف عمل أولاً" : undefined}
               >
                 <Send className="size-4" />
                 نشر للمترجمين
@@ -131,10 +163,17 @@ export default function ProjectDetailPage() {
             )}
             {["draft", "available"].includes(project.status) && (
               <Button
-                variant="danger"
-                onClick={() => {
-                  const reason = prompt("سبب الإلغاء (إلزامي):");
-                  if (reason?.trim()) cancelMutation.mutate(reason.trim());
+                variant="destructive"
+                onClick={async () => {
+                  const reason = await prompt({
+                    title: "إلغاء المشروع",
+                    description: "سيتم إيقاف المشروع نهائياً ويُسجل السبب في سجل الحالات.",
+                    label: "سبب الإلغاء",
+                    placeholder: "مثال: ألغى العميل الطلب…",
+                    confirmLabel: "إلغاء المشروع",
+                    destructive: true,
+                  });
+                  if (reason) cancelMutation.mutate(reason);
                 }}
               >
                 <XCircle className="size-4" />
@@ -146,7 +185,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Info grid */}
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <InfoTile label="العميل" value={project.client?.name ?? "—"} />
         <InfoTile
           label="اللغات"
@@ -154,12 +193,16 @@ export default function ProjectDetailPage() {
         />
         <InfoTile
           label="الأولوية"
-          value={<Badge tone={PRIORITY_TONES[project.priority]}>{PRIORITY_LABELS[project.priority]}</Badge>}
+          value={
+            <ToneBadge tone={PRIORITY_TONES[project.priority]}>
+              {PRIORITY_LABELS[project.priority]}
+            </ToneBadge>
+          }
         />
         <InfoTile
           label="موعد التسليم"
           value={
-            <span className={project.is_late ? "font-semibold text-red-600" : undefined}>
+            <span className={project.is_late ? "font-semibold text-destructive" : undefined}>
               {dateFormatter.format(new Date(project.deadline_at))}
             </span>
           }
@@ -169,25 +212,26 @@ export default function ProjectDetailPage() {
       </div>
 
       {project.instructions && (
-        <Card className="mb-6 border-amber-200 bg-amber-50/40">
-          <CardContent className="py-4 text-sm text-slate-700">
-            <p className="mb-1 text-xs font-semibold text-amber-700">تعليمات خاصة</p>
+        <Card className="border-amber-500/30 bg-amber-500/5 py-4">
+          <CardContent className="text-sm">
+            <p className="mb-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              تعليمات خاصة
+            </p>
             {project.instructions}
           </CardContent>
         </Card>
       )}
 
       {project.cancel_reason && (
-        <Card className="mb-6 border-red-200 bg-red-50/40">
-          <CardContent className="py-4 text-sm text-slate-700">
-            <p className="mb-1 text-xs font-semibold text-red-700">سبب الإلغاء</p>
+        <Card className="border-destructive/30 bg-destructive/5 py-4">
+          <CardContent className="text-sm">
+            <p className="mb-1 text-xs font-semibold text-destructive">سبب الإلغاء</p>
             {project.cancel_reason}
           </CardContent>
         </Card>
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Files */}
         <div className="space-y-6 lg:col-span-2">
           <FilesCard
             title="ملفات العمل"
@@ -201,12 +245,14 @@ export default function ProjectDetailPage() {
             onManualCount={setCountFile}
           />
           <FilesCard
-            title="مستندات داعمة (جوازات، أوراق مرتبطة)"
+            title="مستندات داعمة"
             icon={<Paperclip className="size-4" />}
             files={referenceFiles}
             project={project}
             category="reference"
-            canUpload={canManage && !["completed", "archived", "cancelled"].includes(project.status)}
+            canUpload={
+              canManage && !["completed", "archived", "cancelled"].includes(project.status)
+            }
             canDelete={canManage && project.status === "draft"}
             onChanged={invalidate}
             onManualCount={setCountFile}
@@ -223,19 +269,19 @@ export default function ProjectDetailPage() {
           </CardHeader>
           <CardContent>
             {!timeline?.length && (
-              <p className="py-4 text-center text-xs text-slate-400">لا توجد تحولات بعد — المشروع مسودة</p>
+              <p className="py-4 text-center text-xs text-muted-foreground">
+                لا توجد تحولات بعد — المشروع مسودة
+              </p>
             )}
             <ol className="space-y-4">
               {timeline?.map((t) => (
-                <li key={t.id} className="relative border-s-2 border-teal-100 ps-4">
-                  <span className="absolute -start-[5px] top-1 size-2 rounded-full bg-teal-600" />
-                  <p className="text-sm text-slate-700">
-                    <Badge tone={STATUS_TONES[t.to_status]}>{t.to_label}</Badge>
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400">
+                <li key={t.id} className="relative border-s-2 border-primary/20 ps-4">
+                  <span className="absolute -start-[5px] top-1 size-2 rounded-full bg-primary" />
+                  <ToneBadge tone={STATUS_TONES[t.to_status]}>{t.to_label}</ToneBadge>
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {t.actor?.name ?? "النظام"} · {dateFormatter.format(new Date(t.created_at))}
                   </p>
-                  {t.note && <p className="mt-1 text-xs text-slate-500">«{t.note}»</p>}
+                  {t.note && <p className="mt-1 text-xs text-muted-foreground">«{t.note}»</p>}
                 </li>
               ))}
             </ol>
@@ -256,9 +302,9 @@ export default function ProjectDetailPage() {
 
 function InfoTile({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3">
-      <p className="mb-1 text-[11px] text-slate-400">{label}</p>
-      <div className="text-sm font-medium text-slate-800">{value}</div>
+    <div className="rounded-xl border bg-card p-3 shadow-xs">
+      <p className="mb-1 text-[11px] text-muted-foreground">{label}</p>
+      <div className="text-sm font-medium">{value}</div>
     </div>
   );
 }
@@ -285,6 +331,7 @@ function FilesCard({
   onManualCount: (file: ProjectFile) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { confirm } = useConfirm();
   const [uploading, setUploading] = useState(false);
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
@@ -310,32 +357,41 @@ function FilesCard({
         const body = await response.json().catch(() => ({}));
         throw new ApiError(response.status, body.message ?? "فشل رفع الملف");
       }
+      toast.success("تم رفع الملف" + (category === "source" ? " — جارِ عد الكلمات…" : ""));
       onChanged();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "فشل رفع الملف");
+      toast.error(err instanceof Error ? err.message : "فشل رفع الملف");
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
     }
   }
 
-  const deleteFile = async (file: ProjectFile) => {
-    if (!confirm(`حذف الملف «${file.original_name}»؟`)) return;
+  async function deleteFile(file: ProjectFile) {
+    if (
+      !(await confirm({
+        title: `حذف الملف «${file.original_name}»؟`,
+        confirmLabel: "حذف",
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await api(`/projects/${project.id}/files/${file.id}`, { method: "DELETE" });
+      toast.success("تم حذف الملف");
       onChanged();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "حدث خطأ");
+      toast.error(err instanceof Error ? err.message : "حدث خطأ");
     }
-  };
+  }
 
   return (
-    <Card>
-      <CardHeader className="flex items-center justify-between">
+    <Card className="gap-0 py-0">
+      <CardHeader className="flex-row items-center justify-between border-b py-4!">
         <CardTitle className="flex items-center gap-2 text-sm">
           {icon}
           {title}
-          <span className="text-xs font-normal text-slate-400">({files.length})</span>
+          <span className="text-xs font-normal text-muted-foreground">({files.length})</span>
         </CardTitle>
         {canUpload && (
           <>
@@ -354,23 +410,27 @@ function FilesCard({
       </CardHeader>
       <CardContent className="p-0">
         {files.length === 0 && (
-          <p className="py-8 text-center text-xs text-slate-400">لا توجد ملفات</p>
+          <p className="py-8 text-center text-xs text-muted-foreground">لا توجد ملفات</p>
         )}
-        <ul className="divide-y divide-slate-50">
+        <ul className="divide-y">
           {files.map((file) => (
             <li key={file.id} className="flex items-center gap-3 px-5 py-3">
-              <FileText className="size-4 shrink-0 text-slate-300" />
+              <FileText className="size-4 shrink-0 text-muted-foreground/50" />
               <div className="min-w-0 flex-1">
-                <p dir="ltr" className="truncate text-start text-sm font-medium text-slate-700">
+                <p dir="ltr" className="truncate text-start text-sm font-medium">
                   {file.original_name}
                 </p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   {formatBytes(file.size_bytes)}
                   {category === "source" && (
                     <>
                       {" · "}
                       {file.count_status === "done"
-                        ? `${file.word_count?.toLocaleString("ar-EG") ?? "—"} كلمة${file.page_count ? ` · ${file.page_count.toLocaleString("ar-EG")} صفحة` : ""}${file.count_source === "manual" ? " (يدوي)" : ""}`
+                        ? `${file.word_count?.toLocaleString("ar-EG") ?? "—"} كلمة${
+                            file.page_count
+                              ? ` · ${file.page_count.toLocaleString("ar-EG")} صفحة`
+                              : ""
+                          }${file.count_source === "manual" ? " (يدوي)" : ""}`
                         : COUNT_STATUS_LABELS[file.count_status]}
                     </>
                   )}
@@ -378,34 +438,38 @@ function FilesCard({
               </div>
               {category === "source" &&
                 ["not_applicable", "failed", "done"].includes(file.count_status) && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
                     title="عد يدوي"
                     onClick={() => onManualCount(file)}
-                    className="rounded-lg p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700"
                   >
                     <Calculator className="size-4" />
-                  </button>
+                  </Button>
                 )}
-              <button
+              <Button
+                variant="ghost"
+                size="icon-sm"
                 title="تحميل"
                 onClick={() =>
                   downloadFile(
                     `/projects/${project.id}/files/${file.id}/download`,
                     file.original_name,
-                  ).catch(() => alert("تعذر تحميل الملف"))
+                  ).catch(() => toast.error("تعذر تحميل الملف"))
                 }
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <Download className="size-4" />
-              </button>
+              </Button>
               {canDelete && (
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
                   title="حذف"
+                  className="text-muted-foreground hover:text-destructive"
                   onClick={() => deleteFile(file)}
-                  className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
                 >
                   <Trash2 className="size-4" />
-                </button>
+                </Button>
               )}
             </li>
           ))}
@@ -441,49 +505,58 @@ function ManualCountDialog({
           page_count: pages ? Number(pages) : null,
         },
       });
+      toast.success("تم حفظ العد اليدوي");
       onSaved();
       onClose();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "حدث خطأ");
+      toast.error(err instanceof Error ? err.message : "حدث خطأ");
       setSubmitting(false);
     }
   }
 
   return (
-    <Dialog open={!!file} onClose={onClose} title="عد يدوي للكلمات والصفحات">
-      <p className="mb-4 text-xs text-slate-500">
-        للمستندات الممسوحة ضوئياً التي يتعذر عدها تلقائياً (استخراج النصوص OCR ضمن المرحلة الثانية).
-      </p>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label htmlFor="mc-words">عدد الكلمات</Label>
-            <Input
-              id="mc-words"
-              type="number"
-              min={0}
-              dir="ltr"
-              value={words}
-              onChange={(e) => setWords(e.target.value)}
-            />
+    <Dialog open={!!file} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>عد يدوي للكلمات والصفحات</DialogTitle>
+          <DialogDescription>
+            للمستندات الممسوحة ضوئياً التي يتعذر عدها تلقائياً (استخراج النصوص OCR ضمن المرحلة
+            الثانية).
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="عدد الكلمات" htmlFor="mc-words">
+              <Input
+                id="mc-words"
+                type="number"
+                min={0}
+                dir="ltr"
+                value={words}
+                onChange={(e) => setWords(e.target.value)}
+              />
+            </Field>
+            <Field label="عدد الصفحات" htmlFor="mc-pages">
+              <Input
+                id="mc-pages"
+                type="number"
+                min={0}
+                dir="ltr"
+                value={pages}
+                onChange={(e) => setPages(e.target.value)}
+              />
+            </Field>
           </div>
-          <div>
-            <Label htmlFor="mc-pages">عدد الصفحات</Label>
-            <Input
-              id="mc-pages"
-              type="number"
-              min={0}
-              dir="ltr"
-              value={pages}
-              onChange={(e) => setPages(e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={onClose}>إلغاء</Button>
-          <Button type="submit" loading={submitting}>حفظ العد</Button>
-        </div>
-      </form>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              إلغاء
+            </Button>
+            <Button type="submit" loading={submitting}>
+              حفظ العد
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
     </Dialog>
   );
 }

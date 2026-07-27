@@ -1,22 +1,40 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
   Ban,
   CheckCircle2,
   Languages,
+  MoreHorizontal,
   Pencil,
   Plus,
   Search,
   Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { ROLE_LABELS, type Paginated, type Role, type User } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToneBadge } from "@/components/tone-badge";
+import { useConfirm } from "@/components/confirm";
 import { UserFormDialog } from "@/components/users/user-form-dialog";
 import { LanguagePairsDialog } from "@/components/users/language-pairs-dialog";
 
@@ -25,20 +43,22 @@ const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
   timeStyle: "short",
 });
 
+const ALL = "__all__";
+
 export default function UsersPage() {
   const queryClient = useQueryClient();
+  const { confirm } = useConfirm();
   const [q, setQ] = useState("");
-  const [role, setRole] = useState("");
-  const [status, setStatus] = useState("");
+  const [role, setRole] = useState(ALL);
+  const [status, setStatus] = useState(ALL);
   const [page, setPage] = useState(1);
   const [formUser, setFormUser] = useState<User | null | "new">(null);
   const [pairsUser, setPairsUser] = useState<User | null>(null);
 
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ page: String(page) });
   if (q) params.set("q", q);
-  if (role) params.set("role", role);
-  if (status) params.set("status", status);
-  params.set("page", String(page));
+  if (role !== ALL) params.set("role", role);
+  if (status !== ALL) params.set("status", status);
 
   const { data, isLoading } = useQuery({
     queryKey: ["users", q, role, status, page],
@@ -50,22 +70,145 @@ export default function UsersPage() {
   const statusMutation = useMutation({
     mutationFn: ({ user, newStatus }: { user: User; newStatus: string }) =>
       api(`/users/${user.id}/status`, { method: "PUT", json: { status: newStatus } }),
-    onSuccess: invalidate,
-    onError: (err) => alert(err instanceof Error ? err.message : "حدث خطأ"),
+    onSuccess: (_, { newStatus }) => {
+      invalidate();
+      toast.success(newStatus === "suspended" ? "تم إيقاف الحساب فوراً" : "تم تفعيل الحساب");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (user: User) => api(`/users/${user.id}`, { method: "DELETE" }),
-    onSuccess: invalidate,
-    onError: (err) => alert(err instanceof Error ? err.message : "حدث خطأ"),
+    onSuccess: () => {
+      invalidate();
+      toast.success("تم حذف المستخدم");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
-  return (
-    <div>
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+  const columns: ColumnDef<User, unknown>[] = [
+    {
+      accessorKey: "name",
+      header: "المستخدم",
+      cell: ({ row }) => (
         <div>
-          <h1 className="text-xl font-bold text-slate-900">المستخدمون</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="font-medium">{row.original.name}</p>
+          <p dir="ltr" className="text-start text-xs text-muted-foreground">
+            {row.original.email}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: "roles",
+      header: "الدور",
+      cell: ({ row }) => (
+        <ToneBadge tone={row.original.roles.includes("admin") ? "teal" : "blue"}>
+          {row.original.roles.map((r) => ROLE_LABELS[r as Role] ?? r).join("، ") || "—"}
+        </ToneBadge>
+      ),
+    },
+    {
+      accessorKey: "status",
+      header: "الحالة",
+      cell: ({ row }) =>
+        row.original.status === "active" ? (
+          <ToneBadge tone="green">نشط</ToneBadge>
+        ) : (
+          <ToneBadge tone="red">موقوف</ToneBadge>
+        ),
+    },
+    {
+      accessorKey: "last_login_at",
+      header: "آخر دخول",
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.last_login_at
+            ? dateFormatter.format(new Date(row.original.last_login_at))
+            : "لم يسجل بعد"}
+        </span>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => {
+        const user = row.original;
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => setFormUser(user)}>
+                <Pencil className="size-4" />
+                تعديل البيانات
+              </DropdownMenuItem>
+              {user.roles.includes("translator") && (
+                <DropdownMenuItem onClick={() => setPairsUser(user)}>
+                  <Languages className="size-4" />
+                  أزواج اللغات
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              {user.status === "active" ? (
+                <DropdownMenuItem
+                  onClick={async () => {
+                    if (
+                      await confirm({
+                        title: `إيقاف حساب «${user.name}»؟`,
+                        description:
+                          "سيُطرد المستخدم من النظام فوراً وتُلغى جلساته النشطة، ولن يستطيع الدخول حتى يُعاد تفعيله.",
+                        confirmLabel: "إيقاف الحساب",
+                        destructive: true,
+                      })
+                    )
+                      statusMutation.mutate({ user, newStatus: "suspended" });
+                  }}
+                >
+                  <Ban className="size-4" />
+                  إيقاف الحساب
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  onClick={() => statusMutation.mutate({ user, newStatus: "active" })}
+                >
+                  <CheckCircle2 className="size-4" />
+                  تفعيل الحساب
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={async () => {
+                  if (
+                    await confirm({
+                      title: `حذف «${user.name}» نهائياً؟`,
+                      description: "لا يمكن التراجع عن هذا الإجراء.",
+                      confirmLabel: "حذف",
+                      destructive: true,
+                    })
+                  )
+                    deleteMutation.mutate(user);
+                }}
+              >
+                <Trash2 className="size-4" />
+                حذف
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">المستخدمون</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             إدارة فريق العمل والأدوار والصلاحيات
           </p>
         </div>
@@ -75,10 +218,9 @@ export default function UsersPage() {
         </Button>
       </div>
 
-      {/* Filters */}
-      <div className="mb-4 flex flex-wrap gap-3">
-        <div className="relative min-w-64 flex-1">
-          <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+      <div className="flex flex-wrap gap-2">
+        <div className="relative min-w-60 flex-1">
+          <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="بحث بالاسم أو البريد…"
             value={q}
@@ -89,170 +231,41 @@ export default function UsersPage() {
             className="pe-9"
           />
         </div>
-        <Select
-          value={role}
-          onChange={(e) => {
-            setRole(e.target.value);
-            setPage(1);
-          }}
-          className="w-44"
-        >
-          <option value="">كل الأدوار</option>
-          {Object.entries(ROLE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
+        <Select value={role} onValueChange={(v) => { setRole(v); setPage(1); }}>
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="الدور" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>كل الأدوار</SelectItem>
+            {Object.entries(ROLE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
         </Select>
-        <Select
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            setPage(1);
-          }}
-          className="w-40"
-        >
-          <option value="">كل الحالات</option>
-          <option value="active">نشط</option>
-          <option value="suspended">موقوف</option>
+        <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="الحالة" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>كل الحالات</SelectItem>
+            <SelectItem value="active">نشط</SelectItem>
+            <SelectItem value="suspended">موقوف</SelectItem>
+          </SelectContent>
         </Select>
       </div>
 
-      {/* Table */}
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/60 text-start text-xs text-slate-500">
-                <th className="px-4 py-3 text-start font-medium">المستخدم</th>
-                <th className="px-4 py-3 text-start font-medium">الدور</th>
-                <th className="px-4 py-3 text-start font-medium">الحالة</th>
-                <th className="px-4 py-3 text-start font-medium">آخر دخول</th>
-                <th className="px-4 py-3 text-start font-medium">إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-slate-400">
-                    جارِ التحميل…
-                  </td>
-                </tr>
-              )}
-              {!isLoading && data?.data.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-slate-400">
-                    لا يوجد مستخدمون مطابقون
-                  </td>
-                </tr>
-              )}
-              {data?.data.map((user) => (
-                <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-50/40">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-800">{user.name}</p>
-                    <p dir="ltr" className="text-start text-xs text-slate-400">
-                      {user.email}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge tone={user.roles.includes("admin") ? "teal" : "blue"}>
-                      {user.roles.map((r) => ROLE_LABELS[r as Role] ?? r).join("، ") || "—"}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    {user.status === "active" ? (
-                      <Badge tone="green">نشط</Badge>
-                    ) : (
-                      <Badge tone="red">موقوف</Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">
-                    {user.last_login_at
-                      ? dateFormatter.format(new Date(user.last_login_at))
-                      : "لم يسجل بعد"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <button
-                        title="تعديل"
-                        onClick={() => setFormUser(user)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      >
-                        <Pencil className="size-4" />
-                      </button>
-                      {user.roles.includes("translator") && (
-                        <button
-                          title="أزواج اللغات"
-                          onClick={() => setPairsUser(user)}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-teal-50 hover:text-teal-700"
-                        >
-                          <Languages className="size-4" />
-                        </button>
-                      )}
-                      {user.status === "active" ? (
-                        <button
-                          title="إيقاف"
-                          onClick={() => {
-                            if (confirm(`إيقاف حساب «${user.name}»؟ سيُطرد من النظام فوراً.`))
-                              statusMutation.mutate({ user, newStatus: "suspended" });
-                          }}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-amber-50 hover:text-amber-600"
-                        >
-                          <Ban className="size-4" />
-                        </button>
-                      ) : (
-                        <button
-                          title="تفعيل"
-                          onClick={() => statusMutation.mutate({ user, newStatus: "active" })}
-                          className="rounded-lg p-2 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
-                        >
-                          <CheckCircle2 className="size-4" />
-                        </button>
-                      )}
-                      <button
-                        title="حذف"
-                        onClick={() => {
-                          if (confirm(`حذف «${user.name}» نهائياً؟`)) deleteMutation.mutate(user);
-                        }}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {data && data.meta.last_page > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-sm">
-            <p className="text-xs text-slate-500">
-              {data.meta.total} مستخدم — صفحة {data.meta.current_page} من {data.meta.last_page}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                السابق
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= data.meta.last_page}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                التالي
-              </Button>
-            </div>
-          </div>
-        )}
-      </Card>
+      <DataTable
+        columns={columns}
+        data={data?.data}
+        loading={isLoading}
+        meta={data?.meta}
+        onPageChange={setPage}
+        emptyTitle="لا يوجد مستخدمون مطابقون"
+        emptyDescription="جرّب تعديل الفلاتر أو أضف مستخدماً جديداً."
+        totalLabel={(total) => `${total} مستخدم`}
+      />
 
       <UserFormDialog
         key={formUser === "new" ? "new" : formUser ? `edit-${formUser.id}` : "closed"}

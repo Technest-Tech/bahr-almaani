@@ -1,68 +1,21 @@
-"use client";
+import * as React from "react"
 
-import { clsx } from "clsx";
-import { forwardRef } from "react";
+import { cn } from "@/lib/utils"
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  error?: string;
-}
-
-export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, error, ...props }, ref) => (
-    <div className="w-full">
-      <input
-        ref={ref}
-        className={clsx(
-          "h-10 w-full rounded-lg border bg-white px-3 text-sm text-slate-900 transition-colors",
-          "placeholder:text-slate-400",
-          "focus:outline-none focus:ring-2 focus:ring-offset-1",
-          error
-            ? "border-red-400 focus:ring-red-400"
-            : "border-slate-300 focus:border-teal-600 focus:ring-teal-600/30",
-          className,
-        )}
-        {...props}
-      />
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-    </div>
-  ),
-);
-Input.displayName = "Input";
-
-export function Label({
-  className,
-  ...props
-}: React.LabelHTMLAttributes<HTMLLabelElement>) {
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
-    <label
-      className={clsx("mb-1.5 block text-sm font-medium text-slate-700", className)}
+    <input
+      type={type}
+      data-slot="input"
+      className={cn(
+        "h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none selection:bg-primary selection:text-primary-foreground file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
+        "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
+        className
+      )}
       {...props}
     />
-  );
+  )
 }
 
-export function Select({
-  className,
-  error,
-  children,
-  ...props
-}: React.SelectHTMLAttributes<HTMLSelectElement> & { error?: string }) {
-  return (
-    <div className="w-full">
-      <select
-        className={clsx(
-          "h-10 w-full appearance-none rounded-lg border bg-white px-3 text-sm text-slate-900",
-          "focus:outline-none focus:ring-2 focus:ring-offset-1",
-          error
-            ? "border-red-400 focus:ring-red-400"
-            : "border-slate-300 focus:border-teal-600 focus:ring-teal-600/30",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-      </select>
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
-    </div>
-  );
-}
+export { Input }

@@ -23,9 +23,10 @@ export default function RootLayout({
     <html
       lang="ar"
       dir="rtl"
+      suppressHydrationWarning
       className={`${plexArabic.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-slate-50 font-sans text-slate-900">
+      <body className="min-h-full font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>
