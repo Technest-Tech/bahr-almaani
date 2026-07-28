@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ReviewController;
 use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\UserController;
@@ -104,6 +105,17 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/throughput', [DashboardController::class, 'throughput']);
             Route::get('/workload', [DashboardController::class, 'workload']);
             Route::get('/late', [DashboardController::class, 'late']);
+        });
+
+        // Reports (M7)
+        Route::prefix('reports')->group(function (): void {
+            Route::middleware('permission:reports.export')->group(function (): void {
+                Route::post('/export', [ReportController::class, 'export']);
+                Route::get('/exports', [ReportController::class, 'exports']);
+                Route::get('/exports/{export}/download', [ReportController::class, 'download']);
+            });
+            Route::get('/{type}', [ReportController::class, 'show'])
+                ->middleware('permission:reports.view');
         });
 
         // Activity log (M8)

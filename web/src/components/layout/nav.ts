@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   Contact,
   FolderKanban,
   History,
@@ -21,6 +22,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/projects", label: "المشاريع", icon: FolderKanban, permission: "projects.view" },
   { href: "/clients", label: "العملاء", icon: Contact, permission: "clients.view" },
   { href: "/users", label: "المستخدمون", icon: Users, permission: "users.view" },
+  { href: "/reports", label: "التقارير", icon: BarChart3, permission: "reports.view" },
   { href: "/activity", label: "سجل النشاط", icon: History, permission: "activity-log.view" },
 ];
 
@@ -32,5 +34,6 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   new: "مشروع جديد",
   clients: "العملاء",
   users: "المستخدمون",
+  reports: "التقارير",
   activity: "سجل النشاط",
 };

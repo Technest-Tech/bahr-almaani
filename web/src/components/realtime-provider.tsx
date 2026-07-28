@@ -60,6 +60,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         toast.info(notification.message);
         if (PORTAL_NOTIFICATION_TYPES.has(notification.type)) invalidatePortal();
+        if (notification.type === "report_ready") {
+          queryClient.invalidateQueries({ queryKey: ["report-exports"] });
+        }
       })
       .listen(".project.delivered", () => {
         queryClient.invalidateQueries({ queryKey: ["projects"] });
