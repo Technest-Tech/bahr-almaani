@@ -1,8 +1,9 @@
 # Session Handoff — Bahr Al-Maaani (بحر المعاني)
 
 > Read this top-to-bottom before writing any code. It is the accumulated context of the
-> sessions that built Sprints 0–3. The owner (Ahmed) expects you to behave as a senior
-> architect/developer who verifies everything and never claims unverified work.
+> sessions that built Sprints 0–4 (through M10 + the local half of M12). The owner
+> (Ahmed) expects you to behave as a senior architect/developer who verifies everything
+> and never claims unverified work.
 
 ## 1. What this project is
 
@@ -22,7 +23,10 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
 - `php artisan reverb:start` — websockets on **:8080** (portal + bell realtime). Full dev
   stack = serve + reverb + queue:work + npm run dev.
 - Tests: `cd api && php artisan test` → runs on `bahr_test` DB (created by
-  `docker/postgres-init.sql`). **46 tests / 162 assertions green** at handoff.
+  `docker/postgres-init.sql`). **109 tests / 441 assertions green** at handoff.
+- Production stack is `docker-compose.prod.yml` + `deploy.sh` + `docs/DEPLOYMENT.md`
+  (nginx → Next.js + php-fpm + Reverb on one origin; queue/scheduler/reverb are
+  separate containers of the same API image). It has been run locally end-to-end.
 - Dev logins (password `password`): `admin@bahr.local`, `pm@bahr.local`,
   `translator1@bahr.local` (en↔ar pairs), `translator2@bahr.local` (fr→ar),
   `accountant@bahr.local`.
@@ -95,6 +99,21 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
 - Scout runs Meilisearch in dev/prod (SCOUT_DRIVER=meilisearch, queued sync) but the
   `collection` engine under phpunit — no Meilisearch needed in CI. After changing
   toSearchableArray: `php artisan scout:import` both models.
+- **A new notification class must use `RespectsMailPreference::channelsFor()`** in
+  `via()`. Returning a literal `['database','mail','broadcast']` silently bypasses the
+  user's opt-out, and no test will catch it for *that* class.
+- `MAIL_SCHEME` accepts only `smtp` (587/STARTTLS) or `smtps` (465). `tls`/`ssl` throw
+  Symfony's UnsupportedSchemeException on every send — cost a real debugging round
+  during the prod smoke test.
+- In containers, `config:cache` only helps if `bootstrap/cache` is a **shared volume**;
+  otherwise the cache dies with the throwaway container that wrote it. Same volume also
+  holds the package-discovery manifest, so `package:discover` runs before the caches.
+- Reverb has two addresses in production: browsers dial the public host (`REVERB_*`,
+  proxied by nginx at `/app`), while PHP pushes in-network via `REVERB_PUSH_*`
+  (`http://reverb:8080`). Both read from `config/broadcasting.php`; unset in dev.
+- Docker CLI on this machine needs `/Applications/Docker.app/Contents/Resources/bin` on
+  PATH or every build fails with `docker-credential-desktop: executable file not found`.
+- `vendor/bin/pint --test` now gates CI. Run `vendor/bin/pint` before committing.
 
 ## 6. State at handoff (git log tells the story)
 
@@ -110,6 +129,29 @@ the card from caches instantly). Polling is fully removed; reconnects re-invalid
 Verified end-to-end with `web/rt-demo.mjs` (two headless contexts: publish appears live
 on both, claim vanishes from the other screen in ~120ms, zero console errors).
 
+## 6b. Shipped after the Sprint-4 handoff (this session)
+
+- **M10 — notification preferences** (`f191941`): `notification_preferences` table
+  (row per user × family, missing row = default), `App\Support\NotificationPreferences`
+  registry of six families with Arabic labels, `RespectsMailPreference` trait that every
+  `via()` now goes through, `GET|PUT /notification-preferences` (personal, no permission
+  gate, partial map accepted), and a `/settings` page reachable from the user menu.
+  ProjectAvailable and ReportReady gained real `toMail()` bodies — **behaviour change**:
+  translators now get mail per matching published project unless they opt out. Flip the
+  default in `NotificationPreferences::FAMILIES` if Ahmed disagrees.
+- **M12 local half** (`9d2b037`): production Dockerfiles, `docker-compose.prod.yml`,
+  `deploy.sh`, `.env.production.example` (Arabic), `docs/DEPLOYMENT.md`, CI audit
+  (extensions matched to the image, Pint gate, image-build job). `trustProxies(at: '*')`
+  and the `REVERB_PUSH_*` split landed here because the container topology needs them.
+- **M12 training docs** (`0500b74`): `docs/guide-admin.md`, `guide-pm.md`,
+  `guide-translator.md` + 19 real screenshots in `docs/screenshots/`, regenerable with
+  `web/ui-guides.mjs`.
+- Verified by running things, not by reading code: full prod stack up locally on
+  :8081 (ten containers, dashboard through nginx, websocket handshake, xlsx export
+  through the queue container, scheduler tick, scout:import, SMTP mail delivered),
+  and the preferences slice proven end-to-end through the dev stack (mail on → Mailpit,
+  mail off → nothing, bell either way).
+
 ## 7. What's next, in order
 
 1. ~~**M9a — letterheads & stamps, everything except the merge**~~ **SHIPPED**:
@@ -122,15 +164,25 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
    yet: it renders a sample merge, so it lands with M9b.
    Everything else in Sprint 4 shipped: dashboard KPIs (M6), reports + Excel/PDF
    exports (M7), activity-log UI (M8), Meilisearch search + server-side sorting.
-3. **Polish backlog**: server-side sorting for the clients + users tables (copy the
+3. **M12 external half (waiting on Ahmed, nothing else blocks it)**:
+   a. GitHub remote — he supplies the repo URL/org; push `main`, then watch the first
+      Actions run and fix whatever the runner surfaces (three jobs: PHPUnit+Pint,
+      Next build, production image builds).
+   b. Staging droplet — he supplies SSH + domain. Then: clone to
+      `/var/www/bahr-almaaani`, fill `.env` from `.env.production.example`, run the
+      first-time steps in `docs/DEPLOYMENT.md`, issue TLS, and finish with
+      `cd web && BASE=https://<domain> node ops-prod-smoke.mjs`.
+   Provision nothing cloud-side without him.
+4. ~~**Polish backlog**~~ **DONE**: server-side sorting for the clients + users tables (copy the
    controlled-sorting pattern already used by projects), a `completed → archived`
    button on the project detail page (`projects.manage` — the transition exists in
    the state machine but no UI triggers it), command-palette pass now that
    Meilisearch typo-tolerance is on.
-4. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
-   staging server, Horizon config (Reverb needs a supervisor entry in prod too),
-   production compose + deploy script (owner's pattern: DigitalOcean, see QTD project).
-5. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
+5. **Still open, low priority**: Horizon is a composer dependency but unconfigured —
+   the prod `queue` container supervises `queue:work` instead, and Horizon's dashboard
+   denies access outside `local`, so nothing is exposed. Configure it only if the
+   dashboard is actually wanted.
+6. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
    (totals said 5k/45k/50k instead of 85k/125k/210k) — remind him before it goes to the client.
 
 ## 8. M9a — what shipped, and where M9b plugs in
