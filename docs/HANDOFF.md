@@ -112,10 +112,18 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
 
 ## 7. What's next, in order
 
-1. **Sprint 4 remainder**: letterhead/stamp CRUD + real merge in `FinalizeProjectJob`
-   (M9 — **blocked on client sample; spike the moment Ahmed provides it**). Everything
-   else shipped: dashboard KPIs (M6), reports + Excel/PDF exports (M7), activity-log
-   UI (M8), Meilisearch search + server-side projects sorting.
+1. **M9a — letterheads & stamps, everything except the merge (UNBLOCKED)**:
+   `LetterheadTemplate` model exists; permissions `letterheads.view/manage` seeded.
+   Build: CRUD API (`GET|POST /letterheads`, `PUT|DELETE /letterheads/{id}` — asset
+   upload, kind letterhead|stamp, active flag, placement config), admin UI page,
+   and the approve flow requiring `letterhead_id` + `stamp_id` (docs/03 M5) stored
+   on the project so the merge job becomes a drop-in.
+2. **M9b — the real merge (BLOCKED on client sample)**: when Ahmed hands over the
+   sample, spike `MergeFinalFileJob` per docs/03 M9 table: deliverable → PDF via
+   Gotenberg → FPDI overlay of letterhead + stamp per placement → `final` file.
+   `FinalizeProjectJob` currently just copies the deliverable — replace that.
+   Everything else in Sprint 4 shipped: dashboard KPIs (M6), reports + Excel/PDF
+   exports (M7), activity-log UI (M8), Meilisearch search + server-side sorting.
 2. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
    staging server, Horizon config (Reverb needs a supervisor entry in prod too),
    production compose + deploy script (owner's pattern: DigitalOcean, see QTD project).
