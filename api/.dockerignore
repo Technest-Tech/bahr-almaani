@@ -1,0 +1,22 @@
+# Never ship developer state into the image — .env especially.
+.env
+.env.*
+!.env.example
+
+vendor/
+node_modules/
+storage/app/*
+!storage/app/.gitignore
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/logs/*
+bootstrap/cache/*
+
+.git/
+.gitignore
+.phpunit.result.cache
+tests/
+phpunit.xml
+Dockerfile
+.dockerignore

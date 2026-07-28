@@ -20,6 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ['middleware' => ['auth:sanctum', 'active']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // In production the only thing that can reach php-fpm is our own nginx
+        // container, so its X-Forwarded-* headers are authoritative — without this
+        // the app would generate http:// links (and mis-sign download URLs) behind TLS.
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'role' => RoleMiddleware::class,
             'permission' => PermissionMiddleware::class,

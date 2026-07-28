@@ -1,0 +1,205 @@
+name: bahr-almaaani-prod
+
+# Production stack for a single DigitalOcean droplet.
+#
+#   nginx      :80        single public entry point (Next.js + Laravel + websockets)
+#   web                   Next.js standalone server
+#   app                   php-fpm
+#   queue                 queue:work        — exports, notifications, word counting, merges
+#   reverb                reverb:start      — websockets (needs its own supervised process)
+#   scheduler             schedule:work     — the 5-minute deadline scanner
+#   postgres redis meilisearch gotenberg
+#
+# All four PHP roles share one image; only the command differs, so a deploy
+# rebuilds once and restarts four containers. restart: unless-stopped IS the
+# process supervision — a crashed worker comes back without systemd.
+#
+# Values come from .env next to this file (copy .env.production.example).
+# Usage: docker compose -f docker-compose.prod.yml up -d --build
+
+x-php-env: &php-env
+  APP_NAME: ${APP_NAME:-Bahr Al-Maaani}
+  APP_ENV: production
+  APP_KEY: ${APP_KEY:?APP_KEY is required — php artisan key:generate --show}
+  APP_DEBUG: "false"
+  APP_URL: ${APP_URL:?}
+  APP_LOCALE: ar
+  APP_FALLBACK_LOCALE: en
+  APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: ${LOG_LEVEL:-warning}
+
+  DB_CONNECTION: pgsql
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_DATABASE: ${DB_DATABASE:-bahr}
+  DB_USERNAME: ${DB_USERNAME:-bahr}
+  DB_PASSWORD: ${DB_PASSWORD:?}
+
+  REDIS_CLIENT: predis
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-null}
+
+  CACHE_STORE: redis
+  SESSION_DRIVER: redis
+  QUEUE_CONNECTION: redis
+  FILESYSTEM_DISK: local
+
+  MAIL_MAILER: smtp
+  MAIL_HOST: ${MAIL_HOST:?}
+  MAIL_PORT: ${MAIL_PORT:-587}
+  MAIL_USERNAME: ${MAIL_USERNAME:-}
+  MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+  # Symfony accepts smtp (587/STARTTLS) or smtps (465) — "tls" is not a scheme.
+  MAIL_SCHEME: ${MAIL_SCHEME:-smtp}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:?}
+  MAIL_FROM_NAME: ${APP_NAME:-Bahr Al-Maaani}
+
+  FRONTEND_URL: ${APP_URL:?}
+  GOTENBERG_URL: http://gotenberg:3000
+
+  # Read only by DatabaseSeeder on the very first deploy.
+  ADMIN_NAME: ${ADMIN_NAME:-مدير النظام}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@bahr.local}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-password}
+
+  SCOUT_DRIVER: meilisearch
+  SCOUT_QUEUE: "true"
+  MEILISEARCH_HOST: http://meilisearch:7700
+  MEILISEARCH_KEY: ${MEILI_MASTER_KEY:?}
+
+  BROADCAST_CONNECTION: reverb
+  REVERB_APP_ID: ${REVERB_APP_ID:?}
+  REVERB_APP_KEY: ${REVERB_APP_KEY:?}
+  REVERB_APP_SECRET: ${REVERB_APP_SECRET:?}
+  REVERB_HOST: ${REVERB_HOST:?}        # public hostname the browser dials
+  REVERB_PORT: ${REVERB_PORT:-443}
+  REVERB_SCHEME: ${REVERB_SCHEME:-https}
+  REVERB_PUSH_HOST: reverb             # in-network push target (see config/broadcasting.php)
+  REVERB_PUSH_PORT: "8080"
+  REVERB_PUSH_SCHEME: http
+  REVERB_SERVER_HOST: 0.0.0.0
+  REVERB_SERVER_PORT: "8080"
+
+x-php-service: &php-service
+  image: bahr-almaaani/api:latest
+  build:
+    context: ./api
+    target: app
+  restart: unless-stopped
+  environment: *php-env
+  volumes:
+    - storage:/var/www/html/storage
+    # Shared so `artisan config:cache` in the deploy step is visible to every
+    # role; seeded from the image the first time the volume is created.
+    - bootstrap-cache:/var/www/html/bootstrap/cache
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  # ── data ──────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-bahr}
+      POSTGRES_USER: ${DB_USERNAME:-bahr}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-bahr} -d ${DB_DATABASE:-bahr}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?}   # NOT the dev key — 32+ random bytes
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meilidata:/meili_data
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - gotenberg
+      - --api-timeout=120s
+
+  # ── application ───────────────────────────────────────────────────────────
+  app:
+    <<: *php-service
+    command: ["php-fpm"]
+    healthcheck:
+      test: ["CMD-SHELL", "REDIRECT_STATUS=200 SCRIPT_NAME=/fpm-ping SCRIPT_FILENAME=/fpm-ping REQUEST_METHOD=GET cgi-fcgi -bind -connect 127.0.0.1:9000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  queue:
+    <<: *php-service
+    # --max-time recycles the worker hourly so a leaked handle can never accumulate.
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=300", "--max-time=3600", "--sleep=1"]
+    stop_grace_period: 5m   # let an in-flight export/merge finish before SIGKILL
+
+  reverb:
+    <<: *php-service
+    command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
+    expose:
+      - "8080"
+
+  scheduler:
+    <<: *php-service
+    # schedule:work is the cron-less scheduler: one process, ticks every minute.
+    command: ["php", "artisan", "schedule:work"]
+
+  web:
+    image: bahr-almaaani/web:latest
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: ${APP_URL:?}/api/v1
+        NEXT_PUBLIC_REVERB_KEY: ${REVERB_APP_KEY:?}
+        NEXT_PUBLIC_REVERB_HOST: ${REVERB_HOST:?}
+        NEXT_PUBLIC_REVERB_PORT: ${REVERB_PORT:-443}
+        NEXT_PUBLIC_REVERB_SCHEME: ${REVERB_SCHEME:-https}
+    restart: unless-stopped
+
+  nginx:
+    image: bahr-almaaani/nginx:latest
+    build:
+      context: ./api
+      target: nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - certbot-webroot:/var/www/certbot:ro
+    depends_on:
+      - app
+      - web
+      - reverb
+
+volumes:
+  pgdata:
+  redisdata:
+  meilidata:
+  storage:          # uploads, letterhead assets, exports, final files
+  bootstrap-cache:  # config/route/view/event caches written by deploy.sh
+  certbot-webroot:  # ACME challenge files written by certbot on the host

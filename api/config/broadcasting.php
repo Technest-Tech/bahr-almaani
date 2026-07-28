@@ -35,11 +35,16 @@ return [
             'key' => env('REVERB_APP_KEY'),
             'secret' => env('REVERB_APP_SECRET'),
             'app_id' => env('REVERB_APP_ID'),
+            // Where PHP pushes events TO. In production the browser reaches Reverb
+            // through nginx on the public domain (REVERB_*), while the app talks to
+            // the container directly (REVERB_PUSH_* → http://reverb:8080) — no TLS
+            // hairpin, no dependency on public DNS from inside the network.
+            // Unset in dev, where both sides are localhost:8080.
             'options' => [
-                'host' => env('REVERB_HOST'),
-                'port' => env('REVERB_PORT', 443),
-                'scheme' => env('REVERB_SCHEME', 'https'),
-                'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+                'host' => env('REVERB_PUSH_HOST', env('REVERB_HOST')),
+                'port' => env('REVERB_PUSH_PORT', env('REVERB_PORT', 443)),
+                'scheme' => env('REVERB_PUSH_SCHEME', env('REVERB_SCHEME', 'https')),
+                'useTLS' => env('REVERB_PUSH_SCHEME', env('REVERB_SCHEME', 'https')) === 'https',
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html

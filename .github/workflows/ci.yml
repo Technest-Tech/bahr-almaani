@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   api-tests:
     name: API — PHPUnit (Postgres)
@@ -14,6 +19,9 @@ jobs:
         working-directory: api
 
     services:
+      # Host port 5434 matches phpunit.xml, which is what actually configures the
+      # test connection (bahr_test / bahr / secret) — the .env copy below never
+      # overrides those.
       postgres:
         image: postgres:16-alpine
         env:
@@ -34,8 +42,18 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.2"
-          extensions: pdo_pgsql, redis
+          # Same extension set as the production image (api/Dockerfile). Redis is
+          # absent on purpose: the app talks to it through predis, and the tests
+          # run with array cache / sync queue anyway.
+          extensions: pdo_pgsql, zip, intl, gd, bcmath, mbstring
           coverage: none
+
+      - name: Cache composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('api/composer.lock') }}
+          restore-keys: composer-
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress --no-interaction
@@ -45,12 +63,13 @@ jobs:
           cp .env.example .env
           php artisan key:generate
 
+      - name: Check code style
+        run: vendor/bin/pint --test
+
       - name: Run tests
+        # Scout uses the collection engine under phpunit (phpunit.xml), so no
+        # Meilisearch service is needed; Gotenberg is not exercised by the suite.
         run: php artisan test --compact
-        env:
-          CACHE_STORE: array
-          SESSION_DRIVER: array
-          QUEUE_CONNECTION: sync
 
   web-build:
     name: Web — Lint & Build
@@ -75,6 +94,50 @@ jobs:
         run: npm run lint
 
       - name: Build
+        # next.config.ts emits standalone output — the same build the production
+        # image runs. NEXT_PUBLIC_* are inlined here only to satisfy the build.
         run: npm run build
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+          NEXT_PUBLIC_REVERB_KEY: ci-placeholder
+          NEXT_PUBLIC_REVERB_HOST: localhost
+
+  docker-images:
+    name: Ops — production images build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Catches Dockerfile drift (a new PHP extension, a moved config file)
+      # before a deploy discovers it on the droplet. Images are not pushed.
+      - name: Build API image (php-fpm)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          target: app
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build API image (nginx)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          target: nginx
+          push: false
+          cache-from: type=gha
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./web
+          push: false
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://example.com/api/v1
+            NEXT_PUBLIC_REVERB_KEY=ci-placeholder
+            NEXT_PUBLIC_REVERB_HOST=example.com
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

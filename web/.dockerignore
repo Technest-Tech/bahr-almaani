@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+
+# Dev-only environment and the Playwright/verification artefacts.
+.env
+.env.*
+!.env.example
+rt-shots/
+*.mjs
+!eslint.config.mjs
+!postcss.config.mjs
+
+.git/
+.gitignore
+Dockerfile
+.dockerignore

@@ -19,9 +19,17 @@ class DatabaseSeeder extends Seeder
         Setting::set('due_soon_threshold_hours', 24);
         Setting::set('auto_archive_after_days', 30);
 
+        // Production seeds the first administrator from the environment so the
+        // droplet never ships with the well-known dev credentials. Seeders only
+        // ever run from the CLI, where real env vars are readable even with a
+        // cached config.
         $admin = User::firstOrCreate(
-            ['email' => 'admin@bahr.local'],
-            ['name' => 'مدير النظام', 'password' => 'password', 'locale' => 'ar'],
+            ['email' => env('ADMIN_EMAIL', 'admin@bahr.local')],
+            [
+                'name' => env('ADMIN_NAME', 'مدير النظام'),
+                'password' => env('ADMIN_PASSWORD', 'password'),
+                'locale' => 'ar',
+            ],
         );
         $admin->syncRoles(['admin']);
 
