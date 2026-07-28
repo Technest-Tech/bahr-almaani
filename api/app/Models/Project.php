@@ -2,31 +2,44 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Laravel\Scout\Searchable;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
 class Project extends Model
 {
-    use LogsActivity, SoftDeletes;
+    use LogsActivity, Searchable, SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_AVAILABLE = 'available';
+
     public const STATUS_CLAIMED = 'claimed';
+
     public const STATUS_DELIVERED = 'delivered';
+
     public const STATUS_IN_REVIEW = 'in_review';
+
     public const STATUS_REVISION_REQUESTED = 'revision_requested';
+
     public const STATUS_APPROVED = 'approved';
+
     public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_ARCHIVED = 'archived';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public const PRIORITY_NORMAL = 'normal';
+
     public const PRIORITY_URGENT = 'urgent';
+
     public const PRIORITY_CRITICAL = 'critical';
 
     /** Statuses where "late" no longer applies. */
@@ -130,6 +143,22 @@ class Project extends Model
             ->get();
     }
 
+    /** Full-text search document (Meilisearch in dev/prod, collection engine in tests). */
+    public function toSearchableArray(): array
+    {
+        return [
+            'code' => $this->code,
+            'title' => $this->title,
+            'client' => $this->client?->name,
+            'instructions' => $this->instructions,
+        ];
+    }
+
+    protected function makeAllSearchableUsing($query)
+    {
+        return $query->with('client:id,name');
+    }
+
     /** Recompute cached totals from counted source files. */
     public function refreshTotals(): void
     {
@@ -149,7 +178,7 @@ class Project extends Model
         return $this->deadline_at->isPast() && ! in_array($this->status, self::SETTLED_STATUSES, true);
     }
 
-    #[\Illuminate\Database\Eloquent\Attributes\Scope]
+    #[Scope]
     protected function late(Builder $query): void
     {
         $query->where('deadline_at', '<', now())

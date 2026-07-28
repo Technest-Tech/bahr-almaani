@@ -17,11 +17,10 @@ class ClientController extends Controller
         $clients = Client::query()
             ->withCount('projects')
             ->when($request->filled('q'), function ($query) use ($request): void {
-                $q = '%'.$request->string('q')->trim().'%';
-                $query->where(fn ($w) => $w
-                    ->where('name', 'ilike', $q)
-                    ->orWhere('phone', 'ilike', $q)
-                    ->orWhere('email', 'ilike', $q));
+                // Scout (Meilisearch): typo-tolerant search over name/phone/email/notes.
+                $query->whereIn('clients.id', Client::search(
+                    $request->string('q')->trim()->toString(),
+                )->take(500)->keys());
             })
             ->when($request->filled('type'), fn ($query) => $query->where('type', $request->string('type')->toString()))
             ->orderByDesc('created_at')

@@ -90,6 +90,11 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
 - Notification broadcasts (bell/toasts) ride the queue → up to ~3s lag in dev (worker
   sleep). Portal queue events are ShouldBroadcastNow in-request → instant. Both are
   intentional; don't "fix" the former by making notifications sync.
+- The queue worker holds loaded code: after composer/require or editing jobs, RESTART
+  `queue:work` or new job classes fail silently (cost a debugging round with Scout).
+- Scout runs Meilisearch in dev/prod (SCOUT_DRIVER=meilisearch, queued sync) but the
+  `collection` engine under phpunit — no Meilisearch needed in CI. After changing
+  toSearchableArray: `php artisan scout:import` both models.
 
 ## 6. State at handoff (git log tells the story)
 
@@ -107,10 +112,10 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
 
 ## 7. What's next, in order
 
-1. **Sprint 4**: dashboard KPIs (M6), reports + async Excel/PDF exports (M7),
-   letterhead/stamp CRUD + real merge in `FinalizeProjectJob` (M9 — **blocked on client
-   sample; spike the moment Ahmed provides it**), activity-log UI (M8), Meilisearch wiring,
-   server-side table sorting.
+1. **Sprint 4 remainder**: letterhead/stamp CRUD + real merge in `FinalizeProjectJob`
+   (M9 — **blocked on client sample; spike the moment Ahmed provides it**). Everything
+   else shipped: dashboard KPIs (M6), reports + Excel/PDF exports (M7), activity-log
+   UI (M8), Meilisearch search + server-side projects sorting.
 2. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
    staging server, Horizon config (Reverb needs a supervisor entry in prod too),
    production compose + deploy script (owner's pattern: DigitalOcean, see QTD project).

@@ -35,14 +35,24 @@ class ProjectController extends Controller
             ->with(['client:id,name,type', 'sourceLanguage', 'targetLanguage', 'creator:id,name'])
             ->withCount('files')
             ->when($request->filled('q'), function ($query) use ($request): void {
-                $q = '%'.$request->string('q')->trim().'%';
-                $query->where(fn ($w) => $w->where('title', 'ilike', $q)->orWhere('code', 'ilike', $q));
+                // Scout (Meilisearch): typo-tolerant search over code/title/client/instructions.
+                $query->whereIn('projects.id', Project::search(
+                    $request->string('q')->trim()->toString(),
+                )->take(500)->keys());
             })
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')->toString()))
             ->when($request->filled('priority'), fn ($q) => $q->where('priority', $request->string('priority')->toString()))
             ->when($request->filled('client_id'), fn ($q) => $q->where('client_id', $request->integer('client_id')))
             ->when($request->boolean('late'), fn ($q) => $q->late())
-            ->orderByDesc('created_at')
+            ->tap(function ($query) use ($request): void {
+                // Server-side sorting: the whole result set, not just the current page.
+                $sortable = ['created_at', 'deadline_at', 'title', 'code', 'status', 'priority', 'total_words'];
+                $sort = $request->string('sort')->toString();
+                $query->orderBy(
+                    in_array($sort, $sortable, true) ? $sort : 'created_at',
+                    $request->string('dir')->toString() === 'asc' ? 'asc' : 'desc',
+                );
+            })
             ->paginate(min($request->integer('per_page', 15), 100));
 
         return ProjectResource::collection($projects);

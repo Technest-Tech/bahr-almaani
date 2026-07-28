@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { AlertTriangle, Plus, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import {
@@ -57,15 +57,20 @@ export default function ProjectsPage() {
   const [priority, setPriority] = useState(ALL);
   const [lateOnly, setLateOnly] = useState(false);
   const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([]);
 
   const params = new URLSearchParams({ page: String(page) });
   if (q) params.set("q", q);
   if (status !== ALL) params.set("status", status);
   if (priority !== ALL) params.set("priority", priority);
   if (lateOnly) params.set("late", "1");
+  if (sorting[0]) {
+    params.set("sort", sorting[0].id);
+    params.set("dir", sorting[0].desc ? "desc" : "asc");
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ["projects", q, status, priority, lateOnly, page],
+    queryKey: ["projects", q, status, priority, lateOnly, page, sorting],
     queryFn: () => api<Paginated<Project>>(`/projects?${params.toString()}`),
   });
 
@@ -168,6 +173,11 @@ export default function ProjectsPage() {
         loading={isLoading}
         meta={data?.meta}
         onPageChange={setPage}
+        sorting={sorting}
+        onSortingChange={(next) => {
+          setSorting(next);
+          setPage(1);
+        }}
         onRowClick={(project) => router.push(`/projects/${project.id}`)}
         emptyTitle="لا توجد مشاريع مطابقة"
         emptyDescription="جرّب تعديل الفلاتر أو أنشئ مشروعاً جديداً."

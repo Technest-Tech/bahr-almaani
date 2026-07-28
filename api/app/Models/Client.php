@@ -6,14 +6,25 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Laravel\Scout\Searchable;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
 class Client extends Model
 {
-    use LogsActivity, SoftDeletes;
+    use LogsActivity, Searchable, SoftDeletes;
 
     protected $fillable = ['name', 'type', 'phone', 'email', 'notes', 'created_by'];
+
+    public function toSearchableArray(): array
+    {
+        return [
+            'name' => $this->name,
+            'phone' => $this->phone,
+            'email' => $this->email,
+            'notes' => $this->notes,
+        ];
+    }
 
     public function projects(): HasMany
     {

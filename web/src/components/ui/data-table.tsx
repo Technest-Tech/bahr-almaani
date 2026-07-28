@@ -60,6 +60,12 @@ interface DataTableProps<TData> {
   onRowClick?: (row: TData) => void;
   /** Filter controls rendered as an integrated toolbar above the table header. */
   toolbar?: React.ReactNode;
+  /**
+   * Controlled sorting → the SERVER orders the whole result set; the table
+   * only renders. Omit both props to keep the default per-page client sort.
+   */
+  sorting?: SortingState;
+  onSortingChange?: (sorting: SortingState) => void;
 }
 
 export function DataTable<TData>({
@@ -73,15 +79,25 @@ export function DataTable<TData>({
   totalLabel,
   onRowClick,
   toolbar,
+  sorting: controlledSorting,
+  onSortingChange,
 }: DataTableProps<TData>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+
+  const manual = onSortingChange !== undefined;
+  const sorting = manual ? (controlledSorting ?? []) : internalSorting;
 
   const table = useReactTable({
     data: data ?? [],
     columns,
     state: { sorting, columnVisibility },
-    onSortingChange: setSorting,
+    manualSorting: manual,
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      if (manual) onSortingChange(next);
+      else setInternalSorting(next);
+    },
     onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
