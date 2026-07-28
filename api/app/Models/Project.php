@@ -137,6 +137,8 @@ class Project extends Model
     {
         return User::role('translator')
             ->where('status', User::STATUS_ACTIVE)
+            // Eager-loaded because every recipient's via() consults its mail preferences.
+            ->with('notificationPreferences')
             ->whereHas('languagePairs', fn ($q) => $q
                 ->where('source_language_id', $this->source_language_id)
                 ->where('target_language_id', $this->target_language_id))

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
-import { ChevronLeft, LogOut, Moon, Search, Sun } from "lucide-react";
+import { ChevronLeft, LogOut, Moon, Search, Settings, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -124,6 +124,11 @@ export function TopBar() {
                 {user?.roles.map((role) => ROLE_LABELS[role as Role] ?? role).join("، ")}
               </p>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/settings")}>
+              <Settings className="size-4" />
+              الإعدادات
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"

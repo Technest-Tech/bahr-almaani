@@ -128,8 +128,20 @@ offset_x_mm · offset_y_mm · width_mm (null = full page width) · opacity · la
 ### M10 — Notifications
 ```
 GET  /notifications · PUT /notifications/read (ids[]) · PUT /notifications/read-all
-GET|PUT /notification-preferences
+GET|PUT /notification-preferences     (personal — no permission gate)
 ```
+
+Preferences switch the **mail channel only**; `database` (the bell, system of record) and
+`broadcast` (live toast) are always on. Families are registered in
+`App\Support\NotificationPreferences` — `project_available`, `project_delivered`,
+`revision_requested`, `project_withdrawn`, `deadline_alerts`, `report_ready` — all
+defaulting to mail-on. A missing row means "default", so `PUT` takes a partial map:
+```
+PUT  { "preferences": { "deadline_alerts": false } }
+GET  { "data": {family: bool, …}, "families": [{key, label, description}, …] }
+```
+Every `via()` builds its channel list through `RespectsMailPreference::channelsFor()`;
+new notification classes must do the same or they silently bypass the opt-out.
 
 ## Document-processing pipeline (queue jobs)
 

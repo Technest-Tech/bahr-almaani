@@ -3,20 +3,35 @@
 namespace App\Notifications;
 
 use App\Models\ReportExport;
+use App\Notifications\Concerns\RespectsMailPreference;
+use App\Support\NotificationPreferences;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-/** In-app only: the exports panel is one click away, mail would be noise. */
+/** Fires when an async export finishes — the download itself stays behind auth. */
 class ReportReadyNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, RespectsMailPreference;
 
     public function __construct(public ReportExport $export) {}
 
     public function via(object $notifiable): array
     {
-        return ['database', 'broadcast'];
+        return $this->channelsFor($notifiable, NotificationPreferences::REPORT_READY);
+    }
+
+    public function toMail(object $notifiable): MailMessage
+    {
+        $label = __("reports.{$this->export->report_type}");
+
+        return (new MailMessage)
+            ->subject("تقريرك جاهز — {$label}")
+            ->greeting("مرحباً {$notifiable->name}،")
+            ->line("اكتمل تجهيز تقرير «{$label}» بصيغة ".strtoupper($this->export->format).'.')
+            ->action('فتح التقارير', config('app.frontend_url').'/reports')
+            ->line('التحميل متاح من لوحة التصديرات داخل النظام.');
     }
 
     public function broadcastType(): string

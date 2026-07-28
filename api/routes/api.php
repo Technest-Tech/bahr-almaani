@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\LetterheadController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\NotificationPreferenceController;
 use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
@@ -140,5 +141,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::put('/notifications/read', [NotificationController::class, 'markRead']);
         Route::put('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::get('/notification-preferences', [NotificationPreferenceController::class, 'show']);
+        Route::put('/notification-preferences', [NotificationPreferenceController::class, 'update']);
     });
 });

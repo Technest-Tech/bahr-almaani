@@ -39,4 +39,5 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   reports: "التقارير",
   letterheads: "الترويسات والأختام",
   activity: "سجل النشاط",
+  settings: "الإعدادات",
 };

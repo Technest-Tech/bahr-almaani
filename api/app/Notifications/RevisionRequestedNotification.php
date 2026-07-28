@@ -3,6 +3,8 @@
 namespace App\Notifications;
 
 use App\Models\Project;
+use App\Notifications\Concerns\RespectsMailPreference;
+use App\Support\NotificationPreferences;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -10,7 +12,7 @@ use Illuminate\Notifications\Notification;
 
 class RevisionRequestedNotification extends Notification implements ShouldQueue
 {
-    use Queueable;
+    use Queueable, RespectsMailPreference;
 
     public function __construct(
         public Project $project,
@@ -19,7 +21,7 @@ class RevisionRequestedNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail', 'broadcast'];
+        return $this->channelsFor($notifiable, NotificationPreferences::REVISION_REQUESTED);
     }
 
     public function broadcastType(): string
