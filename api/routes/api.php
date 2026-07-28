@@ -70,6 +70,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/projects/{project}', [ProjectController::class, 'show']);
             Route::get('/projects/{project}/timeline', [ProjectController::class, 'timeline']);
             Route::get('/projects/{project}/files/{file}/download', [ProjectFileController::class, 'download']);
+            Route::get('/projects/{project}/final-file', [ProjectFileController::class, 'finalFile']);
         });
 
         Route::middleware('permission:projects.manage')->group(function (): void {
@@ -89,6 +90,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/projects/{project}/review/open', [ReviewController::class, 'open']);
             Route::post('/projects/{project}/review/request-revision', [ReviewController::class, 'requestRevision']);
             Route::post('/projects/{project}/review/approve', [ReviewController::class, 'approve']);
+            Route::post('/projects/{project}/merge/retry', [ReviewController::class, 'retryMerge']);
         });
 
         // Translator portal (M4)
@@ -128,6 +130,7 @@ Route::prefix('v1')->group(function (): void {
         });
 
         Route::middleware('permission:letterheads.manage')->group(function (): void {
+            Route::post('/letterheads/{letterhead}/preview', [LetterheadController::class, 'preview']);
             Route::post('/letterheads', [LetterheadController::class, 'store']);
             Route::put('/letterheads/{letterhead}', [LetterheadController::class, 'update']);
             Route::delete('/letterheads/{letterhead}', [LetterheadController::class, 'destroy']);

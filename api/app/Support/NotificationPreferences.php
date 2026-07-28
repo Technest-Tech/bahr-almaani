@@ -22,6 +22,8 @@ final class NotificationPreferences
 
     public const REPORT_READY = 'report_ready';
 
+    public const MERGE_STATUS = 'merge_status';
+
     /**
      * Family key => [label, description, mail default]. Labels are Arabic because the
      * settings screen renders this list verbatim.
@@ -57,6 +59,11 @@ final class NotificationPreferences
         self::REPORT_READY => [
             'label' => 'جاهزية التقارير',
             'description' => 'عند اكتمال تصدير Excel أو PDF طلبته.',
+            'mail' => true,
+        ],
+        self::MERGE_STATUS => [
+            'label' => 'الملف النهائي',
+            'description' => 'عند اكتمال دمج الترويسة والختم أو فشله.',
             'mail' => true,
         ],
     ];

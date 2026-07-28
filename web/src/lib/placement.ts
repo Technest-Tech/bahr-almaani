@@ -45,3 +45,24 @@ export function placementStyle(placement: Placement): CSSProperties {
 
   return style;
 }
+
+/**
+ * The band a deliverable page is shrunk into, as CSS on the same preview box.
+ *
+ * Mirrors `PlacementConfig::resolveContentRect()` — change both together. Returns
+ * null when the letterhead reserves no band, i.e. the merge is a plain overlay.
+ */
+export function contentBandStyle(placement: Placement): CSSProperties | null {
+  const top = placement.content_top_mm ?? 0;
+  const bottom = placement.content_bottom_mm ?? 0;
+
+  if (top <= 0 && bottom <= 0) return null;
+
+  return {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: percentY(top),
+    height: percentY(A4_MM.height - top - bottom),
+  };
+}

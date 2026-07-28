@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { apiForm, ApiError } from "@/lib/api";
-import { placementStyle } from "@/lib/placement";
+import { contentBandStyle, placementStyle } from "@/lib/placement";
 import {
   PLACEMENT_ANCHOR_LABELS,
   PLACEMENT_LAYER_LABELS,
@@ -54,6 +54,8 @@ const KIND_DEFAULTS: Record<TemplateKind, {
   width_mm: string;
   opacity: string;
   layer: PlacementLayer;
+  content_top_mm: string;
+  content_bottom_mm: string;
 }> = {
   letterhead: {
     pages: "all",
@@ -63,6 +65,8 @@ const KIND_DEFAULTS: Record<TemplateKind, {
     width_mm: "",
     opacity: "1",
     layer: "background",
+    content_top_mm: "0",
+    content_bottom_mm: "0",
   },
   stamp: {
     pages: "last",
@@ -72,6 +76,8 @@ const KIND_DEFAULTS: Record<TemplateKind, {
     width_mm: "45",
     opacity: "1",
     layer: "foreground",
+    content_top_mm: "0",
+    content_bottom_mm: "0",
   },
 };
 
@@ -99,6 +105,8 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
           width_mm: template.placement.width_mm === null ? "" : String(template.placement.width_mm),
           opacity: String(template.placement.opacity),
           layer: template.placement.layer,
+          content_top_mm: String(template.placement.content_top_mm ?? 0),
+          content_bottom_mm: String(template.placement.content_bottom_mm ?? 0),
         }
       : KIND_DEFAULTS.letterhead,
   );
@@ -119,7 +127,16 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
     width_mm: placement.width_mm === "" ? null : Number(placement.width_mm),
     opacity: Number(placement.opacity || 1),
     layer: placement.layer,
+    // Only a letterhead reserves a band; sending it for a stamp would be noise.
+    ...(kind === "letterhead"
+      ? {
+          content_top_mm: Number(placement.content_top_mm || 0),
+          content_bottom_mm: Number(placement.content_bottom_mm || 0),
+        }
+      : {}),
   };
+
+  const bandStyle = kind === "letterhead" ? contentBandStyle(currentPlacement) : null;
 
   /** Switching kind on a fresh upload re-seeds the geometry with that kind's defaults. */
   function changeKind(next: TemplateKind) {
@@ -225,7 +242,7 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
               <>
                 ملف القالب{" "}
                 <span className="text-xs font-normal text-muted-foreground">
-                  PNG أو JPG أو PDF — حتى 10 ميجابايت
+                  PNG أو JPG أو PDF — حتى 25 ميجابايت
                   {template ? " (اتركه فارغاً للإبقاء على الحالي)" : ""}
                 </span>
               </>
@@ -286,6 +303,15 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
                         className="pointer-events-none"
                       />
                     ))}
+                  {bandStyle && (
+                    // The band a deliverable page is shrunk into — everything outside
+                    // it belongs to the letterhead's own header/footer artwork.
+                    <div
+                      style={bandStyle}
+                      title="نطاق النص المترجم"
+                      className="pointer-events-none border-y-2 border-dashed border-emerald-500/70 bg-emerald-500/10"
+                    />
+                  )}
                   <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
                     {ANCHOR_GRID.flat().map((anchor) => (
                       <button
@@ -313,6 +339,11 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
                 <p className="text-center text-[11px] text-muted-foreground">
                   معاينة على ورقة A4
                 </p>
+                {bandStyle && (
+                  <p className="text-center text-[11px] text-emerald-600 dark:text-emerald-400">
+                    المنطقة الخضراء = نطاق النص
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -407,6 +438,50 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
                 </Field>
               </div>
             </div>
+
+            {kind === "letterhead" && (
+              <div className="mt-5 border-t pt-4">
+                <p className="text-sm font-semibold">نطاق النص المترجم</p>
+                <p className="mb-3 text-[13px] text-muted-foreground">
+                  ارتفاع الترويسة والتذييل المطبوعين. تُصغَّر صفحات الترجمة لتقع بينهما،
+                  فلا يتداخل النص مع الشعار أو بيانات المكتب. اتركها صفراً للدمج بدون تصغير.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field
+                    label="ارتفاع الترويسة (مم)"
+                    htmlFor="t-ct"
+                    error={errors["placement.content_top_mm"]?.[0]}
+                  >
+                    <Input
+                      id="t-ct"
+                      type="number"
+                      step="0.5"
+                      min={0}
+                      max={148}
+                      dir="ltr"
+                      value={placement.content_top_mm}
+                      onChange={(e) => setPlace("content_top_mm", e.target.value)}
+                    />
+                  </Field>
+                  <Field
+                    label="ارتفاع التذييل (مم)"
+                    htmlFor="t-cb"
+                    error={errors["placement.content_bottom_mm"]?.[0]}
+                  >
+                    <Input
+                      id="t-cb"
+                      type="number"
+                      step="0.5"
+                      min={0}
+                      max={148}
+                      dir="ltr"
+                      value={placement.content_bottom_mm}
+                      onChange={(e) => setPlace("content_bottom_mm", e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between rounded-xl border p-4">

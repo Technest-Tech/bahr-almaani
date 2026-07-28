@@ -9,7 +9,12 @@ use Illuminate\Validation\Rule;
 
 class StoreLetterheadTemplateRequest extends FormRequest
 {
-    public const MAX_ASSET_KB = 10240; // 10 MB
+    /**
+     * 25 MB: the client's own letterhead is a 17 MB 300dpi scan, and the first cap
+     * (10 MB) was set before we had seen a real one. Merged output is far smaller —
+     * only the page's image stream is embedded, not the whole source file.
+     */
+    public const MAX_ASSET_KB = 25600;
 
     public const ALLOWED_EXTENSIONS = ['png', 'jpg', 'jpeg', 'pdf'];
 
@@ -59,6 +64,9 @@ class StoreLetterheadTemplateRequest extends FormRequest
             'placement.width_mm' => ['sometimes', 'nullable', 'numeric', 'between:1,1000'],
             'placement.opacity' => ['sometimes', 'numeric', 'between:0,1'],
             'placement.layer' => ['sometimes', Rule::in(PlacementConfig::LAYERS)],
+            // Letterhead-only: the band its own header/footer artwork occupies (M9b).
+            'placement.content_top_mm' => ['sometimes', 'numeric', 'between:0,148'],
+            'placement.content_bottom_mm' => ['sometimes', 'numeric', 'between:0,148'],
         ];
     }
 

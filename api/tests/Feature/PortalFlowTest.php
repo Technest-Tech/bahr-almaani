@@ -17,11 +17,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FakesDocumentConversion;
 use Tests\TestCase;
 
 class PortalFlowTest extends TestCase
 {
-    use RefreshDatabase;
+    use FakesDocumentConversion, RefreshDatabase;
 
     private User $pm;
 
@@ -43,6 +44,8 @@ class PortalFlowTest extends TestCase
         $this->seed(RolesAndPermissionsSeeder::class);
         $this->seed(LanguageSeeder::class);
         Storage::fake('local');
+        // Approval runs the real merge on the sync queue; CI has no Gotenberg.
+        $this->fakeGotenberg();
 
         $this->en = Language::where('code', 'en')->firstOrFail();
         $this->ar = Language::where('code', 'ar')->firstOrFail();

@@ -116,7 +116,8 @@ POST /letterheads                (letterheads.manage; multipart: name, kind, ass
                                   is_active, placement JSON)
 PUT|DELETE /letterheads/{id}     (letterheads.manage; asset replacement uses POST + _method=PUT,
                                   delete blocked while a project references the template)
-POST /letterheads/{id}/preview   (render sample merge on a test page — ships with the merge, M9b)
+POST /letterheads/{id}/preview   (letterheads.manage; renders the template over a
+                                  two-page Arabic specimen and returns the PDF inline)
 ```
 
 `placement` (normalized on write by `App\Support\PlacementConfig`, physical page geometry in mm):
@@ -124,6 +125,19 @@ POST /letterheads/{id}/preview   (render sample merge on a test page — ships w
 pages: all|first|last · anchor: {top|middle|bottom}-{left|center|right}
 offset_x_mm · offset_y_mm · width_mm (null = full page width) · opacity · layer: background|foreground
 ```
+
+Letterheads carry two extra keys describing the band their own artwork occupies:
+```
+content_top_mm · content_bottom_mm     (default 0 = overlay only, no reflow)
+```
+When either is set, `MergeFinalFileJob` scales each deliverable page down to fit
+between them, so translated text can never land on the header/footer artwork.
+`PlacementConfig::resolveContentRect()` computes it; `web/src/lib/placement.ts`
+(`contentBandStyle`) mirrors it for the admin preview — **change both together**.
+
+Stamp assets are trimmed to their ink bounding box on upload
+(`App\Support\ImageTrimmer`): offices scan a stamp on a full sheet, and without the
+trim `width_mm` would size the *paper* rather than the stamp.
 
 ### M10 — Notifications
 ```
@@ -134,8 +148,8 @@ GET|PUT /notification-preferences     (personal — no permission gate)
 Preferences switch the **mail channel only**; `database` (the bell, system of record) and
 `broadcast` (live toast) are always on. Families are registered in
 `App\Support\NotificationPreferences` — `project_available`, `project_delivered`,
-`revision_requested`, `project_withdrawn`, `deadline_alerts`, `report_ready` — all
-defaulting to mail-on. A missing row means "default", so `PUT` takes a partial map:
+`revision_requested`, `project_withdrawn`, `deadline_alerts`, `report_ready`,
+`merge_status` (M9b: final file ready / merge failed) — all defaulting to mail-on. A missing row means "default", so `PUT` takes a partial map:
 ```
 PUT  { "preferences": { "deadline_alerts": false } }
 GET  { "data": {family: bool, …}, "families": [{key, label, description}, …] }
@@ -148,6 +162,6 @@ new notification classes must do the same or they silently bypass the opt-out.
 | Job | Trigger | Does |
 |---|---|---|
 | `CountWordsJob` | source file uploaded | DOCX → parse XML (PHPWord); readable PDF → pdftotext; scanned → mark `not_applicable`, prompt manual count |
-| `MergeFinalFileJob` | approve transition | deliverable → PDF via Gotenberg → overlay letterhead (FPDI) + stamp per `placement` config → store as `final` file → transition to `completed` |
+| `MergeFinalFileJob` | approve transition | deliverable → PDF via Gotenberg (PDFs pass through untouched) → FPDI redraw: letterhead behind, deliverable page scaled into the content band, stamp on top → store as `final` file → transition to `completed`. On failure the project **stays `approved`** with `merge_error` set and PM+admin notified; `POST /projects/{id}/merge/retry` re-runs it |
 | `GenerateReportJob` | export request | build xlsx (Laravel Excel) / PDF, store, notify requester |
 | `DeadlineScannerCommand` | scheduler (5 min) | flag due-soon/late, fire one-time notifications per escalation level |

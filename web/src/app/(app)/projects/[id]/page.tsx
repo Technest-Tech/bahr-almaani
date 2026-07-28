@@ -131,6 +131,16 @@ export default function ProjectDetailPage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
+  /** M9b — re-run the letterhead merge after a failure; the project stays `approved`. */
+  const retryMergeMutation = useMutation({
+    mutationFn: () => api(`/projects/${id}/merge/retry`, { method: "POST" }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("أُعيد تشغيل الدمج — سيظهر الملف النهائي بعد اكتماله");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
+  });
+
   const reviewAction = useMutation({
     mutationFn: ({ action, note }: { action: string; note?: string }) =>
       api(`/projects/${id}/review/${action}`, { method: "POST", json: note ? { note } : undefined }),
@@ -266,6 +276,20 @@ export default function ProjectDetailPage() {
             </Button>
           )}
 
+          {project.status === "completed" && (
+            <Button
+              onClick={() =>
+                downloadFile(
+                  `/projects/${project.id}/final-file`,
+                  `${project.code}-final.pdf`,
+                )
+              }
+            >
+              <FileCheck2 className="size-4" />
+              تحميل الملف النهائي
+            </Button>
+          )}
+
           {canManage && project.status === "completed" && (
             <Button
               variant="outline"
@@ -352,6 +376,35 @@ export default function ProjectDetailPage() {
           <CardContent className="text-sm">
             <p className="mb-1 text-xs font-semibold text-destructive">سبب الإلغاء</p>
             {project.cancel_reason}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* M9b — the merge failed: the project holds at `approved` until someone retries. */}
+      {project.status === "approved" && project.merge_error && (
+        <Card className="border-destructive/30 bg-destructive/5 py-4">
+          <CardContent className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                <AlertTriangle className="size-3.5" />
+                تعذّر إصدار الملف النهائي
+                {project.merge_attempts > 1 && ` — ${project.merge_attempts} محاولات`}
+              </p>
+              <p dir="ltr" className="truncate text-start text-muted-foreground">
+                {project.merge_error}
+              </p>
+            </div>
+            {canReview && (
+              <Button
+                variant="outline"
+                className="shrink-0"
+                loading={retryMergeMutation.isPending}
+                onClick={() => retryMergeMutation.mutate()}
+              >
+                <RotateCcw className="size-4" />
+                إعادة محاولة الدمج
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

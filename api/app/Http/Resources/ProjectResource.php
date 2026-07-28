@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use App\Models\Assignment;
 use App\Models\Project;
+use App\Models\ProjectFile;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -34,6 +35,13 @@ class ProjectResource extends JsonResource
             'cancelled_at' => $this->cancelled_at?->toIso8601String(),
             'cancel_reason' => $this->cancel_reason,
             'created_at' => $this->created_at?->toIso8601String(),
+            // M9b: an approved project with a merge_error is waiting for a retry.
+            'merge_error' => $this->merge_error,
+            'merge_attempts' => (int) $this->merge_attempts,
+            'has_final_file' => $this->whenLoaded(
+                'files',
+                fn (): bool => $this->files->contains('category', ProjectFile::CATEGORY_FINAL),
+            ),
             'client' => ClientResource::make($this->whenLoaded('client')),
             'source_language' => LanguageResource::make($this->whenLoaded('sourceLanguage')),
             'target_language' => LanguageResource::make($this->whenLoaded('targetLanguage')),

@@ -2,3 +2,6 @@
 *.log
 .idea/
 .vscode/
+
+# Client-supplied artwork: real legal stamp + handwritten signature. Never commit.
+/samples/

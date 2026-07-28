@@ -2,9 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Layers, Pencil, Plus, Stamp, Trash2 } from "lucide-react";
+import { FileSearch, Layers, Pencil, Plus, Stamp, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, openRendered } from "@/lib/api";
 import {
   PLACEMENT_ANCHOR_LABELS,
   PLACEMENT_LAYER_LABELS,
@@ -34,6 +34,10 @@ function placementSummary(template: LetterheadTemplate): string {
   ];
   if (placement.opacity < 1) parts.push(`شفافية ${Math.round(placement.opacity * 100)}٪`);
 
+  const top = placement.content_top_mm ?? 0;
+  const bottom = placement.content_bottom_mm ?? 0;
+  if (top > 0 || bottom > 0) parts.push(`نطاق النص ${top}/${bottom} مم`);
+
   return parts.join(" · ");
 }
 
@@ -42,8 +46,21 @@ export default function LetterheadsPage() {
   const { confirm } = useConfirm();
   const queryClient = useQueryClient();
   const [formTemplate, setFormTemplate] = useState<LetterheadTemplate | null | "new">(null);
+  const [previewingId, setPreviewingId] = useState<number | null>(null);
 
   const canManage = can("letterheads.manage");
+
+  /** Renders this template over a specimen page and opens the PDF (M9b). */
+  async function previewMerge(template: LetterheadTemplate) {
+    setPreviewingId(template.id);
+    try {
+      await openRendered(`/letterheads/${template.id}/preview`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "تعذر إنشاء المعاينة");
+    } finally {
+      setPreviewingId(null);
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: ["letterheads"],
@@ -200,6 +217,15 @@ export default function LetterheadsPage() {
                             فعّال
                           </label>
                           <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              title="معاينة الدمج على صفحة نموذجية"
+                              loading={previewingId === template.id}
+                              onClick={() => previewMerge(template)}
+                            >
+                              <FileSearch className="size-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon-sm"

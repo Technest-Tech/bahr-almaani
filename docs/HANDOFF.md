@@ -114,6 +114,19 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
 - Docker CLI on this machine needs `/Applications/Docker.app/Contents/Resources/bin` on
   PATH or every build fails with `docker-credential-desktop: executable file not found`.
 - `vendor/bin/pint --test` now gates CI. Run `vendor/bin/pint` before committing.
+- **FPDI needs classic TCPDF 6.x** — `tecnickcom/tcpdf:^7` is the rewritten `tc-lib-pdf`
+  API and blows up with `unable to read file: helvetica.json`. Pin `^6.6`.
+- Ports 8000 and 3000 are taken by *other* projects on this machine (ZadAcademy on
+  8000, an Azhary site on 3000). Serve this API on **8001** and the web on **3001**
+  (`npm run dev -- --port 3001`), and pass `NEXT_PUBLIC_API_URL` at start rather than
+  editing `web/.env.local`. A playwright run against the wrong port silently
+  screenshots someone else's site — always confirm the app in the shot is ours.
+- `/auth/login` is throttled 5/min; smoke scripts must cache tokens or they lock out.
+- `Http::fake()` calls **merge**, and the first matching stub wins — a stub registered
+  in `setUp()` shadows a per-test override unless the body is resolved lazily
+  (see `Tests\Concerns\FakesDocumentConversion`).
+- `headless_shell` has no PDF plugin, so PDF-backed template previews render as an
+  empty box in screenshots. Not a bug — check PNG templates when verifying visually.
 
 ## 6. State at handoff (git log tells the story)
 
@@ -156,12 +169,7 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
 
 1. ~~**M9a — letterheads & stamps, everything except the merge**~~ **SHIPPED**:
    CRUD API + admin gallery + approval selection are live (see §8).
-2. **M9b — the real merge (BLOCKED on client sample)**: when Ahmed hands over the
-   sample, spike `MergeFinalFileJob` per docs/03 M9 table: deliverable → PDF via
-   Gotenberg → FPDI overlay of letterhead + stamp per placement → `final` file.
-   Everything it needs is already in place — see §8 for the seam and the geometry
-   contract. `POST /letterheads/{id}/preview` (docs/03 M9) is deliberately NOT built
-   yet: it renders a sample merge, so it lands with M9b.
+2. ~~**M9b — the real merge**~~ **SHIPPED** — see §9. M9 (11k EGP) is now complete.
    Everything else in Sprint 4 shipped: dashboard KPIs (M6), reports + Excel/PDF
    exports (M7), activity-log UI (M8), Meilisearch search + server-side sorting.
 3. **M12 external half (waiting on Ahmed, nothing else blocks it)**:
@@ -216,3 +224,41 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
   `_method=PUT` (both the UI and the tests do this); and a multipart test request
   must send `Accept: application/json` or validation failures come back as a 302
   redirect instead of 422.
+
+## 9. M9b — the merge (SHIPPED, verified against the client's real artwork)
+
+**Pipeline** (`App\Services\DocumentMergeService`, run by `App\Jobs\MergeFinalFileJob`
+which replaced `FinalizeProjectJob`): deliverable → PDF via Gotenberg
+`/forms/libreoffice/convert` (a PDF deliverable passes through untouched — re-rendering
+it rasterises Arabic shaping) → FPDI redraw per page: **letterhead behind → deliverable
+page scaled into the content band → stamp on top** → stored as the `final` file →
+`approved → completed` via `ProjectTransitionService`.
+
+**What the client actually supplied** (`samples/`, gitignored — real legal stamp and
+handwritten signature, never commit them):
+- `letterhead-bahr-almaaani.pdf` — A4 300dpi scan, 17 MB. Header artwork **0–33 mm**,
+  footer **270–297 mm**, faint globe watermark between. Safe text band = **33→270 mm**.
+- `stamp-signature-*.png` — four A4 canvases, already background-removed (~1% opaque),
+  each carrying the round stamp (**49.8 mm**) plus the signature to its left. The
+  position differs per sheet because they are hand-stamped.
+
+**Decisions taken** (Ahmed: "go with your recommendations"):
+- Stamp and signature stay **one asset**, trimmed to their ink box on upload.
+- Deliverable pages are **shrunk into the content band** rather than overlaid raw.
+- Letterhead and stamp on **all pages**; the asset size cap moved 10 MB → **25 MB**
+  because the client's own letterhead is 17 MB.
+- Real placement that produced a correct document: letterhead
+  `content_top_mm 33 / content_bottom_mm 27`; stamp `bottom-right, width_mm 155,
+  offset_x 12, offset_y 30`. **`width_mm` must be the asset's true physical size**
+  (px ÷ 300 dpi × 25.4) or the stamp renders at the wrong scale — sizing it at 78 mm
+  halved the disc and dropped it into the footer.
+
+**Verified, not assumed**: full review cycle through the real stack (publish → claim →
+deliver Arabic DOCX → review → approve → merge → download), then the merged PDF was
+rendered and read page by page — Arabic shaping correct, letterhead behind the text,
+text clear of header and footer, stamp legible at true size. Final files run ~3 MB
+because the letterhead scan is embedded (once, not per page).
+
+**Open question for the client**: on a text-dense page the all-pages stamp overlaps
+the last few lines (real certified practice, but a legibility trade-off).
+`pages: last` in the template dialog is a one-field change if they prefer it.

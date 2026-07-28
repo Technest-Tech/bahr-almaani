@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Requests\StoreLetterheadTemplateRequest;
 use App\Models\Language;
 use App\Models\LetterheadTemplate;
 use App\Models\Project;
@@ -102,10 +103,16 @@ class LetterheadTemplateTest extends TestCase
             'asset' => UploadedFile::fake()->create('template.docx', 12, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
         ])->assertUnprocessable()->assertJsonValidationErrors('asset');
 
+        // Track the constant, not a literal — the cap moved to 25 MB once the
+        // client's own 17 MB letterhead scan turned up (M9b).
         $this->asJson($this->admin)->post('/api/v1/letterheads', [
             'name' => 'ملف ضخم',
             'kind' => 'letterhead',
-            'asset' => UploadedFile::fake()->create('huge.pdf', 10241, 'application/pdf'),
+            'asset' => UploadedFile::fake()->create(
+                'huge.pdf',
+                StoreLetterheadTemplateRequest::MAX_ASSET_KB + 1,
+                'application/pdf',
+            ),
         ])->assertUnprocessable()->assertJsonValidationErrors('asset');
 
         $this->asJson($this->admin)->post('/api/v1/letterheads', [

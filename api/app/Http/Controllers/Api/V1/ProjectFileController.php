@@ -98,4 +98,23 @@ class ProjectFileController extends Controller
 
         return Storage::disk('local')->download($file->disk_path, $file->original_name);
     }
+
+    /**
+     * M9b — the merged letterheaded deliverable (docs/03 M5).
+     *
+     * Shortcut past the file id so the client can link straight to "the final file"
+     * without first reading the project's file list.
+     */
+    public function finalFile(Project $project): StreamedResponse
+    {
+        $final = $project->files()
+            ->where('category', ProjectFile::CATEGORY_FINAL)
+            ->latest('id')
+            ->first();
+
+        abort_if($final === null, 404, __('projects.final_file_missing'));
+        abort_unless(Storage::disk('local')->exists($final->disk_path), 404, __('projects.final_file_missing'));
+
+        return Storage::disk('local')->download($final->disk_path, $final->original_name);
+    }
 }

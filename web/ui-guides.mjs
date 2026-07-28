@@ -150,7 +150,7 @@ try {
   // ── translator ───────────────────────────────────────────────────────────
   {
     console.log("translator1@bahr.local");
-    const { context, page, token } = await contextFor("translator1@bahr.local");
+    const { context, page } = await contextFor("translator1@bahr.local");
 
     await go(page, "/portal", 2000);
     await shot(page, "translator-portal");

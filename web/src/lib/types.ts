@@ -83,6 +83,9 @@ export interface Placement {
   width_mm: number | null;
   opacity: number;
   layer: PlacementLayer;
+  /** Letterheads only: the band their own header/footer artwork occupies (M9b). */
+  content_top_mm?: number;
+  content_bottom_mm?: number;
 }
 
 export interface LetterheadTemplate {
@@ -211,6 +214,10 @@ export interface Project {
   completed_at: string | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
+  /** M9b: set while an approved project's letterhead merge is failing. */
+  merge_error: string | null;
+  merge_attempts: number;
+  has_final_file?: boolean;
   created_at: string;
   client?: Client | null;
   source_language?: Language;

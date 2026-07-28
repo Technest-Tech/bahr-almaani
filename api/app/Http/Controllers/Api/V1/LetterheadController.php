@@ -6,10 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreLetterheadTemplateRequest;
 use App\Http\Resources\LetterheadTemplateResource;
 use App\Models\LetterheadTemplate;
+use App\Services\DocumentMergeService;
+use App\Support\ImageTrimmer;
 use App\Support\PlacementConfig;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -50,7 +54,7 @@ class LetterheadController extends Controller
         $template = LetterheadTemplate::create([
             'name' => $validated['name'],
             'kind' => $kind,
-            'disk_path' => $request->file('asset')->store('letterheads', 'local'),
+            'disk_path' => $this->storeAsset($request->file('asset'), $kind),
             'placement' => PlacementConfig::normalize($validated['placement'] ?? null, $kind),
             'is_active' => $validated['is_active'] ?? true,
             'created_by' => $request->user()->id,
@@ -77,7 +81,7 @@ class LetterheadController extends Controller
 
         if ($request->hasFile('asset')) {
             $previousPath = $letterhead->disk_path;
-            $attributes['disk_path'] = $request->file('asset')->store('letterheads', 'local');
+            $attributes['disk_path'] = $this->storeAsset($request->file('asset'), $letterhead->kind);
             Storage::disk('local')->delete($previousPath);
         }
 
@@ -106,6 +110,52 @@ class LetterheadController extends Controller
             basename($letterhead->disk_path),
             ['Cache-Control' => 'private, max-age=300'],
         );
+    }
+
+    /**
+     * M9b — render this template over a specimen page so the admin can judge the
+     * placement before any real project uses it.
+     *
+     * The specimen is Arabic on purpose: it is the fastest way to catch a stamp that
+     * lands on the text or a content band that crops the last line.
+     */
+    public function preview(LetterheadTemplate $letterhead, DocumentMergeService $merger): Response
+    {
+        abort_unless(Storage::disk('local')->exists($letterhead->disk_path), 404);
+
+        $letterheadTemplate = $letterhead->kind === LetterheadTemplate::KIND_LETTERHEAD ? $letterhead : null;
+        $stampTemplate = $letterhead->kind === LetterheadTemplate::KIND_STAMP ? $letterhead : null;
+
+        $specimen = $merger->specimenPdf();
+
+        try {
+            $pdf = $merger->merge($specimen, $letterheadTemplate, $stampTemplate);
+        } finally {
+            @unlink($specimen);
+        }
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="preview.pdf"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    /**
+     * Store the asset, trimming the dead paper off stamp scans.
+     *
+     * A stamp is almost always scanned on a full sheet; without the trim, `width_mm`
+     * would size the sheet rather than the stamp (see App\Support\ImageTrimmer).
+     */
+    private function storeAsset(UploadedFile $asset, string $kind): string
+    {
+        $path = $asset->store('letterheads', 'local');
+
+        if ($kind === LetterheadTemplate::KIND_STAMP) {
+            ImageTrimmer::trim(Storage::disk('local')->path($path));
+        }
+
+        return $path;
     }
 
     private function withUsage(LetterheadTemplate $template): LetterheadTemplate

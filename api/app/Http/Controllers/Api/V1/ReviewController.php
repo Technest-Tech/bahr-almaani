@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProjectResource;
-use App\Jobs\FinalizeProjectJob;
+use App\Jobs\MergeFinalFileJob;
 use App\Models\Assignment;
 use App\Models\LetterheadTemplate;
 use App\Models\Project;
@@ -81,9 +81,30 @@ class ReviewController extends Controller
             return $this->transitions->transition($project, Project::STATUS_APPROVED, $request->user());
         });
 
-        FinalizeProjectJob::dispatch($project);
+        MergeFinalFileJob::dispatch($project);
 
         return $this->fresh($project);
+    }
+
+    /**
+     * Re-run the merge after a failure (docs/02 edge case 3 — never silently completes).
+     *
+     * Only meaningful while the project is still `approved`: a completed project already
+     * has its final file, and anything earlier has no approved deliverable to merge.
+     */
+    public function retryMerge(Request $request, Project $project): ProjectResource
+    {
+        abort_unless(
+            $project->status === Project::STATUS_APPROVED,
+            422,
+            __('projects.merge_retry_not_applicable'),
+        );
+
+        $project->forceFill(['merge_error' => null])->saveQuietly();
+
+        MergeFinalFileJob::dispatch($project);
+
+        return $this->fresh($project->fresh());
     }
 
     private function fresh(Project $project): ProjectResource

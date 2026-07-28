@@ -11,6 +11,8 @@ return [
     'source_upload_draft_only' => 'Work files can only be added while in draft.',
     'file_delete_draft_only' => 'Files can only be deleted while in draft.',
     'manual_count_not_applicable' => 'Manual counting is only available for files that could not be counted automatically.',
+    'merge_retry_not_applicable' => 'The merge can only be retried on approved projects whose final file has not been issued.',
+    'final_file_missing' => 'This project has no final file yet.',
     'status' => [
         'draft' => 'Draft',
         'available' => 'Available',

@@ -109,3 +109,22 @@ export async function downloadFile(path: string, filename: string): Promise<void
   anchor.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * POST that returns a document, opened in a new tab (M9b letterhead preview).
+ *
+ * The object URL is kept alive deliberately — revoking it immediately would blank
+ * the tab that just opened it. The browser reclaims it when the tab closes.
+ */
+export async function openRendered(path: string): Promise<void> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/pdf",
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
+  });
+  if (!response.ok) throw new ApiError(response.status, "تعذر إنشاء المعاينة");
+
+  window.open(URL.createObjectURL(await response.blob()), "_blank", "noopener");
+}
