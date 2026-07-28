@@ -36,7 +36,9 @@ export default function SettingsPage() {
     queryFn: () => api<PreferencesResponse>("/notification-preferences"),
   });
 
-  const saved = data?.data ?? {};
+  // Memoised off `data` rather than a fresh `?? {}` literal, which would be a new
+  // object every render and defeat the memo below.
+  const saved = useMemo(() => data?.data ?? {}, [data]);
   const current = useMemo(() => ({ ...saved, ...draft }), [saved, draft]);
   const changed = Object.keys(draft).filter((key) => draft[key] !== saved[key]);
 
