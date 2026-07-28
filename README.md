@@ -15,6 +15,12 @@ automatic time tracking, word/page counting, letterhead & stamp merging, reporti
 | [docs/02-state-machine.md](docs/02-state-machine.md) | Project lifecycle, transition permission matrix, business rules |
 | [docs/03-modules-and-api.md](docs/03-modules-and-api.md) | Module breakdown (mapped to contract items), API contract |
 | [docs/04-sprint-plan.md](docs/04-sprint-plan.md) | 8-week / 4-sprint delivery plan with demo milestones |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production runbook: droplet setup, TLS, deploy, rollback, backups |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | Session handoff — decisions, gotchas, what's next |
+
+**User guides (Arabic, screenshot-illustrated)** — the M12 training deliverable:
+[دليل مدير النظام](docs/guide-admin.md) · [دليل مدير المشاريع](docs/guide-pm.md) ·
+[دليل المترجم](docs/guide-translator.md)
 
 Source requirements (client documents, Arabic): `requirments.pdf`, `وثيقة مواصفات نظام إدارة خدمات الترجمة (1).docx`, `translation_system_proposal (1).xlsx`
 
@@ -47,4 +53,17 @@ npm run dev
 cd api && php artisan test
 ```
 
+Full dev stack is four processes: `php artisan serve`, `php artisan reverb:start` (:8080),
+`php artisan queue:work`, and `npm run dev` from `web/`.
+
 **Port notes for this machine:** host Postgres port is **5434** and Gotenberg is **3300** because 5432/5433/3030 are taken by other local projects.
+
+## Production
+
+```bash
+cp .env.production.example .env   # every key documented in Arabic
+docker compose -f docker-compose.prod.yml up -d --build
+./deploy.sh                       # subsequent deploys
+```
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full runbook.
