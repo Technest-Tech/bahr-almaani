@@ -172,15 +172,34 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
 2. ~~**M9b — the real merge**~~ **SHIPPED** — see §9. M9 (11k EGP) is now complete.
    Everything else in Sprint 4 shipped: dashboard KPIs (M6), reports + Excel/PDF
    exports (M7), activity-log UI (M8), Meilisearch search + server-side sorting.
-3. **M12 external half (waiting on Ahmed, nothing else blocks it)**:
-   a. GitHub remote — he supplies the repo URL/org; push `main`, then watch the first
-      Actions run and fix whatever the runner surfaces (three jobs: PHPUnit+Pint,
-      Next build, production image builds).
-   b. Staging droplet — he supplies SSH + domain. Then: clone to
+3. **M12 external half**:
+   a. ~~GitHub remote~~ **DONE** — `origin = git@github.com:Technest-Tech/bahr-almaani.git`,
+      `main` pushed, CI green on three jobs (API PHPUnit+Pint on Postgres, Web
+      lint+build, prod image builds) with **zero annotations** as of `997cefd`.
+      Push after every commit and watch the run (`gh run watch`).
+   b. **Staging droplet (waiting on Ahmed — SSH + domain)**. Then: clone to
       `/var/www/bahr-almaaani`, fill `.env` from `.env.production.example`, run the
       first-time steps in `docs/DEPLOYMENT.md`, issue TLS, and finish with
       `cd web && BASE=https://<domain> node ops-prod-smoke.mjs`.
+   c. UAT week with real staff + the recorded training session still follow the deploy.
    Provision nothing cloud-side without him.
+
+3b. **In-scope hardening still owed** (docs/04 Sprint 4 line 49 — these are inside the
+   85k, do NOT bill them):
+   - **Backup automation + restore drill** — not built. `docs/DEPLOYMENT.md` documents
+     a manual `pg_dump` only, and the `storage` volume (uploads, letterhead assets,
+     final files) is in no backup path at all.
+   - **Sentry** — named in the docs/00 stack table and the Sprint 1 deliverables,
+     absent from both `composer.json` and `package.json`.
+   - **Default 60/min rate limit** (docs/03 API conventions). Login 5/min and claim
+     10/min *are* live.
+   Backups and Sentry need nothing from Ahmed and can be done any time.
+
+3c. **Two architecture deviations never formally decided**: storage is a local Docker
+   volume rather than the S3/DO Spaces in docs/00, and downloads stream through the
+   API rather than presigned URLs. Fine for one VPS; worth a deliberate call before
+   thousands of files land on it. Migrating to S3 is **in scope** (docs/00 specified
+   it), not an upsell.
 4. ~~**Polish backlog**~~ **DONE**: server-side sorting for the clients + users tables (copy the
    controlled-sorting pattern already used by projects), a `completed → archived`
    button on the project detail page (`projects.manage` — the transition exists in
@@ -192,6 +211,41 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
    dashboard is actually wanted.
 6. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
    (totals said 5k/45k/50k instead of 85k/125k/210k) — remind him before it goes to the client.
+
+7. **Open questions for the client** (raised 2026-07-28, not yet answered):
+   - **Stamp on every page vs. last page only.** Default is every page, matching the
+     four hand-stamped sheets they supplied. On a text-dense page the stamp overlaps
+     the last few lines — real certified practice, but a legibility trade-off.
+     `pages: last` is a one-field change in the template dialog.
+   - **Is there a digital original of the letterhead?** Theirs is a 17 MB 300dpi scan;
+     it adds ~3 MB to every final file. A vector/high-res original would be better.
+   - The stamp and footer are Abu Dhabi/UAE (Reg. No. 416, +971) while docs/00
+     describes an Egyptian office — confirm that's the right entity.
+
+## 7b. Scope: what is inside the 85k vs. billable (settled with Ahmed 2026-07-28)
+
+Ahmed is the **vendor** here (Technest) — he prices and bills the client, so scoping
+questions are commercial, not just technical. Keep these three groups straight.
+
+**Already agreed as a later paid phase** (named in docs/00 + §1): OCR for scanned
+documents, translation memory, machine translation / AI assistant.
+
+**Out of scope, surfaced during the build** — genuine change requests:
+pricing/quotation engine (a rate card turning the word count into `quoted_amount` —
+today the PM types the figure by hand, and no rate config exists anywhere);
+client-facing portal (`Client` is a plain record with no login; the four personas are
+Admin/PM/Translator/Accountant); invoicing & payments (no invoice/payment model
+exists); reports beyond the fixed catalog (docs/00 says so outright); SMS/WhatsApp
+notifications (channels are database + mail + broadcast only); multi-tenancy
+activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app.
+
+**NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
+
+Word counting itself (the client's "ثالثاً" requirement) is **delivered** inside M3:
+auto count on upload, Arabic-aware, manual fallback for scans, `count_source` audit
+trail. Only the "تسعير فوري" (instant pricing) clause is unbuilt — that's the pricing
+engine above, and the client's own text frames pricing as an *effect* of counting
+rather than a deliverable, so it was never scoped or priced.
 
 ## 8. M9a — what shipped, and where M9b plugs in
 
