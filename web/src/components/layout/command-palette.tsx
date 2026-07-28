@@ -16,6 +16,7 @@ import {
 import { NAV_ITEMS } from "@/components/layout/nav";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { looseMatch } from "@/lib/format";
 import type { Client, Paginated, Project, User } from "@/lib/types";
 
 function useDebounced<T>(value: T, delay = 250): T {
@@ -71,6 +72,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     router.push(href);
   }
 
+  const navItems = NAV_ITEMS.filter((item) => !item.permission || can(item.permission)).filter(
+    (item) => looseMatch(item.label, q),
+  );
+
   return (
     <CommandDialog
       open={open}
@@ -87,16 +92,16 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       <CommandList>
         <CommandEmpty>لا توجد نتائج</CommandEmpty>
 
-        <CommandGroup heading="التنقل">
-          {NAV_ITEMS.filter((item) => !item.permission || can(item.permission))
-            .filter((item) => !q || item.label.includes(q))
-            .map((item) => (
+        {!!navItems.length && (
+          <CommandGroup heading="التنقل">
+            {navItems.map((item) => (
               <CommandItem key={item.href} value={`nav-${item.href}`} onSelect={() => go(item.href)}>
                 <item.icon className="size-4" />
                 {item.label}
               </CommandItem>
             ))}
-        </CommandGroup>
+          </CommandGroup>
+        )}
 
         {!!projects?.length && (
           <>

@@ -17,6 +17,8 @@ class SearchAndSortingTest extends TestCase
 
     private User $pm;
 
+    private User $admin;
+
     private Client $client;
 
     protected function setUp(): void
@@ -27,6 +29,10 @@ class SearchAndSortingTest extends TestCase
 
         $this->pm = User::factory()->create();
         $this->pm->syncRoles(['project_manager']);
+
+        // The PM role has no users.view — user sorting is an admin surface.
+        $this->admin = User::factory()->create();
+        $this->admin->syncRoles(['admin']);
 
         $this->client = Client::create([
             'name' => 'مؤسسة الأمانة الدولية',
@@ -103,12 +109,49 @@ class SearchAndSortingTest extends TestCase
         $this->assertSame(['قريب', 'متوسط', 'بعيد'], $titles);
     }
 
+    public function test_clients_sort_server_side_including_project_counts(): void
+    {
+        $busy = Client::create(['name' => 'ألف', 'type' => 'company', 'created_by' => $this->pm->id]);
+        Client::create(['name' => 'ياء', 'type' => 'individual', 'created_by' => $this->pm->id]);
+        $this->makeProject(['client_id' => $busy->id]);
+        $this->makeProject(['client_id' => $busy->id]);
+
+        $names = fn (string $query) => collect(
+            $this->actingAs($this->pm, 'sanctum')->getJson("/api/v1/clients?{$query}")->assertOk()->json('data'),
+        )->pluck('name')->all();
+
+        $this->assertSame('ألف', $names('sort=name&dir=asc')[0]);
+        $this->assertSame('ياء', $names('sort=name&dir=desc')[0]);
+        // Counting projects proves the sort reaches past the current page's rows.
+        $this->assertSame('ألف', $names('sort=projects_count&dir=desc')[0]);
+    }
+
+    public function test_users_sort_server_side(): void
+    {
+        User::factory()->create(['name' => 'أحمد', 'last_login_at' => now()->subDays(5)]);
+        User::factory()->create(['name' => 'زياد', 'last_login_at' => now()->subDay()]);
+
+        $names = fn (string $query) => collect(
+            $this->actingAs($this->admin, 'sanctum')->getJson("/api/v1/users?{$query}")->assertOk()->json('data'),
+        )->pluck('name')->all();
+
+        // Relative order only — the seeded PM/admin carry factory-random names.
+        $byName = $names('sort=name&dir=asc');
+        $this->assertLessThan(array_search('زياد', $byName), array_search('أحمد', $byName));
+
+        $byLogin = $names('sort=last_login_at&dir=desc');
+        $this->assertLessThan(array_search('أحمد', $byLogin), array_search('زياد', $byLogin));
+    }
+
     public function test_unknown_sort_column_falls_back_safely(): void
     {
         $this->makeProject();
+        Client::create(['name' => 'عميل', 'type' => 'individual', 'created_by' => $this->pm->id]);
 
-        $this->actingAs($this->pm, 'sanctum')
-            ->getJson('/api/v1/projects?sort=evil_column;drop--&dir=asc')
-            ->assertOk();
+        foreach (['projects', 'clients', 'users'] as $resource) {
+            $this->actingAs($this->admin, 'sanctum')
+                ->getJson("/api/v1/{$resource}?sort=evil_column;drop--&dir=asc")
+                ->assertOk();
+        }
     }
 }

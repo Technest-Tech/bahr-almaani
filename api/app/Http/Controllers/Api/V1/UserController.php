@@ -24,7 +24,15 @@ class UserController extends Controller
             })
             ->when($request->filled('role'), fn ($query) => $query->role($request->string('role')->toString()))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
-            ->orderByDesc('created_at')
+            ->tap(function ($query) use ($request): void {
+                // Server-side sorting: the whole result set, not just the current page.
+                $sortable = ['name', 'email', 'status', 'last_login_at', 'created_at'];
+                $sort = $request->string('sort')->toString();
+                $query->orderBy(
+                    in_array($sort, $sortable, true) ? $sort : 'created_at',
+                    $request->string('dir')->toString() === 'asc' ? 'asc' : 'desc',
+                );
+            })
             ->paginate(min($request->integer('per_page', 15), 100));
 
         return UserResource::collection($users);

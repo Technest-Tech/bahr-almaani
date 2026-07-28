@@ -106,6 +106,39 @@ class ProjectLifecycleTest extends TestCase
             ->assertJsonPath('data.cancel_reason', 'ألغى العميل الطلب');
     }
 
+    public function test_completed_project_can_be_archived(): void
+    {
+        $project = $this->createDraft();
+        $project->update(['status' => Project::STATUS_COMPLETED]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/archive")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'archived');
+
+        // Archiving is the terminal step — it cannot be repeated or undone.
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/archive")
+            ->assertStatus(422);
+    }
+
+    public function test_only_completed_projects_can_be_archived(): void
+    {
+        $project = $this->createDraft();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/archive")
+            ->assertStatus(422);
+
+        $translator = User::factory()->create();
+        $translator->syncRoles(['translator']);
+        $project->update(['status' => Project::STATUS_COMPLETED]);
+
+        $this->actingAs($translator, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/archive")
+            ->assertForbidden();
+    }
+
     public function test_invalid_transition_is_rejected(): void
     {
         $project = $this->createDraft();

@@ -152,6 +152,14 @@ class ProjectController extends Controller
         return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
     }
 
+    /** completed → archived: file the project away once the client has taken delivery. */
+    public function archive(Request $request, Project $project): ProjectResource
+    {
+        $project = $this->transitions->transition($project, Project::STATUS_ARCHIVED, $request->user());
+
+        return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
+    }
+
     /** Any cancellable state → cancelled. Reason is mandatory. */
     public function cancel(Request $request, Project $project): ProjectResource
     {

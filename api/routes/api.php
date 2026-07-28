@@ -76,6 +76,7 @@ Route::prefix('v1')->group(function (): void {
             Route::put('/projects/{project}', [ProjectController::class, 'update']);
             Route::post('/projects/{project}/publish', [ProjectController::class, 'publish']);
             Route::post('/projects/{project}/cancel', [ProjectController::class, 'cancel']);
+            Route::post('/projects/{project}/archive', [ProjectController::class, 'archive']);
             Route::post('/projects/{project}/withdraw', [ProjectController::class, 'withdraw']);
             Route::post('/projects/{project}/files', [ProjectFileController::class, 'store']);
             Route::delete('/projects/{project}/files/{file}', [ProjectFileController::class, 'destroy']);

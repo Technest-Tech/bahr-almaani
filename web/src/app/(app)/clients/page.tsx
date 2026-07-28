@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
@@ -43,13 +43,18 @@ export default function ClientsPage() {
   const { confirm } = useConfirm();
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [editing, setEditing] = useState<Client | null | "new">(null);
 
   const params = new URLSearchParams({ page: String(page) });
   if (q) params.set("q", q);
+  if (sorting[0]) {
+    params.set("sort", sorting[0].id);
+    params.set("dir", sorting[0].desc ? "desc" : "asc");
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ["clients", q, page],
+    queryKey: ["clients", q, page, sorting],
     queryFn: () => api<Paginated<Client>>(`/clients?${params.toString()}`),
   });
 
@@ -170,6 +175,11 @@ export default function ClientsPage() {
         loading={isLoading}
         meta={data?.meta}
         onPageChange={setPage}
+        sorting={sorting}
+        onSortingChange={(next) => {
+          setSorting(next);
+          setPage(1);
+        }}
         emptyTitle="لا يوجد عملاء بعد"
         emptyDescription="أضف أول عميل لبدء تسجيل المشاريع."
         totalLabel={(total) => `${total} عميل`}

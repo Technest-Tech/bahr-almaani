@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, SortingState } from "@tanstack/react-table";
 import {
   Ban,
   CheckCircle2,
@@ -53,6 +53,7 @@ export default function UsersPage() {
   const [role, setRole] = useState(ALL);
   const [status, setStatus] = useState(ALL);
   const [page, setPage] = useState(1);
+  const [sorting, setSorting] = useState<SortingState>([]);
   const [formUser, setFormUser] = useState<User | null | "new">(null);
   const [pairsUser, setPairsUser] = useState<User | null>(null);
 
@@ -60,9 +61,13 @@ export default function UsersPage() {
   if (q) params.set("q", q);
   if (role !== ALL) params.set("role", role);
   if (status !== ALL) params.set("status", status);
+  if (sorting[0]) {
+    params.set("sort", sorting[0].id);
+    params.set("dir", sorting[0].desc ? "desc" : "asc");
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ["users", q, role, status, page],
+    queryKey: ["users", q, role, status, page, sorting],
     queryFn: () => api<Paginated<User>>(`/users?${params.toString()}`),
   });
 
@@ -224,6 +229,11 @@ export default function UsersPage() {
         loading={isLoading}
         meta={data?.meta}
         onPageChange={setPage}
+        sorting={sorting}
+        onSortingChange={(next) => {
+          setSorting(next);
+          setPage(1);
+        }}
         emptyTitle="لا يوجد مستخدمون مطابقون"
         emptyDescription="جرّب تعديل الفلاتر أو أضف مستخدماً جديداً."
         totalLabel={(total) => `${total} مستخدم`}

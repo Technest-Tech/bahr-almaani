@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useRef, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
   ArrowRight,
   BadgeCheck,
   Calculator,
@@ -71,7 +72,7 @@ function formatBytes(bytes: number): string {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useAuth();
-  const { prompt } = useConfirm();
+  const { prompt, confirm } = useConfirm();
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
   const [approving, setApproving] = useState(false);
@@ -117,6 +118,15 @@ export default function ProjectDetailPage() {
     onSuccess: () => {
       invalidate();
       toast.success("تم سحب الملف وإعادته للمتاح");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => api(`/projects/${id}/archive`, { method: "POST" }),
+    onSuccess: () => {
+      invalidate();
+      toast.success("تمت أرشفة المشروع");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
@@ -253,6 +263,27 @@ export default function ProjectDetailPage() {
             >
               <Undo2 className="size-4" />
               سحب الملف
+            </Button>
+          )}
+
+          {canManage && project.status === "completed" && (
+            <Button
+              variant="outline"
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: "أرشفة المشروع؟",
+                    description:
+                      "يُنقل المشروع إلى الأرشيف بعد استلام العميل — تبقى الملفات والسجل متاحة للاطلاع.",
+                    confirmLabel: "أرشفة",
+                  })
+                )
+                  archiveMutation.mutate();
+              }}
+              loading={archiveMutation.isPending}
+            >
+              <Archive className="size-4" />
+              أرشفة المشروع
             </Button>
           )}
 
