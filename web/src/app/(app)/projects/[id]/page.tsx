@@ -17,6 +17,7 @@ import {
   Paperclip,
   RotateCcw,
   Send,
+  Stamp,
   Timer,
   Trash2,
   Undo2,
@@ -51,7 +52,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Field } from "@/components/field";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
+import { TemplateAsset } from "@/components/letterheads/template-asset";
+import { ApproveDialog } from "@/components/projects/approve-dialog";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
   dateStyle: "medium",
@@ -67,9 +71,10 @@ function formatBytes(bytes: number): string {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useAuth();
-  const { prompt, confirm } = useConfirm();
+  const { prompt } = useConfirm();
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
+  const [approving, setApproving] = useState(false);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", id],
@@ -122,11 +127,7 @@ export default function ProjectDetailPage() {
     onSuccess: (_, { action }) => {
       invalidate();
       toast.success(
-        action === "approve"
-          ? "تم الاعتماد — جارِ إنهاء الملف النهائي"
-          : action === "request-revision"
-            ? "أُعيد الملف للمترجم مع الملاحظات"
-            : "فُتحت المراجعة",
+        action === "request-revision" ? "أُعيد الملف للمترجم مع الملاحظات" : "فُتحت المراجعة",
       );
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
@@ -211,20 +212,7 @@ export default function ProjectDetailPage() {
 
           {canReview && project.status === "in_review" && (
             <>
-              <Button
-                onClick={async () => {
-                  if (
-                    await confirm({
-                      title: "اعتماد الترجمة؟",
-                      description:
-                        "سيُعتمد العمل ويُجهّز الملف النهائي تلقائياً ويُغلق المشروع.",
-                      confirmLabel: "اعتماد وإنهاء",
-                    })
-                  )
-                    reviewAction.mutate({ action: "approve" });
-                }}
-                loading={reviewAction.isPending}
-              >
+              <Button onClick={() => setApproving(true)}>
                 <BadgeCheck className="size-4" />
                 اعتماد وإنهاء
               </Button>
@@ -434,6 +422,37 @@ export default function ProjectDetailPage() {
           </Card>
         )}
 
+        {(project.letterhead || project.stamp) && (
+          <Card className="gap-0 py-0">
+            <CardHeader className="border-b py-4!">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Stamp className="size-4" />
+                الترويسة والختم المعتمدان
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-2 gap-3 p-4">
+              {[project.letterhead, project.stamp]
+                .filter((template) => !!template)
+                .map((template) => (
+                  <div key={template.id} className="space-y-1.5">
+                    <div
+                      className={cn(
+                        "flex h-24 items-center justify-center overflow-hidden rounded-lg border p-2",
+                        template.kind === "stamp"
+                          ? "bg-[repeating-conic-gradient(var(--muted)_0%_25%,transparent_0%_50%)] bg-[length:12px_12px]"
+                          : "bg-muted/50",
+                      )}
+                    >
+                      <TemplateAsset template={template} />
+                    </div>
+                    <p className="truncate text-xs font-medium">{template.name}</p>
+                    <p className="text-[11px] text-muted-foreground">{template.kind_label}</p>
+                  </div>
+                ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Timeline */}
         <Card className="self-start">
           <CardHeader>
@@ -471,6 +490,14 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         onClose={() => setCountFile(null)}
         onSaved={invalidate}
+      />
+
+      <ApproveDialog
+        key={approving ? "approve-open" : "approve-closed"}
+        open={approving}
+        projectId={project.id}
+        onClose={() => setApproving(false)}
+        onApproved={invalidate}
       />
     </div>
   );

@@ -112,20 +112,55 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
 
 ## 7. What's next, in order
 
-1. **M9a — letterheads & stamps, everything except the merge (UNBLOCKED)**:
-   `LetterheadTemplate` model exists; permissions `letterheads.view/manage` seeded.
-   Build: CRUD API (`GET|POST /letterheads`, `PUT|DELETE /letterheads/{id}` — asset
-   upload, kind letterhead|stamp, active flag, placement config), admin UI page,
-   and the approve flow requiring `letterhead_id` + `stamp_id` (docs/03 M5) stored
-   on the project so the merge job becomes a drop-in.
+1. ~~**M9a — letterheads & stamps, everything except the merge**~~ **SHIPPED**:
+   CRUD API + admin gallery + approval selection are live (see §8).
 2. **M9b — the real merge (BLOCKED on client sample)**: when Ahmed hands over the
    sample, spike `MergeFinalFileJob` per docs/03 M9 table: deliverable → PDF via
    Gotenberg → FPDI overlay of letterhead + stamp per placement → `final` file.
-   `FinalizeProjectJob` currently just copies the deliverable — replace that.
+   Everything it needs is already in place — see §8 for the seam and the geometry
+   contract. `POST /letterheads/{id}/preview` (docs/03 M9) is deliberately NOT built
+   yet: it renders a sample merge, so it lands with M9b.
    Everything else in Sprint 4 shipped: dashboard KPIs (M6), reports + Excel/PDF
    exports (M7), activity-log UI (M8), Meilisearch search + server-side sorting.
-2. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
+3. **Polish backlog**: server-side sorting for the clients + users tables (copy the
+   controlled-sorting pattern already used by projects), a `completed → archived`
+   button on the project detail page (`projects.manage` — the transition exists in
+   the state machine but no UI triggers it), command-palette pass now that
+   Meilisearch typo-tolerance is on.
+4. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
    staging server, Horizon config (Reverb needs a supervisor entry in prod too),
    production compose + deploy script (owner's pattern: DigitalOcean, see QTD project).
-3. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
+5. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
    (totals said 5k/45k/50k instead of 85k/125k/210k) — remind him before it goes to the client.
+
+## 8. M9a — what shipped, and where M9b plugs in
+
+- **Geometry contract**: `App\Support\PlacementConfig` normalizes every template's
+  `placement` on write, so the merge job never reads a missing key. Keys: `pages`
+  (all|first|last), `anchor` (`{top|middle|bottom}-{left|center|right}`),
+  `offset_x_mm`, `offset_y_mm`, `width_mm` (null = full page width), `opacity`,
+  `layer` (background|foreground). **Coordinates are physical paper geometry, not
+  RTL-relative** — anchors say left/right on purpose. `PlacementConfig::resolveRect()`
+  turns a placement into the mm rectangle to draw; `web/src/lib/placement.ts`
+  mirrors it in CSS for the admin preview — **change both together**.
+- **The merge seam** is marked in `FinalizeProjectJob` (`── M9b merge seam ──`). The
+  job already loads `$project->letterhead` / `->stamp` and logs them; only the
+  `Storage::copy()` step is replaced. The review flow and approved→completed
+  transition need no further changes.
+- **Assets** are on the private `local` disk under `letterheads/`; previews stream
+  through `GET /letterheads/{id}/asset` (letterheads.view) and the frontend renders
+  them from blob object URLs — `<img src>` cannot carry the bearer token.
+- **Approval requires both**: `POST /projects/{id}/review/approve` validates
+  `letterhead_id` + `stamp_id` (must exist, be the right `kind`, and be active),
+  persists them, then transitions — all in one DB transaction, so a rejected
+  transition leaves no selection behind.
+- **UI**: `/letterheads` gallery (sidebar gated on `letterheads.view`; PM has view,
+  admin has manage), upload/edit dialog with an A4 preview whose 3×3 anchor grid
+  doubles as the picker, and the PM approval dialog with thumbnail pickers.
+  Screenshots: `web/rt-shots/letterheads-*.png`, `approve-dialog-*.png`,
+  `project-completed-templates.png` (`web/ui-letterheads.mjs`,
+  `web/ui-approve-flow.mjs` — the latter consumes an in_review project).
+- **Gotchas found here**: multipart PUT does not exist — updates POST with
+  `_method=PUT` (both the UI and the tests do this); and a multipart test request
+  must send `Accept: application/json` or validation failures come back as a 302
+  redirect instead of 422.

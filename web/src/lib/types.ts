@@ -57,6 +57,76 @@ export interface Client {
   created_at: string;
 }
 
+export type TemplateKind = "letterhead" | "stamp";
+
+export type PlacementPages = "all" | "first" | "last";
+
+export type PlacementAnchor =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "middle-left"
+  | "middle-center"
+  | "middle-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export type PlacementLayer = "background" | "foreground";
+
+/** Physical page geometry (mm) consumed unchanged by the merge job — see PlacementConfig.php. */
+export interface Placement {
+  pages: PlacementPages;
+  anchor: PlacementAnchor;
+  offset_x_mm: number;
+  offset_y_mm: number;
+  width_mm: number | null;
+  opacity: number;
+  layer: PlacementLayer;
+}
+
+export interface LetterheadTemplate {
+  id: number;
+  name: string;
+  kind: TemplateKind;
+  kind_label: string;
+  file_name: string;
+  mime_type: "image" | "pdf";
+  is_active: boolean;
+  placement: Placement;
+  in_use?: boolean;
+  created_by?: { id: number; name: string };
+  created_at: string;
+}
+
+export const TEMPLATE_KIND_LABELS: Record<TemplateKind, string> = {
+  letterhead: "ترويسة",
+  stamp: "ختم",
+};
+
+export const PLACEMENT_PAGES_LABELS: Record<PlacementPages, string> = {
+  all: "كل الصفحات",
+  first: "الصفحة الأولى",
+  last: "الصفحة الأخيرة",
+};
+
+export const PLACEMENT_ANCHOR_LABELS: Record<PlacementAnchor, string> = {
+  "top-left": "أعلى اليسار",
+  "top-center": "أعلى الوسط",
+  "top-right": "أعلى اليمين",
+  "middle-left": "منتصف اليسار",
+  "middle-center": "المنتصف",
+  "middle-right": "منتصف اليمين",
+  "bottom-left": "أسفل اليسار",
+  "bottom-center": "أسفل الوسط",
+  "bottom-right": "أسفل اليمين",
+};
+
+export const PLACEMENT_LAYER_LABELS: Record<PlacementLayer, string> = {
+  background: "خلف النص",
+  foreground: "فوق النص",
+};
+
 export type ProjectStatus =
   | "draft"
   | "available"
@@ -146,6 +216,8 @@ export interface Project {
   source_language?: Language;
   target_language?: Language;
   creator?: { id: number; name: string };
+  letterhead?: LetterheadTemplate | null;
+  stamp?: LetterheadTemplate | null;
   files?: ProjectFile[];
   files_count?: number;
   source_files_count?: number;

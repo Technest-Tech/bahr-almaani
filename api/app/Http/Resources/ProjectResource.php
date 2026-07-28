@@ -2,10 +2,12 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Assignment;
+use App\Models\Project;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
-/** @mixin \App\Models\Project */
+/** @mixin Project */
 class ProjectResource extends JsonResource
 {
     public function toArray(Request $request): array
@@ -39,12 +41,14 @@ class ProjectResource extends JsonResource
                 'id' => $this->creator->id,
                 'name' => $this->creator->name,
             ]),
+            'letterhead' => LetterheadTemplateResource::make($this->whenLoaded('letterhead')),
+            'stamp' => LetterheadTemplateResource::make($this->whenLoaded('stamp')),
             'files' => ProjectFileResource::collection($this->whenLoaded('files')),
             'files_count' => $this->whenCounted('files'),
             'assignment' => AssignmentResource::make($this->whenLoaded('assignments', function () {
                 return $this->assignments
                     ->sortByDesc('claimed_at')
-                    ->first(fn ($a) => $a->status !== \App\Models\Assignment::STATUS_WITHDRAWN)
+                    ->first(fn ($a) => $a->status !== Assignment::STATUS_WITHDRAWN)
                     ?? $this->assignments->sortByDesc('claimed_at')->first();
             })),
         ];

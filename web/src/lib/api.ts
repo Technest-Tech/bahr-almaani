@@ -56,6 +56,42 @@ export async function api<T = unknown>(
   return response.json();
 }
 
+/**
+ * Multipart POST (uploads). Laravel only reads files from POST bodies, so updates
+ * spoof the verb with `_method=PUT` inside the form itself.
+ */
+export async function apiForm<T = unknown>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "ar",
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ message: response.statusText }));
+    throw new ApiError(response.status, body.message ?? "حدث خطأ غير متوقع", body.errors);
+  }
+
+  return response.json();
+}
+
+/** Authenticated binary fetch for previews — `<img src>` cannot carry a bearer token. */
+export async function fetchBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: {
+      Accept: "*/*",
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
+  });
+  if (!response.ok) throw new ApiError(response.status, "تعذر تحميل المعاينة");
+
+  return response.blob();
+}
+
 /** Authenticated file download via blob (Authorization headers don't work on <a href>). */
 export async function downloadFile(path: string, filename: string): Promise<void> {
   const response = await fetch(`${API_URL}${path}`, {

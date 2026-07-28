@@ -110,8 +110,19 @@ GET /activity-log            (filter: user, project, action type, date range; re
 
 ### M9 — Letterheads & stamps (admin)
 ```
-GET|POST /letterheads · PUT|DELETE /letterheads/{id}
-POST /letterheads/{id}/preview   (render sample merge on a test page)
+GET  /letterheads                (letterheads.view; filters: kind, active)
+GET  /letterheads/{id}/asset     (letterheads.view; inline stream for previews)
+POST /letterheads                (letterheads.manage; multipart: name, kind, asset PNG|JPG|PDF ≤10MB,
+                                  is_active, placement JSON)
+PUT|DELETE /letterheads/{id}     (letterheads.manage; asset replacement uses POST + _method=PUT,
+                                  delete blocked while a project references the template)
+POST /letterheads/{id}/preview   (render sample merge on a test page — ships with the merge, M9b)
+```
+
+`placement` (normalized on write by `App\Support\PlacementConfig`, physical page geometry in mm):
+```
+pages: all|first|last · anchor: {top|middle|bottom}-{left|center|right}
+offset_x_mm · offset_y_mm · width_mm (null = full page width) · opacity · layer: background|foreground
 ```
 
 ### M10 — Notifications

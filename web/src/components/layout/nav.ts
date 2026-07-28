@@ -5,6 +5,7 @@ import {
   History,
   Inbox,
   LayoutDashboard,
+  Stamp,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -23,6 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/clients", label: "العملاء", icon: Contact, permission: "clients.view" },
   { href: "/users", label: "المستخدمون", icon: Users, permission: "users.view" },
   { href: "/reports", label: "التقارير", icon: BarChart3, permission: "reports.view" },
+  { href: "/letterheads", label: "الترويسات والأختام", icon: Stamp, permission: "letterheads.view" },
   { href: "/activity", label: "سجل النشاط", icon: History, permission: "activity-log.view" },
 ];
 
@@ -35,5 +37,6 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   clients: "العملاء",
   users: "المستخدمون",
   reports: "التقارير",
+  letterheads: "الترويسات والأختام",
   activity: "سجل النشاط",
 };

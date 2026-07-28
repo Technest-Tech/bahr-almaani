@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\LanguageController;
+use App\Http\Controllers\Api\V1\LetterheadController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\ProjectController;
@@ -116,6 +117,18 @@ Route::prefix('v1')->group(function (): void {
             });
             Route::get('/{type}', [ReportController::class, 'show'])
                 ->middleware('permission:reports.view');
+        });
+
+        // Letterheads & stamps (M9)
+        Route::middleware('permission:letterheads.view|letterheads.manage')->group(function (): void {
+            Route::get('/letterheads', [LetterheadController::class, 'index']);
+            Route::get('/letterheads/{letterhead}/asset', [LetterheadController::class, 'asset']);
+        });
+
+        Route::middleware('permission:letterheads.manage')->group(function (): void {
+            Route::post('/letterheads', [LetterheadController::class, 'store']);
+            Route::put('/letterheads/{letterhead}', [LetterheadController::class, 'update']);
+            Route::delete('/letterheads/{letterhead}', [LetterheadController::class, 'destroy']);
         });
 
         // Activity log (M8)

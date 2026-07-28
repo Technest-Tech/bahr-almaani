@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Assignment;
 use App\Models\Language;
+use App\Models\LetterheadTemplate;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\User;
@@ -85,6 +86,29 @@ class PortalFlowTest extends TestCase
             'count_status' => ProjectFile::COUNT_DONE,
             'word_count' => 2,
         ]);
+
+        return $project;
+    }
+
+    /** M9: approval carries the letterhead + stamp the final file will be merged with. */
+    private function approvalSelection(): array
+    {
+        return [
+            'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->pm->id])->id,
+            'stamp_id' => LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id])->id,
+        ];
+    }
+
+    /** Drives a project all the way to in_review so approval rules can be exercised. */
+    private function projectAwaitingApproval(): Project
+    {
+        $project = $this->makeAvailableProject();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+        $this->actingAs($this->translator1, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->createWithContent('translation.txt', 'ترجمة'),
+        ])->assertOk();
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/open")->assertOk();
 
         return $project;
     }
@@ -237,13 +261,100 @@ class PortalFlowTest extends TestCase
         ])->assertOk();
 
         $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/open")->assertOk();
-        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/approve")->assertOk();
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", $this->approvalSelection())
+            ->assertOk();
 
         $project->refresh();
         $this->assertSame(Project::STATUS_COMPLETED, $project->status);
         $this->assertNotNull($project->completed_at);
         $this->assertSame(1, $project->files()->where('category', ProjectFile::CATEGORY_FINAL)->count());
         $this->assertSame(2, $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->count());
+    }
+
+    public function test_approval_requires_an_active_letterhead_and_stamp(): void
+    {
+        Notification::fake();
+        $project = $this->projectAwaitingApproval();
+
+        // No selection at all.
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve")
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['letterhead_id', 'stamp_id']);
+
+        // Kinds swapped — a stamp is not a letterhead.
+        $letterhead = LetterheadTemplate::factory()->create(['created_by' => $this->pm->id]);
+        $stamp = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => $stamp->id,
+                'stamp_id' => $letterhead->id,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['letterhead_id', 'stamp_id']);
+
+        // Deactivated templates are out of circulation.
+        $retired = LetterheadTemplate::factory()->inactive()->create(['created_by' => $this->pm->id]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => $retired->id,
+                'stamp_id' => $stamp->id,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('letterhead_id');
+
+        // Nothing was persisted or transitioned by the rejected attempts.
+        $project->refresh();
+        $this->assertSame(Project::STATUS_IN_REVIEW, $project->status);
+        $this->assertNull($project->letterhead_id);
+        $this->assertNull($project->stamp_id);
+    }
+
+    public function test_approval_stores_the_selection_for_the_merge_job(): void
+    {
+        Notification::fake();
+        $project = $this->projectAwaitingApproval();
+
+        $letterhead = LetterheadTemplate::factory()->create(['created_by' => $this->pm->id]);
+        $stamp = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => $letterhead->id,
+                'stamp_id' => $stamp->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.letterhead.id', $letterhead->id)
+            ->assertJsonPath('data.stamp.id', $stamp->id)
+            ->assertJsonPath('data.stamp.placement.anchor', 'bottom-right');
+
+        $project->refresh();
+        $this->assertSame($letterhead->id, $project->letterhead_id);
+        $this->assertSame($stamp->id, $project->stamp_id);
+        $this->assertSame(Project::STATUS_COMPLETED, $project->status);
+
+        // The chosen templates are now referenced and must survive a delete attempt.
+        $this->assertTrue($letterhead->fresh()->isUsedByProjects());
+    }
+
+    public function test_an_invalid_transition_does_not_persist_the_selection(): void
+    {
+        Notification::fake();
+        $project = $this->makeAvailableProject(); // still `available`, review cannot open
+
+        $selection = $this->approvalSelection();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", $selection)
+            ->assertUnprocessable();
+
+        $project->refresh();
+        $this->assertSame(Project::STATUS_AVAILABLE, $project->status);
+        $this->assertNull($project->letterhead_id);
+        $this->assertNull($project->stamp_id);
     }
 
     public function test_withdraw_releases_translator_and_republishes(): void
