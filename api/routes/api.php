@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\DashboardController;
@@ -104,6 +105,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/workload', [DashboardController::class, 'workload']);
             Route::get('/late', [DashboardController::class, 'late']);
         });
+
+        // Activity log (M8)
+        Route::get('/activity-log', [ActivityLogController::class, 'index'])
+            ->middleware('permission:activity-log.view');
 
         // Notifications (M10)
         Route::get('/notifications', [NotificationController::class, 'index']);

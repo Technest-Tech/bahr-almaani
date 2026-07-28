@@ -152,6 +152,19 @@ export interface Project {
   assignment?: Assignment | null;
 }
 
+export const STATUS_LABELS: Record<ProjectStatus, string> = {
+  draft: "مسودة",
+  available: "متاح",
+  claimed: "قيد التنفيذ",
+  delivered: "تم التسليم",
+  in_review: "قيد المراجعة",
+  revision_requested: "مطلوب تعديل",
+  approved: "معتمد",
+  completed: "مكتمل",
+  archived: "مؤرشف",
+  cancelled: "ملغي",
+};
+
 export const STATUS_TONES: Record<ProjectStatus, "green" | "red" | "slate" | "teal" | "amber" | "blue"> = {
   draft: "slate",
   available: "blue",

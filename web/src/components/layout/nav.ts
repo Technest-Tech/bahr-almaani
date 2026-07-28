@@ -1,6 +1,7 @@
 import {
   Contact,
   FolderKanban,
+  History,
   Inbox,
   LayoutDashboard,
   Users,
@@ -20,6 +21,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/projects", label: "المشاريع", icon: FolderKanban, permission: "projects.view" },
   { href: "/clients", label: "العملاء", icon: Contact, permission: "clients.view" },
   { href: "/users", label: "المستخدمون", icon: Users, permission: "users.view" },
+  { href: "/activity", label: "سجل النشاط", icon: History, permission: "activity-log.view" },
 ];
 
 /** Breadcrumb labels by path segment. Dynamic segments resolve to a generic label. */
@@ -30,4 +32,5 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   new: "مشروع جديد",
   clients: "العملاء",
   users: "المستخدمون",
+  activity: "سجل النشاط",
 };
