@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\PortalController;
@@ -94,6 +95,14 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/deliver', [PortalController::class, 'deliver']);
             Route::get('/history', [PortalController::class, 'history']);
             Route::get('/files/{fileId}/download', [PortalController::class, 'downloadFile']);
+        });
+
+        // Dashboard (M6)
+        Route::middleware('permission:dashboard.view')->prefix('dashboard')->group(function (): void {
+            Route::get('/summary', [DashboardController::class, 'summary']);
+            Route::get('/throughput', [DashboardController::class, 'throughput']);
+            Route::get('/workload', [DashboardController::class, 'workload']);
+            Route::get('/late', [DashboardController::class, 'late']);
         });
 
         // Notifications (M10)

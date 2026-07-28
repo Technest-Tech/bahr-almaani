@@ -65,6 +65,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         queryClient.invalidateQueries({ queryKey: ["projects"] });
         queryClient.invalidateQueries({ queryKey: ["project"] });
         queryClient.invalidateQueries({ queryKey: ["project-timeline"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       });
 
     // ── One portal channel per language pair (translators only) ───────
@@ -101,6 +102,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         invalidatePortal();
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         queryClient.invalidateQueries({ queryKey: ["projects"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       }
       if (states.current === "unavailable" || states.current === "disconnected") {
         wasDisconnected = true;
