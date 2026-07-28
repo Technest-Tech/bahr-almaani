@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Assignment;
-use App\Models\Client;
 use App\Models\Language;
 use App\Models\Project;
 use App\Models\User;

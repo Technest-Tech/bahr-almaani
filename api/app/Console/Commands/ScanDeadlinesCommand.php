@@ -4,9 +4,10 @@ namespace App\Console\Commands;
 
 use App\Models\Project;
 use App\Models\Setting;
-use App\Notifications\DeadlineAlertNotification;
 use App\Models\User;
+use App\Notifications\DeadlineAlertNotification;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 
 class ScanDeadlinesCommand extends Command
 {
@@ -57,7 +58,7 @@ class ScanDeadlinesCommand extends Command
         return self::SUCCESS;
     }
 
-    /** @return \Illuminate\Support\Collection<int, User> */
+    /** @return Collection<int, User> */
     private function recipients(Project $project, bool $includeAdmins)
     {
         $users = collect([$project->creator]);

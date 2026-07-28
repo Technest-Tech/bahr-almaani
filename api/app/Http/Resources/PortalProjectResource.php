@@ -2,13 +2,14 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Project;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Translator-facing project view: NO client identity, NO pricing.
  *
- * @mixin \App\Models\Project
+ * @mixin Project
  */
 class PortalProjectResource extends JsonResource
 {
