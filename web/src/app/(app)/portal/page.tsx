@@ -39,10 +39,10 @@ interface CurrentResponse {
 export default function PortalPage() {
   const queryClient = useQueryClient();
 
+  // Freshness comes from Reverb websockets (RealtimeProvider) — no polling.
   const { data: current, isLoading: loadingCurrent } = useQuery({
     queryKey: ["portal-current"],
     queryFn: () => api<CurrentResponse>("/portal/current"),
-    refetchInterval: 15_000,
   });
 
   const busy = !!current?.data;
@@ -50,7 +50,6 @@ export default function PortalPage() {
   const { data: queue, isLoading: loadingQueue } = useQuery({
     queryKey: ["portal-queue"],
     queryFn: () => api<Paginated<Project>>("/portal/queue"),
-    refetchInterval: 15_000,
   });
 
   const { data: history } = useQuery({

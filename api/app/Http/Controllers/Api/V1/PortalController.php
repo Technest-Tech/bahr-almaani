@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Events\ProjectClaimed;
+use App\Events\ProjectDelivered;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssignmentResource;
 use App\Http\Resources\PortalProjectResource;
@@ -32,6 +34,9 @@ class PortalController extends Controller
     public function claim(Request $request, Project $project): AssignmentResource
     {
         $assignment = $this->portal->claim($project, $request->user());
+
+        // Post-commit: yank the card off every other matching translator's screen.
+        $this->broadcastLive(new ProjectClaimed($project->refresh()));
 
         return AssignmentResource::make(
             $assignment->load(['project.sourceLanguage', 'project.targetLanguage', 'project.files']),
@@ -67,6 +72,7 @@ class PortalController extends Controller
         $assignment = $this->portal->deliver($request->user(), $validated['file']);
 
         $assignment->project->creator->notify(new ProjectDeliveredNotification($assignment->project, $request->user()));
+        $this->broadcastLive(new ProjectDelivered($assignment->project, $request->user()));
 
         return AssignmentResource::make($assignment->load('project'));
     }

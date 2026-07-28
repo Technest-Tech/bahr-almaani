@@ -19,6 +19,8 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
 - `web/` — Next.js 16 + React 19, `npm run dev` on **:3000**. npm commands MUST run from `web/`.
 - `docker compose up -d` — Postgres 16 host port **5434** (5432/5433 are taken by other
   projects), Redis :6379, Meilisearch :7700, Gotenberg :**3300**, Mailpit UI :8025.
+- `php artisan reverb:start` — websockets on **:8080** (portal + bell realtime). Full dev
+  stack = serve + reverb + queue:work + npm run dev.
 - Tests: `cd api && php artisan test` → runs on `bahr_test` DB (created by
   `docker/postgres-init.sql`). **46 tests / 162 assertions green** at handoff.
 - Dev logins (password `password`): `admin@bahr.local`, `pm@bahr.local`,
@@ -78,6 +80,16 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
   branch is separated for that reason.
 - The base `table.tsx` was fixed to `text-start` (RTL alignment) — don't regenerate it
   blindly via shadcn CLI (`--overwrite` would revert patches; re-apply if you must).
+- `rescue(fn () => broadcast($e))` does NOT protect you: the arrow fn returns the
+  PendingBroadcast, whose dispatching destructor then runs outside rescue's catch.
+  Use `Controller::broadcastLive()` (braces closure) for all event broadcasts.
+- Channel-authorization callbacks bind to the *default broadcaster at boot* — under
+  phpunit that's the null driver, which skips callbacks entirely. Tests that hit
+  /broadcasting/auth must switch to the reverb driver AND re-require routes/channels.php
+  (see RealtimeBroadcastingTest::authTo).
+- Notification broadcasts (bell/toasts) ride the queue → up to ~3s lag in dev (worker
+  sleep). Portal queue events are ShouldBroadcastNow in-request → instant. Both are
+  intentional; don't "fix" the former by making notifications sync.
 
 ## 6. State at handoff (git log tells the story)
 
@@ -86,21 +98,21 @@ uploads + word counting → design system (deep-sea inset shell, Almarai, sortab
 tables) → translator portal + review cycle + withdraw + time tracking + notifications
 (DB+mail, bell UI, deadline scanner every 5 min via `routes/console.php`).
 
+Realtime (Reverb) shipped after Sprint 3: events + channels are documented in docs/03
+(M4 section). Frontend: `web/src/lib/echo.ts` (lazy singleton) + `RealtimeProvider`
+(user channel → bell/toasts + PM freshness; pair channels → live queue, claim removes
+the card from caches instantly). Polling is fully removed; reconnects re-invalidate.
+Verified end-to-end with `web/rt-demo.mjs` (two headless contexts: publish appears live
+on both, claim vanishes from the other screen in ~120ms, zero console errors).
+
 ## 7. What's next, in order
 
-1. **Reverb realtime** (replaces the 15s/30s polling stopgap in portal + bell):
-   `composer require laravel/reverb` + `php artisan install:broadcasting`; events
-   `ProjectPublished/Claimed/Withdrawn` on presence-free private channel
-   `portal.{source_lang_id}.{target_lang_id}` (authorize via language-pair match +
-   `portal.access`), `ProjectDelivered` to the creator's user channel; Echo + pusher-js in
-   `web/` (`NEXT_PUBLIC_REVERB_*`), Sanctum bearer auth on `/broadcasting/auth`; update
-   react-query caches on events; run `php artisan reverb:start` in dev.
-2. **Sprint 4**: dashboard KPIs (M6), reports + async Excel/PDF exports (M7),
+1. **Sprint 4**: dashboard KPIs (M6), reports + async Excel/PDF exports (M7),
    letterhead/stamp CRUD + real merge in `FinalizeProjectJob` (M9 — **blocked on client
    sample; spike the moment Ahmed provides it**), activity-log UI (M8), Meilisearch wiring,
    server-side table sorting.
-3. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
-   staging server, Horizon config, production compose + deploy script (owner's pattern:
-   DigitalOcean, see QTD project).
-4. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
+2. **Ops**: create GitHub remote + push (CI is ready in `.github/workflows/ci.yml`),
+   staging server, Horizon config (Reverb needs a supervisor entry in prod too),
+   production compose + deploy script (owner's pattern: DigitalOcean, see QTD project).
+3. Excel financial-summary bug in the client's proposal file was flagged to Ahmed early on
    (totals said 5k/45k/50k instead of 85k/125k/210k) — remind him before it goes to the client.

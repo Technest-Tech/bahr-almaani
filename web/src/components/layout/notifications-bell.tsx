@@ -26,10 +26,10 @@ export function NotificationsBell() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
+  // Invalidated live by RealtimeProvider on each broadcast notification.
   const { data } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => api<NotificationsResponse>("/notifications"),
-    refetchInterval: 30_000,
   });
 
   const unread = data?.unread_count ?? 0;

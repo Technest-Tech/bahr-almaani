@@ -63,6 +63,19 @@ POST   /portal/deliver               (attach deliverable file, claimed → deliv
 GET    /portal/history               (my delivered work, read-only, with work durations)
 ```
 
+**Realtime (Reverb websockets, replaces portal/bell polling):**
+```
+POST /broadcasting/auth              (Sanctum bearer + active middleware)
+
+private-portal.{srcLangId}.{tgtLangId}   requires portal.access + owning the pair
+  .project.published | .project.claimed | .project.withdrawn | .project.cancelled
+  payload: portal-safe project summary (never client identity or pricing)
+
+private-App.Models.User.{id}             owner only
+  .project.delivered                     (to the project creator — data freshness)
+  Laravel broadcast notifications        (all in-app notifications → live bell/toasts)
+```
+
 ### M5 — Review & finalization (PM)
 ```
 POST   /projects/{id}/review/open        (delivered → in_review)

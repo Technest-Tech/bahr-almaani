@@ -51,7 +51,9 @@ class DatabaseSeeder extends Seeder
 
         foreach ([
             ['email' => 'translator1@bahr.local', 'name' => 'سارة المترجمة', 'pairs' => [[$en, $ar], [$ar, $en]]],
-            ['email' => 'translator2@bahr.local', 'name' => 'خالد المترجم', 'pairs' => [[$fr, $ar]]],
+            // translator2 shares en→ar with translator1: two translators on one pair
+            // is the realistic (and demo-able) claim-race scenario.
+            ['email' => 'translator2@bahr.local', 'name' => 'خالد المترجم', 'pairs' => [[$fr, $ar], [$en, $ar]]],
         ] as $data) {
             $translator = User::firstOrCreate(
                 ['email' => $data['email']],

@@ -19,7 +19,12 @@ class RevisionRequestedNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return ['database', 'mail', 'broadcast'];
+    }
+
+    public function broadcastType(): string
+    {
+        return 'revision_requested';
     }
 
     public function toMail(object $notifiable): MailMessage

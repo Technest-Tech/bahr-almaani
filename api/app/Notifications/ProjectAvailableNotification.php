@@ -16,7 +16,13 @@ class ProjectAvailableNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return ['database', 'broadcast'];
+    }
+
+    /** Keep Echo's notification.type as the app-level slug (default is the FQCN). */
+    public function broadcastType(): string
+    {
+        return 'project_available';
     }
 
     public function toArray(object $notifiable): array

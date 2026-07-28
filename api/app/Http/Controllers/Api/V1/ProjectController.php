@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Events\ProjectCancelled;
+use App\Events\ProjectPublished;
+use App\Events\ProjectWithdrawn;
 use App\Exceptions\InvalidTransitionException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProjectRequest;
@@ -90,6 +93,7 @@ class ProjectController extends Controller
 
         $project = $this->transitions->transition($project, Project::STATUS_AVAILABLE, $request->user());
 
+        $this->broadcastLive(new ProjectPublished($project));
         Notification::send(
             $project->matchingTranslators(),
             new ProjectAvailableNotification($project->load('sourceLanguage', 'targetLanguage')),
@@ -128,6 +132,7 @@ class ProjectController extends Controller
             return $fresh;
         });
 
+        $this->broadcastLive(new ProjectWithdrawn($project));
         $translator?->notify(new ProjectWithdrawnNotification($project, $validated['reason']));
         Notification::send(
             $project->matchingTranslators()->reject(fn ($t) => $t->is($translator)),
@@ -142,12 +147,18 @@ class ProjectController extends Controller
     {
         $validated = $request->validate(['reason' => ['required', 'string', 'max:1000']]);
 
+        $wasOnPortal = in_array($project->status, [Project::STATUS_AVAILABLE, Project::STATUS_CLAIMED], true);
+
         $project = $this->transitions->transition(
             $project,
             Project::STATUS_CANCELLED,
             $request->user(),
             $validated['reason'],
         );
+
+        if ($wasOnPortal) {
+            $this->broadcastLive(new ProjectCancelled($project));
+        }
 
         return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
     }

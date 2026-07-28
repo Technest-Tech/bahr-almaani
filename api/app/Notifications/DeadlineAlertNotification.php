@@ -19,7 +19,12 @@ class DeadlineAlertNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return ['database', 'mail', 'broadcast'];
+    }
+
+    public function broadcastType(): string
+    {
+        return $this->level === 'late' ? 'project_late' : 'project_due_soon';
     }
 
     public function toMail(object $notifiable): MailMessage
