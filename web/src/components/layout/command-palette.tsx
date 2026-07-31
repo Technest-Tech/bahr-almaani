@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Contact, FolderKanban, Users } from "lucide-react";
+import { Contact, FolderKanban, MailOpen, Users } from "lucide-react";
 import {
   CommandDialog,
   CommandEmpty,
@@ -17,7 +17,7 @@ import { NAV_ITEMS } from "@/components/layout/nav";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { looseMatch } from "@/lib/format";
-import type { Client, Paginated, Project, User } from "@/lib/types";
+import type { Client, Paginated, Project, QuoteRequest, User } from "@/lib/types";
 
 function useDebounced<T>(value: T, delay = 250): T {
   const [debounced, setDebounced] = useState(value);
@@ -58,6 +58,15 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     queryFn: () =>
       api<Paginated<Client>>(`/clients?q=${encodeURIComponent(q)}&per_page=5`).then((r) => r.data),
     enabled: enabled && can("clients.view"),
+  });
+
+  const { data: quotes } = useQuery({
+    queryKey: ["palette-quotes", q],
+    queryFn: () =>
+      api<Paginated<QuoteRequest>>(`/quote-requests?q=${encodeURIComponent(q)}&per_page=5`).then(
+        (r) => r.data,
+      ),
+    enabled: enabled && can("quotes.view"),
   });
 
   const { data: users } = useQuery({
@@ -117,6 +126,27 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   <span className="flex-1 truncate">{project.title}</span>
                   <span dir="ltr" className="font-mono text-xs text-muted-foreground">
                     {project.code}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
+        {!!quotes?.length && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="طلبات التسعير">
+              {quotes.map((quote) => (
+                <CommandItem
+                  key={`q-${quote.id}`}
+                  value={`quote-${quote.id}`}
+                  onSelect={() => go(`/quotes/${quote.id}`)}
+                >
+                  <MailOpen className="size-4" />
+                  <span className="flex-1 truncate">{quote.title}</span>
+                  <span dir="ltr" className="font-mono text-xs text-muted-foreground">
+                    {quote.reference}
                   </span>
                 </CommandItem>
               ))}

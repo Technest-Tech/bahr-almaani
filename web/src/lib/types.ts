@@ -269,6 +269,104 @@ export const PRIORITY_TONES: Record<Priority, "slate" | "amber" | "red"> = {
   critical: "red",
 };
 
+/* ── M13: quote requests from the public website ───────────────────────────── */
+
+export type QuoteStatus =
+  | "new"
+  | "reviewing"
+  | "quoted"
+  | "accepted"
+  | "declined"
+  | "converted";
+
+export interface QuoteRequestFile {
+  id: number;
+  original_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  created_at: string;
+}
+
+/** Staff-facing shape — the full record, from `/quote-requests`. */
+export interface QuoteRequest {
+  id: number;
+  reference: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  organization: string | null;
+  title: string;
+  service_type: "certified" | "regular";
+  priority: Priority;
+  declared_pages: number | null;
+  needed_by: string | null;
+  details: string | null;
+  status: QuoteStatus;
+  status_label: string;
+  quoted_amount: string | null;
+  currency: string;
+  turnaround_days: number | null;
+  response_note: string | null;
+  responded_at: string | null;
+  ip_address: string | null;
+  created_at: string;
+  source_language?: Language | null;
+  target_language?: Language | null;
+  responder?: { id: number; name: string } | null;
+  client?: Client | null;
+  project?: { id: number; code: string; status: ProjectStatus; status_label: string } | null;
+  files?: QuoteRequestFile[];
+  files_count?: number;
+}
+
+/** Visitor-facing shape — from the unauthenticated `/public/quote-requests/{ref}`. */
+export interface PublicQuoteRequest {
+  reference: string;
+  name: string;
+  title: string;
+  service_type: "certified" | "regular";
+  priority: Priority;
+  declared_pages: number | null;
+  needed_by: string | null;
+  status: QuoteStatus;
+  status_label: string;
+  status_hint: string;
+  submitted_at: string;
+  files_count: number;
+  source_language?: Language | null;
+  target_language?: Language | null;
+  answered: boolean;
+  quote: {
+    amount: string;
+    currency: string;
+    turnaround_days: number | null;
+    note: string | null;
+    responded_at: string;
+  } | null;
+  project_code?: string;
+}
+
+export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
+  new: "جديد",
+  reviewing: "قيد الدراسة",
+  quoted: "تم إرسال العرض",
+  accepted: "مقبول",
+  declined: "مرفوض",
+  converted: "تحوّل إلى مشروع",
+};
+
+export const QUOTE_STATUS_TONES: Record<QuoteStatus, "green" | "red" | "slate" | "teal" | "amber" | "blue"> = {
+  new: "blue",
+  reviewing: "amber",
+  quoted: "teal",
+  accepted: "green",
+  declined: "red",
+  converted: "slate",
+};
+
+/** The order a request walks through, for the visitor's progress trail. */
+export const QUOTE_TRACK_STEPS: QuoteStatus[] = ["new", "reviewing", "quoted", "converted"];
+
 export const COUNT_STATUS_LABELS: Record<ProjectFile["count_status"], string> = {
   pending: "بانتظار العد",
   processing: "جارِ العد…",

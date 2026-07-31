@@ -36,6 +36,10 @@ class RolesAndPermissionsSeeder extends Seeder
         'letterheads.manage',
         // M10/M12 — settings
         'settings.manage',
+        // M13 — public-site quote requests
+        'quotes.view',
+        'quotes.manage',     // price it, send the quote, triage, delete
+        'quotes.convert',    // turn an accepted request into a project
     ];
 
     private const ROLES = [
@@ -45,12 +49,17 @@ class RolesAndPermissionsSeeder extends Seeder
             'projects.view', 'projects.manage', 'projects.review',
             'dashboard.view', 'reports.view', 'reports.export',
             'letterheads.view',
+            'quotes.view', 'quotes.manage', 'quotes.convert',
         ],
         'translator' => [
             'portal.access',
         ],
+        // Pricing an enquiry is accounting work, so the accountant answers clients
+        // directly. Converting one into a project is not — that schedules translators,
+        // so it stays with the PM.
         'accountant' => [
             'dashboard.view', 'reports.view', 'reports.export',
+            'quotes.view', 'quotes.manage',
         ],
     ];
 

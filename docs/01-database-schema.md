@@ -198,6 +198,31 @@ Even if application code regresses, double-claiming is **impossible** at the dat
 | status | varchar(20) | `queued` / `processing` / `done` / `failed` |
 | disk_path | varchar(500) | nullable until done |
 
+### quote_requests — public-site enquiries (M13, soft-deleted)
+| Column | Type | Notes |
+|---|---|---|
+| reference | varchar(20) UK | `RQ-4KX7-9M2D` — **random, never sequential**; it is the visitor's only credential, so a countable code would expose everyone else's quote |
+| name / email / phone / organization | varchar | the requester; no user account is ever created |
+| title, source_language_id, target_language_id | | languages nullable — visitors often don't know, the manager fills them in at conversion |
+| service_type, priority, declared_pages, needed_by, details | | as submitted |
+| status | varchar(30) | `new` → `reviewing` → `quoted` → `accepted` → `converted`, plus `declined`. Own lane; **not** the project state machine |
+| quoted_amount, currency, turnaround_days, response_note | | our answer |
+| responded_at, responded_by | | null until sent — the public resource gates the figures on this, so a half-typed price never leaks |
+| client_id, project_id | FK, nullable | set at conversion; `project_id` non-null means terminal |
+| ip_address, user_agent | varchar | light abuse trace for an endpoint anyone can POST to |
+
+Indexes: `status`, `email`, `(status, priority, created_at)` for triage ordering.
+
+### quote_request_files — visitor uploads (M13)
+| Column | Type | Notes |
+|---|---|---|
+| quote_request_id | FK cascade | |
+| original_name, disk_path, mime_type, size_bytes | | |
+
+Separate from `project_files` deliberately: untrusted uploads with no uploader account,
+no word counting and no category. Conversion **copies** them into the project (originals
+stay put, so the priced evidence survives later revisions).
+
 ### Supporting tables
 - **notifications** — standard Laravel notifications table (in-app), mail sent in parallel via queue.
 - **activity_log** — spatie/laravel-activitylog; records every create/update/state-change with causer. Admin-read-only UI. No update/delete endpoints — immutable by construction.

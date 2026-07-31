@@ -28,7 +28,7 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild className="hover:bg-sidebar-accent/50">
-              <Link href="/">
+              <Link href="/dashboard">
                 <div className="flex aspect-square size-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-700 text-white shadow-lg shadow-teal-950/40">
                   <Waves className="size-5" />
                 </div>
@@ -53,8 +53,7 @@ export function AppSidebar() {
             <SidebarMenu className="gap-1">
               {NAV_ITEMS.filter((item) => !item.permission || can(item.permission)).map(
                 (item) => {
-                  const active =
-                    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  const active = pathname.startsWith(item.href);
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

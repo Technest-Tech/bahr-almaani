@@ -10,6 +10,7 @@ import {
   FileWarning,
   FolderKanban,
   Inbox,
+  MailOpen,
   Timer,
   Users,
 } from "lucide-react";
@@ -33,6 +34,9 @@ interface Summary {
   completed_this_month: number;
   words_this_month: number;
   pages_this_month: number;
+  /** M13 — quote requests from the public site that still need a human. */
+  quotes_open: number;
+  quotes_new: number;
   clients_total: number;
   translators_active: number;
 }
@@ -87,6 +91,7 @@ export default function DashboardPage() {
 }
 
 function ManagerDashboard({ name }: { name?: string }) {
+  const { can } = useAuth();
   const { data: summary, isLoading: loadingSummary } = useQuery({
     queryKey: ["dashboard", "summary"],
     queryFn: () => api<{ data: Summary }>("/dashboard/summary").then((r) => r.data),
@@ -128,6 +133,35 @@ function ManagerDashboard({ name }: { name?: string }) {
         title={`أهلاً، ${name?.split(" ")[0] ?? ""} 👋`}
         description="نظرة حية على سير العمل — الأرقام تتحدث لحظياً عبر البث المباشر."
       />
+
+      {/* M13 — the public site's inbox, surfaced only while something is waiting. */}
+      {can("quotes.view") && !!summary?.quotes_open && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 py-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <MailOpen className="size-5" />
+              </div>
+              <div>
+                <p className="font-semibold">
+                  {summary.quotes_open.toLocaleString("ar-EG")} طلب تسعير بانتظار الرد
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {summary.quotes_new > 0
+                    ? `منها ${summary.quotes_new.toLocaleString("ar-EG")} طلب جديد لم يُفتح بعد.`
+                    : "كلها قيد الدراسة — لم يُرسل العرض بعد."}
+                </p>
+              </div>
+            </div>
+            <Button asChild>
+              <Link href="/quotes">
+                فتح الطلبات
+                <ArrowLeft className="size-4" />
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile

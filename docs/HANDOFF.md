@@ -165,6 +165,50 @@ on both, claim vanishes from the other screen in ~120ms, zero console errors).
   and the preferences slice proven end-to-end through the dev stack (mail on → Mailpit,
   mail off → nothing, bell either way).
 
+## 6c. M13 — public website & quote requests (SHIPPED 2026-07-29, billable — see §7b)
+
+The first unauthenticated surface in the system. Read §7b before quoting it.
+
+- **Routing moved.** `/` now belongs to the public site (`app/(site)/`: landing,
+  `/request`, `/track`); the operations app starts at **`/dashboard`**. Anything that
+  linked to `/` — sidebar logo, breadcrumb root, login redirect — was repointed. If you
+  add a panel page, it goes under `app/(app)/`, and `/` is no longer a valid app link.
+- **The reference is the credential.** `RQ-4KX7-9M2D`, random (never sequential), ~40
+  bits, confusable glyphs removed. Anyone holding it sees the quote — that is the design,
+  visitors have no account. `QuoteReferenceGenerator::normalize()` forgives case, spaces
+  and a missing prefix so people can retype it off a phone call.
+- **Gotcha that cost real time — named rate limiters.** An inline `throttle:5,60` keys off
+  domain+IP, *not* the path, so it shares one bucket with every other unauthenticated
+  throttled route. Five quote submissions locked the same visitor out of `/auth/login`
+  for an hour; it surfaced as Playwright suddenly failing to log in. Fixed with
+  `RateLimiter::for('quote-submissions'|'quote-lookups')` in `AppServiceProvider`, and
+  pinned by `test_exhausting_the_public_submission_limit_does_not_lock_the_login_endpoint`
+  — that test fails if anyone inlines a throttle on a public route again.
+- **The accountant answers clients, the PM opens projects.** `quotes.manage` (price,
+  send the quote, triage, delete) goes to admin + PM + **accountant**; `quotes.convert`
+  (create the project) to admin + PM only. The "new request" notification targets
+  `quotes.manage`, so the accountant is told a request arrived — an earlier cut gave them
+  `quotes.view` alone and they could see an enquiry they had no way to answer. If Ahmed
+  wants accountants opening projects too, add `quotes.convert` to that role in the seeder.
+- **The public resource is narrower on purpose.** `PublicQuoteRequestResource` hides the
+  IP, the user agent, internal ids and staff identity, and gates the quote figures on
+  `responded_at` — otherwise a price a manager is still typing would be live to a client
+  refreshing the tracking page.
+- **Conversion copies, never moves.** Attachments are duplicated into the project as
+  source files; the originals stay under `quote-requests/{id}/` so the request remains
+  evidence of what was actually priced. Conversion is terminal and idempotent-guarded.
+- **The site is centred, and that is deliberate.** `web/AGENTS.md` says app pages are
+  always `w-full` — that rule is about the internal data screens. Marketing pages use
+  `max-w-6xl` containers; a landing page at 2000px reads as broken.
+- **Placeholder content**: `web/src/lib/company.ts` holds the phone, email, address,
+  working hours and the four headline stats. Replace before go-live — the stats are a
+  claim, not decoration.
+- Verified by driving it, not by reading it: a real multipart submission through
+  `POST /public/quote-requests`, then the full staff lane clicked in a browser
+  (بدء الدراسة → price → client accepted → convert), landing on `BM-2026-00016` with the
+  auto-created company client and both attachments copied in. 20 screenshots across
+  light/dark/mobile via `web/ui-quotes.mjs`; the flow walk is `web/ui-quote-flow.mjs`.
+
 ## 7. What's next, in order
 
 1. ~~**M9a — letterheads & stamps, everything except the merge**~~ **SHIPPED**:
@@ -238,6 +282,15 @@ Admin/PM/Translator/Accountant); invoicing & payments (no invoice/payment model
 exists); reports beyond the fixed catalog (docs/00 says so outright); SMS/WhatsApp
 notifications (channels are database + mail + broadcast only); multi-tenancy
 activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app.
+
+> **M13 shipped against this list (2026-07-29)** — the public website and quote-request
+> module. It delivers the *client-facing portal* change request in its reference-code
+> form (no client login: a visitor submits, gets `RQ-XXXX-XXXX`, and tracks with it),
+> plus the **manual** half of the quotation engine — a manager still types the price,
+> because there is still no rate card. Invoice it as its own line; it is not one of the
+> twelve priced modules. What remains genuinely unbuilt from the pricing engine is the
+> rate card itself: rates per language pair / service type / priority, applied to the
+> `total_words` M3 already computes, to propose `quoted_amount` instead of asking for it.
 
 **NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
 

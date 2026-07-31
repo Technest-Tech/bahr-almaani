@@ -2,7 +2,8 @@
 
 Enterprise operations platform for a certified translation company (100+ employees):
 project lifecycle management, smart translator portal with concurrency-safe file claiming,
-automatic time tracking, word/page counting, letterhead & stamp merging, reporting, and a full audit trail.
+automatic time tracking, word/page counting, letterhead & stamp merging, reporting, and a full audit trail —
+fronted by a public website where clients submit documents and track their quote by reference.
 
 **Stack:** Laravel 12 (API) · PostgreSQL · Redis + Horizon · Reverb (WebSockets) · Next.js + TypeScript · Tailwind + shadcn/ui · Gotenberg (document engine) · Docker
 
@@ -44,6 +45,9 @@ cd web
 npm install
 npm run dev
 ```
+
+**Routes:** `/` is the **public website** (landing · `/request` quote form · `/track` status
+lookup) — no login. The operations app lives behind `/login`, starting at `/dashboard`.
 
 **Dev accounts** (password: `password`): `admin@bahr.local` (الإدارة), `pm@bahr.local` (مدير مشاريع), `translator1@bahr.local` / `translator2@bahr.local` (مترجمون), `accountant@bahr.local` (محاسب).
 

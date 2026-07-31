@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\V1\NotificationPreferenceController;
 use App\Http\Controllers\Api\V1\PortalController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectFileController;
+use App\Http\Controllers\Api\V1\PublicQuoteRequestController;
+use App\Http\Controllers\Api\V1\QuoteRequestController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ReviewController;
 use App\Http\Controllers\Api\V1\RoleController;
@@ -21,6 +23,22 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function (): void {
     Route::post('/auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:5,1');
+
+    /*
+     * M13 — the public website. No authentication: these four routes are what an
+     * anonymous visitor reaches. Submission is throttled hard because it writes
+     * files, and the lookup is throttled because the reference is the only secret.
+     */
+    Route::prefix('public')->group(function (): void {
+        Route::get('/languages', [PublicQuoteRequestController::class, 'languages']);
+        Route::get('/quote-requests/limits', [PublicQuoteRequestController::class, 'limits']);
+
+        Route::post('/quote-requests', [PublicQuoteRequestController::class, 'store'])
+            ->middleware('throttle:quote-submissions');
+
+        Route::get('/quote-requests/{reference}', [PublicQuoteRequestController::class, 'show'])
+            ->middleware('throttle:quote-lookups');
+    });
 
     Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         // Auth
@@ -83,6 +101,24 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/projects/{project}/files', [ProjectFileController::class, 'store']);
             Route::delete('/projects/{project}/files/{file}', [ProjectFileController::class, 'destroy']);
             Route::put('/projects/{project}/files/{file}/manual-count', [ProjectFileController::class, 'manualCount']);
+        });
+
+        // Quote requests from the public site (M13)
+        Route::middleware('permission:quotes.view|quotes.manage')->group(function (): void {
+            Route::get('/quote-requests', [QuoteRequestController::class, 'index']);
+            Route::get('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'show']);
+            Route::get('/quote-requests/{quoteRequest}/files/{fileId}', [QuoteRequestController::class, 'downloadFile']);
+        });
+
+        Route::middleware('permission:quotes.manage')->group(function (): void {
+            Route::put('/quote-requests/{quoteRequest}/status', [QuoteRequestController::class, 'updateStatus']);
+            Route::post('/quote-requests/{quoteRequest}/respond', [QuoteRequestController::class, 'respond']);
+            Route::delete('/quote-requests/{quoteRequest}', [QuoteRequestController::class, 'destroy']);
+        });
+
+        // Separate gate: this one creates a project and schedules translators.
+        Route::middleware('permission:quotes.convert')->group(function (): void {
+            Route::post('/quote-requests/{quoteRequest}/convert', [QuoteRequestController::class, 'convert']);
         });
 
         // Review flow (M5)

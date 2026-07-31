@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Assignment;
 use App\Models\Client;
 use App\Models\Project;
+use App\Models\QuoteRequest;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -51,6 +52,9 @@ class DashboardController extends Controller
                 'completed_this_month' => (int) $completedThisMonth->projects,
                 'words_this_month' => (int) $completedThisMonth->words,
                 'pages_this_month' => (int) $completedThisMonth->pages,
+                // M13 — website quote requests still waiting on a human.
+                'quotes_open' => QuoteRequest::open()->count(),
+                'quotes_new' => QuoteRequest::where('status', QuoteRequest::STATUS_NEW)->count(),
                 'clients_total' => Client::count(),
                 'translators_active' => User::role('translator')->where('status', User::STATUS_ACTIVE)->count(),
             ];

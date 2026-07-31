@@ -49,9 +49,11 @@ export function TopBar() {
   }, []);
 
   const segments = pathname.split("/").filter(Boolean);
+  // "/" belongs to the public site now, so the trail is rooted at the dashboard —
+  // and /dashboard itself must not appear twice.
   const crumbs = [
-    { href: "/", label: BREADCRUMB_LABELS[""] },
-    ...segments.map((segment, index) => ({
+    { href: "/dashboard", label: BREADCRUMB_LABELS[""] },
+    ...(segments[0] === "dashboard" ? [] : segments).map((segment, index) => ({
       href: "/" + segments.slice(0, index + 1).join("/"),
       label: BREADCRUMB_LABELS[segment] ?? "التفاصيل",
     })),

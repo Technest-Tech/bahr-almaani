@@ -24,6 +24,8 @@ final class NotificationPreferences
 
     public const MERGE_STATUS = 'merge_status';
 
+    public const QUOTE_RECEIVED = 'quote_received';
+
     /**
      * Family key => [label, description, mail default]. Labels are Arabic because the
      * settings screen renders this list verbatim.
@@ -64,6 +66,11 @@ final class NotificationPreferences
         self::MERGE_STATUS => [
             'label' => 'الملف النهائي',
             'description' => 'عند اكتمال دمج الترويسة والختم أو فشله.',
+            'mail' => true,
+        ],
+        self::QUOTE_RECEIVED => [
+            'label' => 'طلبات التسعير',
+            'description' => 'عند وصول طلب تسعير جديد من الموقع الإلكتروني.',
             'mail' => true,
         ],
     ];

@@ -120,24 +120,30 @@ export function ColumnChart({ title, data, tickEvery = 7, unit, emptyMessage }: 
         </div>
       </div>
 
-      {/* table view: same data, reachable without hovering */}
-      <table id={tableId} className="sr-only">
-        <caption>{title}</caption>
-        <thead>
-          <tr>
-            <th scope="col">الفترة</th>
-            <th scope="col">القيمة</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((datum) => (
-            <tr key={datum.full}>
-              <td>{datum.full}</td>
-              <td>{datum.value.toLocaleString("ar-EG")}</td>
+      {/* table view: same data, reachable without hovering.
+          sr-only must sit on a wrapping div, not the table: on a table box the
+          1px height is a *minimum* and overflow:hidden does not clip, so the
+          absolutely-positioned table keeps its full size and stretches the
+          page's scroll height by hundreds of blank pixels. */}
+      <div className="sr-only">
+        <table id={tableId}>
+          <caption>{title}</caption>
+          <thead>
+            <tr>
+              <th scope="col">الفترة</th>
+              <th scope="col">القيمة</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.map((datum) => (
+              <tr key={datum.full}>
+                <td>{datum.full}</td>
+                <td>{datum.value.toLocaleString("ar-EG")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
