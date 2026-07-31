@@ -41,7 +41,10 @@ try {
   });
 
   await page.addInitScript((t) => localStorage.setItem("bahr_token", t), token);
-  await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  // /dashboard, not /: since M13 the root is the public marketing site, which
+  // renders fine while logged out and opens no websocket — so probing / here
+  // passed without ever exercising the app or Reverb.
+  await page.goto(`${BASE}/dashboard`, { waitUntil: "networkidle" });
   await page.waitForTimeout(4000);
   await page.screenshot({ path: "rt-shots/prod-dashboard.png" });
 
