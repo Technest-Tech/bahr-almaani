@@ -64,28 +64,36 @@ export function TopBar() {
       <SidebarTrigger className="-ms-1 text-muted-foreground" />
       <Separator orientation="vertical" className="me-2 h-4!" />
 
-      <Breadcrumb>
-        <BreadcrumbList>
-          {crumbs.map((crumb, index) => (
-            <Fragment key={crumb.href}>
-              {index > 0 && (
-                <BreadcrumbSeparator>
-                  <ChevronLeft className="size-3.5" />
-                </BreadcrumbSeparator>
-              )}
-              <BreadcrumbItem>
-                {index === crumbs.length - 1 ? (
-                  <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink href={crumb.href}>{crumb.label}</BreadcrumbLink>
+      {/* min-w-0 lets the trail shrink instead of shoving the actions off-screen;
+          without it a flex child refuses to go below its content width. */}
+      <Breadcrumb className="min-w-0 flex-1">
+        <BreadcrumbList className="flex-nowrap">
+          {crumbs.map((crumb, index) => {
+            const isLast = index === crumbs.length - 1;
+            return (
+              <Fragment key={crumb.href}>
+                {index > 0 && (
+                  <BreadcrumbSeparator className="hidden sm:flex">
+                    <ChevronLeft className="size-3.5" />
+                  </BreadcrumbSeparator>
                 )}
-              </BreadcrumbItem>
-            </Fragment>
-          ))}
+                {/* A phone leaves ~170px for the trail, so the ancestors are
+                    dropped rather than wrapped onto a second line inside a
+                    fixed h-14 header. The sidebar is the way back on mobile. */}
+                <BreadcrumbItem className={isLast ? "min-w-0" : "hidden sm:inline-flex"}>
+                  {isLast ? (
+                    <BreadcrumbPage className="truncate">{crumb.label}</BreadcrumbPage>
+                  ) : (
+                    <BreadcrumbLink href={crumb.href}>{crumb.label}</BreadcrumbLink>
+                  )}
+                </BreadcrumbItem>
+              </Fragment>
+            );
+          })}
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="ms-auto flex items-center gap-1.5">
+      <div className="ms-auto flex shrink-0 items-center gap-1.5">
         <button
           onClick={() => setPaletteOpen(true)}
           className="flex h-8 items-center gap-2 rounded-lg border border-transparent bg-muted/70 px-3 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted sm:w-56"
