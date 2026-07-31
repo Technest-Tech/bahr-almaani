@@ -58,26 +58,44 @@ for (const [role, token] of Object.entries(TOKENS)) {
       const metrics = await page.evaluate(() => {
         const de = document.documentElement;
         const overflow = de.scrollWidth - de.clientWidth;
-        // Any element sticking out past the right/left edge of the viewport.
+        // Wider than the screen is only a defect when nothing scrolls it. A data
+        // grid inside overflow-x:auto is working as intended, so walk up and let
+        // it off — otherwise every table page cries wolf and hides real breaks.
+        const scrollableAncestor = (el) => {
+          for (let n = el.parentElement; n; n = n.parentElement) {
+            const ox = getComputedStyle(n).overflowX;
+            if (ox === "auto" || ox === "scroll") return true;
+          }
+          return false;
+        };
         const wide = [...document.querySelectorAll("body *")]
           .filter((el) => {
             const r = el.getBoundingClientRect();
             if (r.width === 0 || r.height === 0) return false;
-            return r.width > de.clientWidth + 1;
+            if (r.width <= de.clientWidth + 1) return false;
+            return !scrollableAncestor(el);
           })
           .slice(0, 6)
           .map((el) => {
             const r = el.getBoundingClientRect();
             return `${el.tagName.toLowerCase()}.${String(el.className).split(" ").filter(Boolean).slice(0, 3).join(".")} w=${Math.round(r.width)}`;
           });
+        // innerText falls back to textContent on a display:none element, so a
+        // hidden crumb still reads as present. Check what is actually rendered.
         const crumbs = [...document.querySelectorAll("nav[aria-label='breadcrumb'] li")]
+          .filter((n) => getComputedStyle(n).display !== "none" && n.offsetParent !== null)
           .map((n) => n.innerText.trim()).filter(Boolean);
         const h1 = document.querySelector("h1");
         const h1Box = h1?.getBoundingClientRect();
+        // The trail lives in a fixed h-14 bar; a second line means it wrapped.
+        const ol = document.querySelector("nav[aria-label='breadcrumb'] ol");
+        const olH = ol ? ol.getBoundingClientRect().height : 0;
         return {
           overflow,
           wide,
           crumbs,
+          crumbWraps: olH > 28,
+          crumbH: Math.round(olH),
           h1: h1?.innerText?.trim() ?? null,
           h1Overflows: h1Box ? h1Box.width > de.clientWidth + 1 : false,
           viewport: de.clientWidth,
@@ -135,11 +153,12 @@ for (const f of findings) {
     continue;
   }
   const flags = [];
-  if (f.overflow > 0) flags.push(`OVERFLOW +${f.overflow}px`);
-  if (f.wide.length) flags.push(`WIDE[${f.wide.join(" ; ")}]`);
+  if (f.overflow > 0) flags.push(`PAGE-OVERFLOW +${f.overflow}px`);
+  if (f.wide.length) flags.push(`UNSCROLLABLE-WIDE[${f.wide.join(" ; ")}]`);
+  if (f.crumbWraps) flags.push(`CRUMB-WRAP ${f.crumbH}px`);
   if (f.h1Overflows) flags.push("H1-OVERFLOW");
   if (f.errors.length) flags.push(`JS:${f.errors[0].slice(0, 60)}`);
   console.log(
-    `${f.role.padEnd(11)} ${f.path.padEnd(14)} crumbs=[${f.crumbs.join(" / ")}] h1="${(f.h1 ?? "").slice(0, 28)}" ${flags.length ? "?? " + flags.join(" | ") : "ok"}`,
+    `${f.role.padEnd(11)} ${f.path.padEnd(14)} crumb=[${f.crumbs.join(" / ")}] ${String(f.crumbH).padStart(3)}px h1="${(f.h1 ?? "").slice(0, 26)}" ${flags.length ? "!! " + flags.join(" | ") : "ok"}`,
   );
 }
