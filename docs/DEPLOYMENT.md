@@ -59,18 +59,44 @@ in production. Change the admin password from inside the app after first login.
 
 ### TLS
 
-`api/docker/nginx/app.conf` serves plain HTTP plus the ACME webroot. Issue the
-certificate, then add a 443 server block (same locations, plus `ssl_certificate`
-pointing at `/etc/letsencrypt/live/<domain>/`) and mount `/etc/letsencrypt` into
-the nginx service:
+The 443 server block is built in and **switches itself on when a certificate is
+present**: `40-enable-tls.sh` runs at container boot and renders
+`docker/nginx/tls.conf` into `/etc/nginx/tls/` only if `TLS_DOMAIN` is set *and*
+`/etc/letsencrypt/live/$TLS_DOMAIN/fullchain.pem` is readable. No certificate
+means plain HTTP and a normal start — never a container that refuses to boot.
+
+Behind Cloudflare (or any proxy that already answers :443) the HTTP-01 challenge
+is awkward, so issue over **DNS-01** instead — it needs no inbound port:
 
 ```bash
-certbot certonly --webroot -w /var/lib/docker/volumes/bahr-almaaani-prod_certbot-webroot/_data -d <domain>
+apt install -y python3-certbot-dns-cloudflare
+printf 'dns_cloudflare_api_token = %s\n' "<token>" > /root/.secrets/cloudflare.ini
+chmod 600 /root/.secrets/cloudflare.ini
+
+certbot certonly --dns-cloudflare \
+  --dns-cloudflare-credentials /root/.secrets/cloudflare.ini \
+  --dns-cloudflare-propagation-seconds 30 \
+  -d <domain> -d www.<domain>
 ```
 
-Alternatively put Caddy or a DigitalOcean load balancer in front and leave the
-nginx container on HTTP — `trustProxies` is already set, so the app reads
-`X-Forwarded-Proto` and generates https:// links either way.
+The token needs only `Zone:DNS:Edit` + `Zone:Zone:Read` on that one zone. Then
+set `TLS_DOMAIN=<domain>` in `.env` and redeploy. Certbot installs its own
+renewal timer; add a deploy hook so nginx picks up a renewed certificate:
+
+```bash
+echo 'docker compose -f /var/www/bahr-almaani/docker-compose.prod.yml exec nginx nginx -s reload' \
+  > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+```
+
+With Cloudflare in front, set the zone's SSL mode to **Full (strict)** — the
+origin now presents a real Let's Encrypt certificate, so there is no reason to
+accept the weaker Flexible mode, which leaves the Cloudflare→origin hop in
+cleartext.
+
+Alternatively put Caddy or a load balancer in front and leave the nginx
+container on HTTP (`TLS_DOMAIN` unset) — `trustProxies` is already set, so the
+app reads `X-Forwarded-Proto` and generates https:// links either way.
 
 ## 3. Every deploy
 

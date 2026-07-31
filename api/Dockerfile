@@ -59,5 +59,11 @@ FROM nginx:1.27-alpine AS nginx
 
 COPY --from=app /var/www/html/public /var/www/html/public
 COPY docker/nginx/app.conf /etc/nginx/conf.d/default.conf
+COPY docker/nginx/locations.conf /etc/nginx/locations.conf
+# Staged, not active: 40-enable-tls.sh renders it into /etc/nginx/tls/ at boot
+# if — and only if — the certificate for TLS_DOMAIN is mounted.
+COPY docker/nginx/tls.conf /etc/nginx/tls-available/tls.conf
+COPY docker/nginx/40-enable-tls.sh /docker-entrypoint.d/40-enable-tls.sh
+RUN chmod +x /docker-entrypoint.d/40-enable-tls.sh
 
-EXPOSE 80
+EXPOSE 80 443
