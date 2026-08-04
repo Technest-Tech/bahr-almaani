@@ -1,5 +1,6 @@
 "use client";
 
+import { defaultFilter } from "cmdk";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,8 @@ export interface ComboboxOption {
   value: string;
   label: string;
   hint?: string;
+  /** Extra terms the search should match (e.g. an English name). */
+  keywords?: string[];
 }
 
 interface ComboboxProps {
@@ -31,6 +34,17 @@ interface ComboboxProps {
   clearable?: boolean;
   id?: string;
 }
+
+/**
+ * cmdk scores fuzzily, so a short exact term (an ISO country code, say) can rank
+ * below long labels that merely contain those letters. Score an exact keyword hit
+ * as a perfect match; everything else keeps cmdk's default scoring.
+ */
+const filterWithExactKeywords = (value: string, search: string, keywords?: string[]) => {
+  const term = search.trim().toLowerCase();
+  if (term && keywords?.some((keyword) => keyword.toLowerCase() === term)) return 1;
+  return defaultFilter(value, search, keywords);
+};
 
 export function Combobox({
   options,
@@ -66,7 +80,7 @@ export function Combobox({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-(--radix-popover-trigger-width) p-0" align="start">
-        <Command>
+        <Command filter={filterWithExactKeywords}>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>
@@ -87,6 +101,7 @@ export function Combobox({
                 <CommandItem
                   key={option.value}
                   value={`${option.label} ${option.hint ?? ""}`}
+                  keywords={option.keywords}
                   onSelect={() => {
                     onChange(option.value);
                     setOpen(false);

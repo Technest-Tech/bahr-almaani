@@ -7,6 +7,7 @@ import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
+import { COUNTRIES } from "@/lib/countries";
 import type { Client, Language, Paginated, Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -66,6 +67,12 @@ export default function NewProjectPage() {
       label: client.name,
       hint: client.type === "company" ? "شركة" : "فرد",
     })) ?? [];
+  const countryOptions = COUNTRIES.map((country) => ({
+    value: country.code,
+    label: country.name_ar,
+    hint: country.code,
+    keywords: [country.name_en, country.code],
+  }));
 
   function set(key: keyof typeof form, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -157,14 +164,14 @@ export default function NewProjectPage() {
                   htmlFor="p-country"
                   error={errors.country_code?.[0]}
                 >
-                  <Input
+                  <Combobox
                     id="p-country"
-                    dir="ltr"
-                    maxLength={2}
-                    placeholder="EG"
-                    className="text-left uppercase"
+                    options={countryOptions}
                     value={form.country_code}
-                    onChange={(e) => set("country_code", e.target.value.toUpperCase())}
+                    onChange={(value) => set("country_code", value)}
+                    placeholder="— بدون دولة —"
+                    searchPlaceholder="ابحث عن دولة…"
+                    clearable
                   />
                 </Field>
               </div>
