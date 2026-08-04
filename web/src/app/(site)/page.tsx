@@ -191,7 +191,7 @@ export default function LandingPage() {
 
             <h1 className="mt-6 text-balance text-4xl font-extrabold leading-[1.15] tracking-tight sm:text-5xl lg:text-6xl">
               ترجمة معتمدة
-              <span className="bg-gradient-to-l from-teal-500 to-teal-700 bg-clip-text text-transparent dark:from-teal-300 dark:to-teal-500">
+              <span className="bg-gradient-to-l from-gold-600 to-gold-800 bg-clip-text text-transparent dark:from-gold-300 dark:to-gold-500">
                 {" "}تُقبل من أول مرة
               </span>
             </h1>
@@ -396,7 +396,7 @@ export default function LandingPage() {
           <div className="relative overflow-hidden rounded-3xl bg-sidebar px-6 py-16 text-center">
             <div
               aria-hidden
-              className="pointer-events-none absolute -bottom-24 start-1/2 size-[30rem] -translate-x-1/2 rounded-full bg-teal-400/20 blur-3xl"
+              className="pointer-events-none absolute -bottom-24 start-1/2 size-[30rem] -translate-x-1/2 rounded-full bg-gold-500/20 blur-3xl"
             />
             <div className="relative mx-auto max-w-2xl">
               <h2 className="text-balance text-3xl font-extrabold tracking-tight text-white sm:text-4xl">

@@ -467,7 +467,7 @@ function CurrentAssignmentCard({
                     <span dir="ltr" className="min-w-0 flex-1 truncate text-start text-xs font-medium">
                       {file.original_name}
                     </span>
-                    <ToneBadge tone={file.category === "source" ? "teal" : "slate"}>
+                    <ToneBadge tone={file.category === "source" ? "violet" : "slate"}>
                       {file.category === "source" ? "عمل" : "مرجع"}
                     </ToneBadge>
                     <Button

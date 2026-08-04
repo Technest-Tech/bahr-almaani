@@ -56,7 +56,7 @@ const EVENT_META: Record<string, { label: string; tone: Tone }> = {
   created: { label: "إنشاء", tone: "green" },
   updated: { label: "تعديل", tone: "blue" },
   deleted: { label: "حذف", tone: "red" },
-  restored: { label: "استرجاع", tone: "teal" },
+  restored: { label: "استرجاع", tone: "violet" },
 };
 
 /** Arabic labels for the fields the models actually log. */

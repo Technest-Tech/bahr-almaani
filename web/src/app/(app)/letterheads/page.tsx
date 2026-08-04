@@ -195,7 +195,7 @@ export default function LetterheadsPage() {
                     <div className="flex flex-1 flex-col gap-2 p-4">
                       <div className="flex items-start justify-between gap-2">
                         <h3 className="text-sm font-semibold leading-snug">{template.name}</h3>
-                        {template.in_use && <ToneBadge tone="teal">مستخدم</ToneBadge>}
+                        {template.in_use && <ToneBadge tone="violet">مستخدم</ToneBadge>}
                       </div>
                       <p className="text-[11px] leading-relaxed text-muted-foreground">
                         {placementSummary(template)}

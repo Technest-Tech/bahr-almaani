@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Waves } from "lucide-react";
+import { BrandLockup } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
-      {/* Sea-glow backdrop */}
+      {/* Brand glow backdrop */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top,--theme(--color-primary/8%),transparent_55%)]"
@@ -50,12 +50,11 @@ export default function LoginPage() {
       />
 
       <div className="relative w-full max-w-md">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-            <Waves className="size-7" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">بحر المعاني</h1>
-          <p className="mt-1 text-sm text-muted-foreground">نظام إدارة خدمات الترجمة</p>
+        <div className="mb-8 flex flex-col items-center text-center">
+          {/* The lockup carries the name; the heading stays for screen readers. */}
+          <h1 className="sr-only">بحر المعاني — نظام إدارة خدمات الترجمة</h1>
+          <BrandLockup height={128} />
+          <p className="mt-3 text-sm text-muted-foreground">نظام إدارة خدمات الترجمة</p>
         </div>
 
         <Card>

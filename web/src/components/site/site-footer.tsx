@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Clock, Mail, MapPin, Phone, Waves } from "lucide-react";
+import { Clock, Mail, MapPin, Phone } from "lucide-react";
+import { BrandGlyph } from "@/components/brand-logo";
 import { COMPANY } from "@/lib/company";
 
 const COLUMNS = [
@@ -30,9 +31,7 @@ export function SiteFooter() {
         <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1.2fr]">
           <div>
             <div className="flex items-center gap-2.5">
-              <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-700 text-white">
-                <Waves className="size-5" />
-              </span>
+              <BrandGlyph size={36} />
               <span className="grid leading-tight">
                 <span className="text-[15px] font-bold">{COMPANY.name}</span>
                 <span className="text-[11px] text-muted-foreground">{COMPANY.tagline}</span>

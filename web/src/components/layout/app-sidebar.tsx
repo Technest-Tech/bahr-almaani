@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Waves } from "lucide-react";
+import { BrandGlyph } from "@/components/brand-logo";
 import {
   Sidebar,
   SidebarContent,
@@ -29,9 +29,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild className="hover:bg-sidebar-accent/50">
               <Link href="/dashboard">
-                <div className="flex aspect-square size-9 items-center justify-center rounded-xl bg-gradient-to-br from-teal-400 to-teal-700 text-white shadow-lg shadow-teal-950/40">
-                  <Waves className="size-5" />
-                </div>
+                <BrandGlyph size={36} onDark />
                 <div className="grid flex-1 text-start leading-tight">
                   <span className="truncate text-[15px] font-bold text-white">بحر المعاني</span>
                   <span className="truncate text-[11px] text-sidebar-foreground/60">
@@ -60,13 +58,13 @@ export function AppSidebar() {
                         asChild
                         isActive={active}
                         tooltip={item.label}
-                        className="h-10 gap-3 px-3 text-[13.5px] font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-white data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-teal-300"
+                        className="h-10 gap-3 px-3 text-[13.5px] font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-white data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-sidebar-accent-foreground"
                       >
                         <Link href={item.href}>
                           <item.icon className="size-[18px]!" />
                           <span>{item.label}</span>
                           {active && (
-                            <span className="absolute inset-y-2 -end-2 w-1 rounded-full bg-teal-400" />
+                            <span className="absolute inset-y-2 -end-2 w-1 rounded-full bg-gold-500" />
                           )}
                         </Link>
                       </SidebarMenuButton>

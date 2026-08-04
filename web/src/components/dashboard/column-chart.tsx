@@ -27,7 +27,8 @@ function niceMax(max: number): number {
 }
 
 /**
- * Single-series column chart (marks: teal, validated on both surfaces;
+ * Single-series column chart (marks: brand navy — chart slot 1, validated on
+ * both surfaces;
  * ≤24px columns, 4px rounded data-end, 2px surface gaps, hairline grid).
  * Time flows left→right inside an LTR island; labels stay Arabic.
  */
@@ -81,8 +82,8 @@ export function ColumnChart({ title, data, tickEvery = 7, unit, emptyMessage }: 
               <span
                 className={`block w-full rounded-t-[4px] transition-colors ${
                   active === index
-                    ? "bg-teal-500 dark:bg-teal-400"
-                    : "bg-teal-600 dark:bg-teal-500"
+                    ? "bg-navy-800 dark:bg-navy-300"
+                    : "bg-chart-1"
                 }`}
                 style={{ height: `${(datum.value / top) * 100}%` }}
               />

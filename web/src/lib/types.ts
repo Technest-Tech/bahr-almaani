@@ -23,6 +23,7 @@ export interface User {
   phone: string | null;
   status: "active" | "suspended";
   locale: string;
+  monthly_word_target: number | null;
   last_login_at: string | null;
   created_at: string;
   roles: Role[];
@@ -244,14 +245,14 @@ export const STATUS_LABELS: Record<ProjectStatus, string> = {
   cancelled: "ملغي",
 };
 
-export const STATUS_TONES: Record<ProjectStatus, "green" | "red" | "slate" | "teal" | "amber" | "blue"> = {
+export const STATUS_TONES: Record<ProjectStatus, "green" | "red" | "slate" | "violet" | "amber" | "blue"> = {
   draft: "slate",
   available: "blue",
   claimed: "amber",
-  delivered: "teal",
+  delivered: "violet",
   in_review: "amber",
   revision_requested: "red",
-  approved: "teal",
+  approved: "violet",
   completed: "green",
   archived: "slate",
   cancelled: "red",
@@ -355,10 +356,10 @@ export const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   converted: "تحوّل إلى مشروع",
 };
 
-export const QUOTE_STATUS_TONES: Record<QuoteStatus, "green" | "red" | "slate" | "teal" | "amber" | "blue"> = {
+export const QUOTE_STATUS_TONES: Record<QuoteStatus, "green" | "red" | "slate" | "violet" | "amber" | "blue"> = {
   new: "blue",
   reviewing: "amber",
-  quoted: "teal",
+  quoted: "violet",
   accepted: "green",
   declined: "red",
   converted: "slate",

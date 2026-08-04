@@ -111,7 +111,7 @@ export default function UsersPage() {
       meta: { label: "الدور" },
       header: "الدور",
       cell: ({ row }) => (
-        <ToneBadge tone={row.original.roles.includes("admin") ? "teal" : "blue"}>
+        <ToneBadge tone={row.original.roles.includes("admin") ? "violet" : "blue"}>
           {row.original.roles.map((r) => ROLE_LABELS[r as Role] ?? r).join("، ") || "—"}
         </ToneBadge>
       ),
