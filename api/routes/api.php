@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\DailyWordLogController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\LetterheadController;
@@ -138,6 +139,10 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/deliver', [PortalController::class, 'deliver']);
             Route::get('/history', [PortalController::class, 'history']);
             Route::get('/files/{fileId}/download', [PortalController::class, 'downloadFile']);
+
+            // The translator's own daily word log — personal, no extra permission.
+            Route::get('/daily-words', [DailyWordLogController::class, 'index']);
+            Route::post('/daily-words', [DailyWordLogController::class, 'store']);
         });
 
         // Dashboard (M6)

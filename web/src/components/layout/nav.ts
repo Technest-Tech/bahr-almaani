@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  CalendarCheck,
   Contact,
   FolderKanban,
   History,
@@ -21,6 +22,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "لوحة التحكم", icon: LayoutDashboard, permission: null },
   { href: "/portal", label: "بورتال المترجم", icon: Inbox, permission: "portal.access" },
+  { href: "/daily-words", label: "إنتاجي اليومي", icon: CalendarCheck, permission: "portal.access" },
   { href: "/quotes", label: "طلبات التسعير", icon: MailOpen, permission: "quotes.view" },
   { href: "/projects", label: "المشاريع", icon: FolderKanban, permission: "projects.view" },
   { href: "/clients", label: "العملاء", icon: Contact, permission: "clients.view" },
@@ -35,6 +37,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   "": "لوحة التحكم",
   dashboard: "لوحة التحكم",
   portal: "بورتال المترجم",
+  "daily-words": "إنتاجي اليومي",
   quotes: "طلبات التسعير",
   projects: "المشاريع",
   new: "مشروع جديد",

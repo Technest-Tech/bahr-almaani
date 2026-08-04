@@ -18,6 +18,7 @@ class UserResource extends JsonResource
             'phone' => $this->phone,
             'status' => $this->status,
             'locale' => $this->locale,
+            'monthly_word_target' => $this->monthly_word_target,
             'last_login_at' => $this->last_login_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
             'roles' => $this->getRoleNames(),

@@ -16,6 +16,7 @@ class StoreUserRequest extends FormRequest
             'password' => ['required', 'string', 'min:8'],
             'role' => ['required', 'string', Rule::exists('roles', 'name')],
             'locale' => ['nullable', Rule::in(['ar', 'en'])],
+            'monthly_word_target' => ['nullable', 'integer', 'min:0', 'max:500000'],
         ];
     }
 }

@@ -64,6 +64,7 @@ erDiagram
 | password | varchar | bcrypt |
 | status | varchar(20) | `active` / `suspended` — suspension takes effect immediately (token check) |
 | locale | varchar(5) | default `ar` |
+| monthly_word_target | int | nullable — reporting target for translators only. **Not** a pay figure |
 | last_login_at | timestamptz | nullable |
 | deleted_at | timestamptz | soft delete |
 
@@ -167,6 +168,24 @@ CREATE UNIQUE INDEX one_active_per_project
 ```
 
 Even if application code regresses, double-claiming is **impossible** at the database level.
+
+### daily_word_logs — the translator's own account of a day
+| Column | Type | Notes |
+|---|---|---|
+| user_id | FK users cascade | |
+| work_date | date | |
+| declared_words | int | what the translator says they produced that day |
+| note | text | nullable — e.g. "ملف عقود صعب" |
+
+Unique: `(user_id, work_date)` — re-submitting a day overwrites it. Index on `work_date`.
+
+Deliberately **not** the same number the system computes. The system knows words per
+*delivery*, so a file claimed Monday and delivered Thursday lands entirely on Thursday;
+this table is the smoother, self-reported view. Reports show the two side by side and
+the variance between them — that gap is the feature, not a bug to reconcile away.
+
+Self-reported figures that managers read, so every edit is written to `activity_log`
+under the `daily-words` log name.
 
 ### status_transitions — lifecycle history
 | Column | Type | Notes |

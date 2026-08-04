@@ -10,13 +10,22 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * The four M7 report queries. Each returns display-ready rows (plain arrays)
+ * The M7 report queries. Each returns display-ready rows (plain arrays)
  * consumed by BOTH the JSON endpoints and the export files, so the numbers
  * on screen and in Excel/PDF can never disagree.
+ *
+ * `productivity` and `daily_words` extend the catalog with the target and
+ * self-declaration columns the accountant needs to run incentives by hand.
+ * They report figures only — no rate, tier, bonus or deduction is computed
+ * anywhere in this system (docs/HANDOFF.md §7b).
  */
 class ReportService
 {
-    public const TYPES = ['translators', 'pms', 'monthly', 'projects'];
+    public const TYPES = ['translators', 'productivity', 'daily_words', 'pms', 'monthly', 'projects'];
+
+    public function __construct(
+        private readonly ProductionService $production,
+    ) {}
 
     /** @return array{columns: array<string,string>, rows: Collection} */
     public function build(string $type, array $params): array
@@ -26,10 +35,137 @@ class ReportService
 
         return match ($type) {
             'translators' => $this->translators($from, $to),
+            'productivity' => $this->productivity($from, $to, $params),
+            'daily_words' => $this->dailyWords($from, $to, $params),
             'pms' => $this->pms($from, $to),
             'monthly' => $this->monthly($from, $to),
             'projects' => $this->projects($from, $to, $params),
         };
+    }
+
+    /**
+     * Productivity against each translator's monthly target, with what the
+     * system counted next to what the translator declared.
+     *
+     * The accountant runs their own incentive arithmetic on these figures —
+     * the system deliberately stops at the numbers (see docs/HANDOFF.md §7b).
+     */
+    private function productivity(Carbon $from, Carbon $to, array $params): array
+    {
+        $translators = User::role('translator')
+            ->when(! empty($params['translator_id']), fn ($q) => $q->whereKey($params['translator_id']))
+            ->orderBy('name')
+            ->get(['id', 'name', 'monthly_word_target']);
+
+        $ids = $translators->pluck('id')->all();
+        $delivered = $this->production->deliveredByDay($from, $to, $ids);
+        $declared = $this->production->declaredByDay($from, $to, $ids);
+
+        $rows = $translators
+            ->map(function (User $translator) use ($delivered, $declared): array {
+                $prefix = $translator->id.'|';
+                $mine = $delivered->filter(fn ($_, $key) => str_starts_with($key, $prefix));
+                $mineDeclared = $declared->filter(fn ($_, $key) => str_starts_with($key, $prefix));
+
+                $deliveredWords = (int) $mine->sum('words');
+                $declaredWords = (int) $mineDeclared->sum('words');
+                $target = $translator->monthly_word_target;
+
+                return [
+                    'translator' => $translator->name,
+                    'delivered_words' => $deliveredWords,
+                    'declared_words' => $mineDeclared->isEmpty() ? null : $declaredWords,
+                    'variance' => $mineDeclared->isEmpty() ? null : $declaredWords - $deliveredWords,
+                    'target' => $target,
+                    'achieved_pct' => $target > 0 ? round($deliveredWords * 100 / $target) : null,
+                    'days_delivered' => $mine->count(),
+                    'days_logged' => $mineDeclared->count(),
+                    'files' => (int) $mine->sum('files'),
+                    'hours' => round(((int) $mine->sum('seconds')) / 3600, 1),
+                ];
+            })
+            ->filter(fn (array $row) => $row['delivered_words'] > 0 || $row['declared_words'] !== null)
+            ->values();
+
+        return [
+            'columns' => [
+                'translator' => 'المترجم',
+                'delivered_words' => 'كلمات مسلّمة (النظام)',
+                'declared_words' => 'كلمات مُعلنة (المترجم)',
+                'variance' => 'الفرق',
+                'target' => 'التارجت الشهري',
+                'achieved_pct' => 'نسبة الإنجاز ٪',
+                'days_delivered' => 'أيام التسليم',
+                'days_logged' => 'أيام مسجّلة',
+                'files' => 'الملفات',
+                'hours' => 'ساعات العمل',
+            ],
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * Day-by-day detail behind the productivity report. Only days that carry a
+     * delivery or a declaration appear — an empty grid helps nobody.
+     */
+    private function dailyWords(Carbon $from, Carbon $to, array $params): array
+    {
+        $translators = User::role('translator')
+            ->when(! empty($params['translator_id']), fn ($q) => $q->whereKey($params['translator_id']))
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->keyBy('id');
+
+        $ids = $translators->keys()->all();
+        $delivered = $this->production->deliveredByDay($from, $to, $ids);
+        $declared = $this->production->declaredByDay($from, $to, $ids);
+
+        $rows = $delivered->keys()
+            ->merge($declared->keys())
+            ->unique()
+            ->map(function (string $key) use ($translators, $delivered, $declared): ?array {
+                [$translatorId, $date] = explode('|', $key);
+                $translator = $translators->get((int) $translatorId);
+
+                if (! $translator) {
+                    return null;
+                }
+
+                $deliveredWords = $delivered[$key]['words'] ?? 0;
+                $declaredWords = $declared[$key]['words'] ?? null;
+
+                return [
+                    'date' => Carbon::parse($date)->isoFormat('YYYY/MM/DD'),
+                    'translator' => $translator->name,
+                    'delivered_words' => $deliveredWords,
+                    'declared_words' => $declaredWords,
+                    'variance' => $declaredWords === null ? null : $declaredWords - $deliveredWords,
+                    'files' => $delivered[$key]['files'] ?? 0,
+                    'note' => $declared[$key]['note'] ?? null,
+                    '_sort' => $date.$translator->name,
+                ];
+            })
+            ->filter()
+            ->sortBy('_sort')
+            ->map(function (array $row): array {
+                unset($row['_sort']);
+
+                return $row;
+            })
+            ->values();
+
+        return [
+            'columns' => [
+                'date' => 'اليوم',
+                'translator' => 'المترجم',
+                'delivered_words' => 'كلمات مسلّمة (النظام)',
+                'declared_words' => 'كلمات مُعلنة (المترجم)',
+                'variance' => 'الفرق',
+                'files' => 'الملفات',
+                'note' => 'ملاحظة المترجم',
+            ],
+            'rows' => $rows,
+        ];
     }
 
     /** Per-translator output for deliveries inside the range. */

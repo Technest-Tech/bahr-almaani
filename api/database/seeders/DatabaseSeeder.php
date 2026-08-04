@@ -18,6 +18,9 @@ class DatabaseSeeder extends Seeder
 
         Setting::set('due_soon_threshold_hours', 24);
         Setting::set('auto_archive_after_days', 30);
+        // Which calendar day a delivery counts toward. The app runs on UTC, so
+        // without this a 01:00 Cairo delivery would be filed under yesterday.
+        Setting::set('work_timezone', 'Africa/Cairo');
 
         // Production seeds the first administrator from the environment so the
         // droplet never ships with the well-known dev credentials. Seeders only

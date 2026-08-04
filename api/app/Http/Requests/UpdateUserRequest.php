@@ -19,6 +19,7 @@ class UpdateUserRequest extends FormRequest
             'password' => ['sometimes', 'nullable', 'string', 'min:8'],
             'role' => ['sometimes', 'required', 'string', Rule::exists('roles', 'name')],
             'locale' => ['sometimes', Rule::in(['ar', 'en'])],
+            'monthly_word_target' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:500000'],
         ];
     }
 }

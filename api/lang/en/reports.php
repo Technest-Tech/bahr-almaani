@@ -2,6 +2,8 @@
 
 return [
     'translators' => 'Translator productivity report',
+    'productivity' => 'Productivity vs target',
+    'daily_words' => 'Daily words',
     'pms' => 'Project managers report',
     'monthly' => 'Monthly company report',
     'projects' => 'Projects registry',

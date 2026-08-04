@@ -28,6 +28,7 @@ class ReportController extends Controller
             'to' => ['nullable', 'date', 'after_or_equal:from'],
             'status' => ['nullable', 'string'],
             'client_id' => ['nullable', 'integer'],
+            'translator_id' => ['nullable', 'integer'],
         ]);
 
         $report = $this->reports->build($type, $params);
@@ -49,6 +50,7 @@ class ReportController extends Controller
             'params.to' => ['nullable', 'date', 'after_or_equal:params.from'],
             'params.status' => ['nullable', 'string'],
             'params.client_id' => ['nullable', 'integer'],
+            'params.translator_id' => ['nullable', 'integer'],
         ]);
 
         $export = ReportExport::create([

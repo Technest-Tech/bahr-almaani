@@ -40,6 +40,7 @@ class User extends Authenticatable
         'password',
         'status',
         'locale',
+        'monthly_word_target',
     ];
 
     protected $hidden = [
@@ -53,6 +54,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
             'password' => 'hashed',
+            'monthly_word_target' => 'integer',
         ];
     }
 
@@ -64,6 +66,11 @@ class User extends Authenticatable
     public function assignments(): HasMany
     {
         return $this->hasMany(Assignment::class, 'translator_id');
+    }
+
+    public function dailyWordLogs(): HasMany
+    {
+        return $this->hasMany(DailyWordLog::class);
     }
 
     public function notificationPreferences(): HasMany
@@ -120,7 +127,7 @@ class User extends Authenticatable
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['name', 'email', 'phone', 'status', 'locale'])
+            ->logOnly(['name', 'email', 'phone', 'status', 'locale', 'monthly_word_target'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs()
             ->useLogName('users');

@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, downloadFile } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/page-header";
 import { ToneBadge, type Tone } from "@/components/tone-badge";
 import { useAuth } from "@/lib/auth";
 
-type ReportType = "translators" | "pms" | "monthly" | "projects";
+type ReportType = "translators" | "productivity" | "daily_words" | "pms" | "monthly" | "projects";
 
 interface ReportData {
   columns: Record<string, string>;
@@ -35,10 +35,24 @@ interface ReportExport {
 
 const REPORT_TABS: { value: ReportType; label: string }[] = [
   { value: "translators", label: "إنتاجية المترجمين" },
+  { value: "productivity", label: "الإنتاجية مقابل التارجت" },
+  { value: "daily_words", label: "الكلمات اليومية" },
   { value: "pms", label: "مديرو المشاريع" },
   { value: "monthly", label: "التقرير الشهري" },
   { value: "projects", label: "سجل المشاريع" },
 ];
+
+/**
+ * The two word-count reports show a system figure next to a self-declared one.
+ * Saying so on screen is not decoration: the accountant runs incentives off
+ * these numbers, and the gap between the columns has an innocent explanation.
+ */
+const REPORT_NOTES: Partial<Record<ReportType, string>> = {
+  productivity:
+    "«كلمات مسلّمة» هي حساب النظام من التسليمات الفعلية، و«كلمات مُعلنة» هي ما سجّله المترجم بنفسه. النظام لا يحتسب أي حوافز أو خصومات.",
+  daily_words:
+    "كلمات الملف تُقيَّد كاملةً في يوم التسليم، لذا قد يظهر يوم كبير بجوار أيام صفرية لنفس المترجم. الفرق بين العمودين متوقع.",
+};
 
 const EXPORT_STATUS: Record<ReportExport["status"], { label: string; tone: Tone }> = {
   queued: { label: "في الانتظار", tone: "slate" },
@@ -113,7 +127,7 @@ export default function ReportsPage() {
     <div className="space-y-6">
       <PageHeader
         title="التقارير"
-        description="أربعة تقارير جاهزة بأي مدى زمني — والتصدير Excel أو PDF يعمل في الخلفية ويصلك على الجرس."
+        description="تقارير جاهزة بأي مدى زمني — والتصدير Excel أو PDF يعمل في الخلفية ويصلك على الجرس."
       >
         {can("reports.export") && (
           <>
@@ -138,6 +152,13 @@ export default function ReportsPage() {
           </>
         )}
       </PageHeader>
+
+      {REPORT_NOTES[type] && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+          <Info className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <p className="text-muted-foreground">{REPORT_NOTES[type]}</p>
+        </div>
+      )}
 
       <DataTable
         columns={columns}

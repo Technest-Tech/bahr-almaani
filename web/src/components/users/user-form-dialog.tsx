@@ -37,6 +37,7 @@ export function UserFormDialog({ open, user, onClose, onSaved }: Props) {
     phone: user?.phone ?? "",
     password: "",
     role: user?.roles[0] ?? "translator",
+    monthlyWordTarget: user?.monthly_word_target?.toString() ?? "",
   }));
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -50,11 +51,16 @@ export function UserFormDialog({ open, user, onClose, onSaved }: Props) {
     setSubmitting(true);
     setErrors({});
 
-    const payload: Record<string, string> = {
+    const payload: Record<string, string | number | null> = {
       name: form.name,
       email: form.email,
       phone: form.phone,
       role: form.role,
+      // Only translators are measured against a target; clearing the box removes it.
+      monthly_word_target:
+        form.role === "translator" && form.monthlyWordTarget !== ""
+          ? Number(form.monthlyWordTarget)
+          : null,
     };
     if (form.password) payload.password = form.password;
 
@@ -151,6 +157,31 @@ export function UserFormDialog({ open, user, onClose, onSaved }: Props) {
               />
             </Field>
           </div>
+          {form.role === "translator" && (
+            <Field
+              label={
+                <>
+                  التارجت الشهري{" "}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    (عدد الكلمات — اتركه فارغًا إن لم يكن محددًا)
+                  </span>
+                </>
+              }
+              htmlFor="u-target"
+              error={errors.monthly_word_target?.[0]}
+            >
+              <Input
+                id="u-target"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1000}
+                placeholder="45000"
+                value={form.monthlyWordTarget}
+                onChange={(e) => set("monthlyWordTarget", e.target.value)}
+              />
+            </Field>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

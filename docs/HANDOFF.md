@@ -275,6 +275,9 @@ questions are commercial, not just technical. Keep these three groups straight.
 documents, translation memory, machine translation / AI assistant.
 
 **Out of scope, surfaced during the build** — genuine change requests:
+HR / time-and-attendance / payroll (see §10 — the client sent a twelve-tier salary
+policy on 2026-08-04; nothing in docs/00–04 mentions attendance, salary or payroll,
+and docs/00 mentions salaries only to say the PM must not see them);
 pricing/quotation engine (a rate card turning the word count into `quoted_amount` —
 today the PM types the figure by hand, and no rate config exists anywhere);
 client-facing portal (`Client` is a plain record with no login; the four personas are
@@ -369,3 +372,54 @@ because the letterhead scan is embedded (once, not per page).
 **Open question for the client**: on a text-dense page the all-pages stamp overlaps
 the last few lines (real certified practice, but a legibility trade-off).
 `pages: last` in the template dialog is a one-field change if they prefer it.
+
+## 10. Productivity vs target + the translator's daily word log (SHIPPED 2026-08-04)
+
+**Read this before quoting anything payroll-shaped.** The client sent a twelve-tier
+salary policy (base 2,500 → 9,000 EGP) with daily word ladders, attendance
+fingerprint deductions, absence rules and two 300 EGP bonuses. That is an
+HR/time-and-attendance + payroll module and it is **out of scope** — see §7b.
+
+What shipped instead is the reporting half, and only the reporting half, justified
+as M7 completion: docs/00 defines the accountant as reading productivity reports
+**for payroll**. The accountant now gets the figures; the incentive arithmetic stays
+in their own spreadsheet.
+
+- **`users.monthly_word_target`** — one nullable int, set on the user form and shown
+  only when the role is `translator`. A reporting target, not a pay figure.
+- **`daily_word_logs`** — the translator's own account of a day (`/daily-words`,
+  sidebar item "إنتاجي اليومي"), upserted per day, own rows only.
+- **Two report types** — `productivity` (per translator vs target) and `daily_words`
+  (day-by-day detail). Both ride the existing export machinery for free.
+- **`ProductionService`** owns the two queries so the reports and the translator's
+  own screen can never disagree, and it mirrors the M7 translator query exactly.
+
+**The design decision that matters: two columns, never one.** `delivered_words` is
+the system's count credited on the delivery date; `declared_words` is self-reported.
+They will not match — a file claimed Monday and delivered Thursday puts every word on
+Thursday — and both screens carry an amber note saying so. If anyone ever collapses
+these into a single "words" figure, payslips computed from it will be wrong and the
+system will get the blame. The variance column is also the sales argument for the
+paid module: real daily numbers need attendance data the system does not collect.
+
+**Guards on the self-declared number** (it is money-adjacent, and the whole point is
+that nobody is paid on an unchecked figure): no future dates, no back-dating past 45
+days, hard cap of 20,000 words (the client's own top bonus band is under 7,000 —
+Ahmed's example of "the translator says he did 50k today" is exactly what this
+rejects), and every edit written to `activity_log` under `daily-words`.
+
+**Timezone gotcha, and it is a real one.** The app runs on UTC but the office does
+not, so `DATE(delivered_at)` would file a 01:00 Cairo delivery under the previous
+day. `ProductionService::workTimezone()` reads the `work_timezone` setting
+(default `Africa/Cairo`, whitelisted against `timezone_identifiers_list()` before it
+is interpolated into SQL) and every day-bucketing query goes through it.
+
+**React 19 lint**: the daily-words row editor cannot sync props into state in an
+effect (`react-hooks/set-state-in-effect` is an error, not a warning). The parent
+remounts `DayEditor` via `key={date:declared:note}` instead — keep that key if you
+touch the file.
+
+Verified by driving it: `web/ui-daily-words.mjs` (light + dark, translator screen +
+both reports + the admin target field), a real edit typed into the browser and the
+report totals moving from ١١٬٠٥٠ to ١٠٬٧٠٠ as a result. 12 feature tests in
+`tests/Feature/DailyWordLogTest.php`.

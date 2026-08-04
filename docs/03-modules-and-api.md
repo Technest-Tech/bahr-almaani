@@ -107,11 +107,33 @@ GET /dashboard/late          (late & due-soon projects with reasons/ages)
 ### M7 — Reports (async exports)
 ```
 GET  /reports/translators    (files, pages, words, hours per translator; date range)
+GET  /reports/productivity   (delivered vs declared words, monthly target, achieved %; date range)
+GET  /reports/daily_words    (day-by-day detail behind the above; optional translator_id)
 GET  /reports/pms            (projects managed, on-time %, revision rates)
 GET  /reports/monthly        (company summary)
 GET  /reports/projects       (filterable registry)
 POST /reports/export         ({report_type, params, format: xlsx|pdf} → report_exports job)
 GET  /reports/exports        (my exports + status + signed download URLs)
+```
+
+`productivity` and `daily_words` exist because docs/00 defines the accountant as
+reading productivity reports **for payroll** — they hand over the figures, and the
+incentive arithmetic stays in the accountant's own spreadsheet. **No rate, salary,
+tier, bonus or deduction is computed anywhere in this system**; a payroll engine is
+a separate paid module (see docs/HANDOFF.md §7b and §10).
+
+Two columns, never one: `delivered_words` is the system's own count, credited on the
+delivery date; `declared_words` is what the translator recorded for that day. The gap
+between them is expected — a file claimed Monday and delivered Thursday puts every
+word on Thursday — and both screens say so on the page.
+
+### M4b — The translator's own daily word log
+```
+GET  /portal/daily-words     (portal.access; ?month=YYYY-MM, defaults to the current month.
+                              Own rows only; the current month stops at today)
+POST /portal/daily-words     (portal.access; {work_date, declared_words, note} — upsert per day.
+                              Rejects the future, back-dating past 45 days, and >20,000 words.
+                              Every edit is activity-logged under `daily-words`)
 ```
 
 ### M8 — Activity log (admin only)

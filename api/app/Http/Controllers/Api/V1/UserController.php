@@ -55,6 +55,7 @@ class UserController extends Controller
             'phone' => $validated['phone'] ?? null,
             'password' => $validated['password'],
             'locale' => $validated['locale'] ?? 'ar',
+            'monthly_word_target' => $validated['monthly_word_target'] ?? null,
         ]);
         $user->syncRoles([$validated['role']]);
 
@@ -67,7 +68,7 @@ class UserController extends Controller
     {
         $validated = $request->validated();
 
-        $user->fill(collect($validated)->only(['name', 'email', 'phone', 'locale'])->all());
+        $user->fill(collect($validated)->only(['name', 'email', 'phone', 'locale', 'monthly_word_target'])->all());
 
         if (! empty($validated['password'])) {
             $user->password = $validated['password'];
