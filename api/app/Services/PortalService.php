@@ -19,20 +19,52 @@ class PortalService
     ) {}
 
     /**
-     * Available projects for this translator: matching language pairs,
-     * urgent first, nearest deadline first. Ordering is server-enforced.
+     * Every available project, for every translator.
+     *
+     * The queue used to be filtered to the translator's registered language
+     * pairs. The office asked for the opposite: publishing makes a file visible
+     * to the whole translation team regardless of pair, and translators pick
+     * for themselves — so the pair is a filter they apply, not a wall. Ordering
+     * stays server-enforced: urgent first, then nearest deadline.
+     *
+     * @param  array<string, mixed>  $filters
      */
-    public function queueFor(User $translator)
+    public function queueFor(User $translator, array $filters = [])
     {
         return Project::query()
             ->where('status', Project::STATUS_AVAILABLE)
-            ->whereIn(
-                DB::raw('(source_language_id, target_language_id)'),
-                $translator->languagePairs()
-                    ->select('source_language_id', 'target_language_id')
-                    ->getQuery(),
+            ->when(
+                filled($filters['search'] ?? null),
+                fn ($q) => $q->where(function ($w) use ($filters): void {
+                    $term = '%'.str_replace(['%', '_'], ['\%', '\_'], (string) $filters['search']).'%';
+                    $w->where('title', 'ilike', $term)->orWhere('code', 'ilike', $term);
+                }),
             )
-            ->with(['sourceLanguage', 'targetLanguage'])
+            ->when(filled($filters['priority'] ?? null), fn ($q) => $q->where('priority', $filters['priority']))
+            ->when(filled($filters['service_type'] ?? null), fn ($q) => $q->where('service_type', $filters['service_type']))
+            ->when(filled($filters['source_language_id'] ?? null), fn ($q) => $q->where('source_language_id', $filters['source_language_id']))
+            ->when(filled($filters['target_language_id'] ?? null), fn ($q) => $q->where('target_language_id', $filters['target_language_id']))
+            // "Mine" is now opt-in: the pairs the translator registered, on demand.
+            ->when(
+                filled($filters['my_pairs'] ?? null) && filter_var($filters['my_pairs'], FILTER_VALIDATE_BOOLEAN),
+                fn ($q) => $q->whereIn(
+                    DB::raw('(source_language_id, target_language_id)'),
+                    $translator->languagePairs()
+                        ->select('source_language_id', 'target_language_id')
+                        ->getQuery(),
+                ),
+            )
+            // File metadata rides along so a translator can judge a file before
+            // taking it. Only metadata — downloadFile() still refuses anything
+            // outside the project they currently hold.
+            ->with([
+                'sourceLanguage',
+                'targetLanguage',
+                'files' => fn ($q) => $q
+                    ->whereIn('category', [ProjectFile::CATEGORY_SOURCE, ProjectFile::CATEGORY_REFERENCE])
+                    ->orderBy('category')
+                    ->orderBy('id'),
+            ])
             ->withCount(['files as source_files_count' => fn ($q) => $q->where('category', ProjectFile::CATEGORY_SOURCE)])
             ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 ELSE 2 END")
             ->orderBy('deadline_at');
@@ -57,15 +89,10 @@ class PortalService
                     throw new ClaimConflictException(__('portal.already_claimed'));
                 }
 
-                $matches = $translator->languagePairs()
-                    ->where('source_language_id', $fresh->source_language_id)
-                    ->where('target_language_id', $fresh->target_language_id)
-                    ->exists();
-
-                if (! $matches) {
-                    throw new ClaimConflictException(__('portal.language_pair_mismatch'));
-                }
-
+                // No language-pair check: if a file is visible in the queue it is
+                // claimable. Gating the claim while showing the card would only
+                // produce a button that always fails. The one-at-a-time rule in
+                // assertNotBusy() is what still protects the queue.
                 $assignment = Assignment::create([
                     'project_id' => $fresh->id,
                     'translator_id' => $translator->id,

@@ -132,16 +132,19 @@ class Project extends Model
         return $this->belongsTo(LetterheadTemplate::class, 'stamp_id');
     }
 
-    /** Active translators whose language pairs match this project (portal audience). */
-    public function matchingTranslators()
+    /**
+     * The portal audience: every active translator.
+     *
+     * Was scoped to translators holding this project's language pair. The office
+     * publishes to the whole team now, so the pair no longer decides who hears
+     * about a file — it is a filter in the portal, not an entitlement.
+     */
+    public function portalTranslators()
     {
         return User::role('translator')
             ->where('status', User::STATUS_ACTIVE)
             // Eager-loaded because every recipient's via() consults its mail preferences.
             ->with('notificationPreferences')
-            ->whereHas('languagePairs', fn ($q) => $q
-                ->where('source_language_id', $this->source_language_id)
-                ->where('target_language_id', $this->target_language_id))
             ->get();
     }
 

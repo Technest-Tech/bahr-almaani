@@ -105,7 +105,7 @@ class ProjectController extends Controller
 
         $this->broadcastLive(new ProjectPublished($project));
         Notification::send(
-            $project->matchingTranslators(),
+            $project->portalTranslators(),
             new ProjectAvailableNotification($project->load('sourceLanguage', 'targetLanguage')),
         );
 
@@ -145,7 +145,7 @@ class ProjectController extends Controller
         $this->broadcastLive(new ProjectWithdrawn($project));
         $translator?->notify(new ProjectWithdrawnNotification($project, $validated['reason']));
         Notification::send(
-            $project->matchingTranslators()->reject(fn ($t) => $t->is($translator)),
+            $project->portalTranslators()->reject(fn ($t) => $t->is($translator)),
             new ProjectAvailableNotification($project->load('sourceLanguage', 'targetLanguage')),
         );
 

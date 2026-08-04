@@ -9,6 +9,7 @@ use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\User;
 use App\Notifications\DeadlineAlertNotification;
+use App\Notifications\ProjectAvailableNotification;
 use App\Notifications\ProjectDeliveredNotification;
 use App\Notifications\RevisionRequestedNotification;
 use Database\Seeders\LanguageSeeder;
@@ -116,7 +117,12 @@ class PortalFlowTest extends TestCase
         return $project;
     }
 
-    public function test_queue_shows_only_matching_language_pairs(): void
+    /**
+     * Publishing exposes a file to the whole translation team. translator3 works
+     * fr→ar and still sees an en→ar file: the registered pair stopped being an
+     * entitlement and became a filter.
+     */
+    public function test_queue_shows_every_available_file_to_every_translator(): void
     {
         $this->makeAvailableProject();
 
@@ -124,7 +130,79 @@ class PortalFlowTest extends TestCase
             ->getJson('/api/v1/portal/queue')->assertOk()->assertJsonCount(1, 'data');
 
         $this->actingAs($this->translator3, 'sanctum')
-            ->getJson('/api/v1/portal/queue')->assertOk()->assertJsonCount(0, 'data');
+            ->getJson('/api/v1/portal/queue')->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    /**
+     * Publishing tells the whole team, not just the pair. translator3 (fr→ar)
+     * must be notified about an en→ar file — otherwise a queue everyone can see
+     * would still only be announced to a subset, and the rest would find the
+     * work by luck.
+     */
+    public function test_publishing_notifies_every_active_translator(): void
+    {
+        Notification::fake();
+
+        $project = Project::create([
+            'code' => 'BM-2026-'.str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT),
+            'title' => 'مشروع للنشر',
+            'source_language_id' => $this->en->id,
+            'target_language_id' => $this->ar->id,
+            'service_type' => 'certified',
+            'priority' => 'normal',
+            'status' => Project::STATUS_DRAFT,
+            'deadline_at' => now()->addDays(2),
+            'created_by' => $this->pm->id,
+        ]);
+        $project->files()->create([
+            'category' => ProjectFile::CATEGORY_SOURCE,
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'source.txt',
+            'disk_path' => UploadedFile::fake()->createWithContent('source.txt', 'hello')->store("projects/{$project->id}/source", 'local'),
+            'size_bytes' => 5,
+            'count_status' => ProjectFile::COUNT_DONE,
+            'word_count' => 1,
+        ]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/publish")
+            ->assertOk();
+
+        foreach ([$this->translator1, $this->translator2, $this->translator3] as $translator) {
+            Notification::assertSentTo($translator, ProjectAvailableNotification::class);
+        }
+    }
+
+    public function test_my_pairs_filter_narrows_the_queue_back_to_registered_pairs(): void
+    {
+        $this->makeAvailableProject();
+
+        $this->actingAs($this->translator3, 'sanctum')
+            ->getJson('/api/v1/portal/queue?my_pairs=1')->assertOk()->assertJsonCount(0, 'data');
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->getJson('/api/v1/portal/queue?my_pairs=1')->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    public function test_queue_filters_by_language_priority_and_search(): void
+    {
+        $this->makeAvailableProject(['title' => 'عقد إيجار', 'priority' => 'critical']);
+        $this->makeAvailableProject([
+            'title' => 'شهادة ميلاد',
+            'priority' => 'normal',
+            'source_language_id' => $this->fr->id,
+        ]);
+
+        $as = fn () => $this->actingAs($this->translator1, 'sanctum');
+
+        $as()->getJson('/api/v1/portal/queue')->assertOk()->assertJsonCount(2, 'data');
+        $as()->getJson('/api/v1/portal/queue?priority=critical')
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'عقد إيجار');
+        $as()->getJson("/api/v1/portal/queue?source_language_id={$this->fr->id}")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'شهادة ميلاد');
+        // urlencode: a browser percent-encodes Arabic itself, the test client does not.
+        $as()->getJson('/api/v1/portal/queue?search='.urlencode('ميلاد'))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'شهادة ميلاد');
     }
 
     public function test_queue_orders_by_priority_then_deadline(): void
@@ -184,13 +262,24 @@ class PortalFlowTest extends TestCase
             ->assertStatus(409);
     }
 
-    public function test_language_pair_mismatch_is_rejected(): void
+    /**
+     * The claim gate went with the queue filter. Showing a card that refuses to
+     * be claimed would be a button that always fails, so a file visible in the
+     * queue is claimable by whoever gets there first — pair or no pair.
+     */
+    public function test_a_translator_may_claim_outside_their_language_pairs(): void
     {
         $project = $this->makeAvailableProject();
 
         $this->actingAs($this->translator3, 'sanctum')
             ->postJson("/api/v1/portal/claim/{$project->id}")
-            ->assertStatus(409);
+            ->assertCreated();
+
+        $this->assertDatabaseHas('assignments', [
+            'project_id' => $project->id,
+            'translator_id' => $this->translator3->id,
+            'status' => 'active',
+        ]);
     }
 
     public function test_pm_cannot_access_portal(): void

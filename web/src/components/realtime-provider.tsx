@@ -34,13 +34,12 @@ const PORTAL_NOTIFICATION_TYPES = new Set([
  * authenticated app shell.
  */
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const queryClient = useQueryClient();
   const userId = user?.id;
-  // Stable dependency: pair list only changes via admin edits + relogin.
-  const pairsKey = (user?.language_pairs ?? [])
-    .map((pair) => `${pair.source_language_id}.${pair.target_language_id}`)
-    .join(",");
+  // One shared portal feed, joined by anyone who can open the portal — the queue
+  // is no longer scoped to a translator's language pairs, so neither is the feed.
+  const canPortal = can("portal.access");
 
   useEffect(() => {
     if (!userId) return;
@@ -71,30 +70,33 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       });
 
-    // ── One portal channel per language pair (translators only) ───────
-    const pairs = pairsKey ? pairsKey.split(",") : [];
-    pairs.forEach((pair) => {
-      const channel = echo.private(`portal.${pair}`);
+    // ── The shared portal queue feed (anyone with portal access) ──────
+    const portal = canPortal ? echo.private("portal") : null;
 
-          channel.listen(".project.claimed", (event: PortalQueuePayload) => {
-            // The wow moment: drop the card from the cache the instant a
-            // colleague claims it, then reconcile with the server.
-            queryClient.setQueryData<Paginated<Project>>(["portal-queue"], (old) =>
-              old
-                ? {
-                    ...old,
-                    data: old.data.filter((p) => p.id !== event.project.id),
-                    meta: { ...old.meta, total: Math.max(0, old.meta.total - 1) },
-                  }
-                : old,
-            );
-            queryClient.invalidateQueries({ queryKey: ["portal-queue"] });
-          });
+    if (portal) {
+      portal.listen(".project.claimed", (event: PortalQueuePayload) => {
+        // The wow moment: drop the card from the cache the instant a
+        // colleague claims it, then reconcile with the server.
+        //
+        // setQueriesData, not setQueryData: the queue is cached per filter
+        // combination (["portal-queue", "?priority=urgent"] and friends), so
+        // targeting the bare key would quietly miss every filtered view.
+        queryClient.setQueriesData<Paginated<Project>>({ queryKey: ["portal-queue"] }, (old) =>
+          old
+            ? {
+                ...old,
+                data: old.data.filter((p) => p.id !== event.project.id),
+                meta: { ...old.meta, total: Math.max(0, old.meta.total - 1) },
+              }
+            : old,
+        );
+        queryClient.invalidateQueries({ queryKey: ["portal-queue"] });
+      });
 
       for (const name of [".project.published", ".project.withdrawn", ".project.cancelled"]) {
-        channel.listen(name, invalidatePortal);
+        portal.listen(name, invalidatePortal);
       }
-    });
+    }
 
     // After a reconnect (laptop slept, Reverb restarted) events were missed —
     // refetch everything realtime normally keeps fresh.
@@ -117,10 +119,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       connection.unbind("state_change", onStateChange);
       personal.stopListening(".project.delivered");
       echo.leave(`App.Models.User.${userId}`);
-      pairs.forEach((pair) => echo.leave(`portal.${pair}`));
+      if (portal) echo.leave("portal");
       disconnectEcho();
     };
-  }, [userId, pairsKey, queryClient]);
+  }, [userId, canPortal, queryClient]);
 
   return children;
 }

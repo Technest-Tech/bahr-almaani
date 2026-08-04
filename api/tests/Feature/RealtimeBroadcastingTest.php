@@ -60,9 +60,10 @@ class RealtimeBroadcastingTest extends TestCase
         }
     }
 
+    /** One shared feed — the queue is no longer scoped per language pair. */
     private function portalChannel(): string
     {
-        return "private-portal.{$this->en->id}.{$this->ar->id}";
+        return 'private-portal';
     }
 
     /**
@@ -115,16 +116,23 @@ class RealtimeBroadcastingTest extends TestCase
 
     // ── Channel authorization ────────────────────────────────────────────
 
-    public function test_translator_with_matching_pair_joins_portal_channel(): void
+    public function test_any_translator_joins_the_portal_channel(): void
     {
         $this->authTo($this->translator1, $this->portalChannel())
             ->assertOk()
             ->assertJsonStructure(['auth']);
     }
 
-    public function test_translator_without_the_pair_is_rejected(): void
+    /**
+     * translator3 works fr→ar and the feed carries en→ar files. It used to be
+     * refused; now portal access alone decides, so it must be admitted — a
+     * translator who can see a file has to hear when someone else takes it.
+     */
+    public function test_a_translator_outside_the_pair_still_joins_the_portal_channel(): void
     {
-        $this->authTo($this->translator3, $this->portalChannel())->assertForbidden();
+        $this->authTo($this->translator3, $this->portalChannel())
+            ->assertOk()
+            ->assertJsonStructure(['auth']);
     }
 
     public function test_pm_without_portal_access_is_rejected_from_portal_channel(): void

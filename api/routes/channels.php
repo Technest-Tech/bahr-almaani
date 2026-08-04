@@ -8,14 +8,13 @@ Broadcast::channel('App.Models.User.{id}', function (User $user, int $id) {
 });
 
 /*
- * Portal feed for one language pair. A translator may listen only if they
- * hold portal access AND actually own that pair — so nobody can watch
- * queues (or claim races) for languages they don't work in.
+ * The shared portal feed. Every translator sees every available file, so the
+ * only thing that gates this channel is portal access itself — the language
+ * pair a translator registered no longer decides what they may watch.
+ *
+ * Still a private channel: the payload describes unpublished-to-clients work,
+ * and nobody without portal.access (clients, accountants) may listen.
  */
-Broadcast::channel('portal.{sourceId}.{targetId}', function (User $user, int $sourceId, int $targetId) {
-    return $user->can('portal.access')
-        && $user->languagePairs()
-            ->where('source_language_id', $sourceId)
-            ->where('target_language_id', $targetId)
-            ->exists();
+Broadcast::channel('portal', function (User $user) {
+    return $user->can('portal.access');
 });

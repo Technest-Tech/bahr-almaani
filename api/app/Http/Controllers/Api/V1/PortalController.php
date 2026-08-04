@@ -25,8 +25,17 @@ class PortalController extends Controller
 
     public function queue(Request $request): AnonymousResourceCollection
     {
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:120'],
+            'priority' => ['nullable', 'in:normal,urgent,critical'],
+            'service_type' => ['nullable', 'string', 'max:60'],
+            'source_language_id' => ['nullable', 'integer', 'exists:languages,id'],
+            'target_language_id' => ['nullable', 'integer', 'exists:languages,id'],
+            'my_pairs' => ['nullable', 'boolean'],
+        ]);
+
         return PortalProjectResource::collection(
-            $this->portal->queueFor($request->user())
+            $this->portal->queueFor($request->user(), $filters)
                 ->paginate(min($request->integer('per_page', 20), 50)),
         );
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -10,8 +10,12 @@ import {
   FileText,
   Globe,
   Inbox,
+  Paperclip,
+  Search,
   Send,
+  Stamp,
   Timer,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError, downloadFile, getToken } from "@/lib/api";
@@ -21,15 +25,32 @@ import {
   PRIORITY_TONES,
   STATUS_TONES,
   type Assignment,
+  type Language,
   type Paginated,
   type Project,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
+
+const ALL = "all";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface CurrentResponse {
   data: Assignment | null;
@@ -47,9 +68,54 @@ export default function PortalPage() {
 
   const busy = !!current?.data;
 
+  // The queue carries every available file now, so filtering is how a translator
+  // narrows it down — including back to their own registered pairs, on demand.
+  const [search, setSearch] = useState("");
+  const [priority, setPriority] = useState(ALL);
+  const [serviceType, setServiceType] = useState(ALL);
+  const [sourceLang, setSourceLang] = useState(ALL);
+  const [targetLang, setTargetLang] = useState(ALL);
+  const [myPairsOnly, setMyPairsOnly] = useState(false);
+
+  const { data: languages } = useQuery({
+    queryKey: ["languages"],
+    queryFn: () => api<{ data: Language[] }>("/languages").then((r) => r.data),
+    staleTime: 60 * 60 * 1000,
+  });
+
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams();
+    if (search.trim()) params.set("search", search.trim());
+    if (priority !== ALL) params.set("priority", priority);
+    if (serviceType !== ALL) params.set("service_type", serviceType);
+    if (sourceLang !== ALL) params.set("source_language_id", sourceLang);
+    if (targetLang !== ALL) params.set("target_language_id", targetLang);
+    if (myPairsOnly) params.set("my_pairs", "1");
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }, [search, priority, serviceType, sourceLang, targetLang, myPairsOnly]);
+
+  const filtersActive =
+    !!search.trim() ||
+    priority !== ALL ||
+    serviceType !== ALL ||
+    sourceLang !== ALL ||
+    targetLang !== ALL ||
+    myPairsOnly;
+
+  const clearFilters = () => {
+    setSearch("");
+    setPriority(ALL);
+    setServiceType(ALL);
+    setSourceLang(ALL);
+    setTargetLang(ALL);
+    setMyPairsOnly(false);
+  };
+
   const { data: queue, isLoading: loadingQueue } = useQuery({
-    queryKey: ["portal-queue"],
-    queryFn: () => api<Paginated<Project>>("/portal/queue"),
+    queryKey: ["portal-queue", queryString],
+    queryFn: () => api<Paginated<Project>>(`/portal/queue${queryString}`),
+    placeholderData: (previous) => previous,
   });
 
   const { data: history } = useQuery({
@@ -67,7 +133,7 @@ export default function PortalPage() {
     <div className="space-y-6">
       <PageHeader
         title="بورتال المترجم"
-        description="الملفات مرتبة تلقائياً: العاجل أولاً ثم الأقرب موعداً — ملف واحد قيد التنفيذ في كل وقت."
+        description="كل الملفات المنشورة متاحة للجميع — مرتبة تلقائياً: العاجل أولاً ثم الأقرب موعداً. استخدم الفلاتر للتصفية، وملف واحد قيد التنفيذ في كل وقت."
       />
 
       {loadingCurrent ? (
@@ -91,6 +157,94 @@ export default function PortalPage() {
           </h2>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/40 p-2">
+          <div className="relative min-w-52 max-w-xs flex-1">
+            <Search className="absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="بحث بعنوان الملف أو رقمه…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="h-8 border-transparent bg-background pe-8 text-[13px] shadow-none focus-visible:border-ring"
+            />
+          </div>
+
+          <Select value={sourceLang} onValueChange={setSourceLang}>
+            <SelectTrigger size="sm" className="w-36 bg-background text-[13px]">
+              <SelectValue placeholder="من لغة" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>كل اللغات (من)</SelectItem>
+              {languages?.map((language) => (
+                <SelectItem key={language.id} value={String(language.id)}>
+                  {language.name_ar}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={targetLang} onValueChange={setTargetLang}>
+            <SelectTrigger size="sm" className="w-36 bg-background text-[13px]">
+              <SelectValue placeholder="إلى لغة" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>كل اللغات (إلى)</SelectItem>
+              {languages?.map((language) => (
+                <SelectItem key={language.id} value={String(language.id)}>
+                  {language.name_ar}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={priority} onValueChange={setPriority}>
+            <SelectTrigger size="sm" className="w-32 bg-background text-[13px]">
+              <SelectValue placeholder="الأولوية" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>كل الأولويات</SelectItem>
+              <SelectItem value="normal">عادي</SelectItem>
+              <SelectItem value="urgent">عاجل</SelectItem>
+              <SelectItem value="critical">حرج</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={serviceType} onValueChange={setServiceType}>
+            <SelectTrigger size="sm" className="w-32 bg-background text-[13px]">
+              <SelectValue placeholder="نوع الخدمة" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>كل الأنواع</SelectItem>
+              <SelectItem value="certified">ترجمة معتمدة</SelectItem>
+              <SelectItem value="regular">ترجمة عادية</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Button
+            type="button"
+            size="sm"
+            variant={myPairsOnly ? "default" : "outline"}
+            className="h-8 text-[13px]"
+            onClick={() => setMyPairsOnly((on) => !on)}
+            title="اعرض فقط الملفات ضمن أزواج لغاتك المسجلة"
+          >
+            <Globe className="size-3.5" />
+            أزواج لغاتي
+          </Button>
+
+          {filtersActive && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 text-[13px] text-muted-foreground"
+              onClick={clearFilters}
+            >
+              <X className="size-3.5" />
+              مسح
+            </Button>
+          )}
+        </div>
+
         {loadingQueue && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -102,7 +256,9 @@ export default function PortalPage() {
         {!loadingQueue && queue?.data.length === 0 && (
           <Card className="border-dashed bg-transparent py-10 shadow-none">
             <CardContent className="text-center text-sm text-muted-foreground">
-              لا توجد ملفات متاحة لأزواج لغاتك حالياً — ستصلك إشعارات فور توفر ملفات جديدة.
+              {filtersActive
+                ? "لا توجد ملفات مطابقة لهذا البحث — جرّب توسيع الفلاتر أو امسحها."
+                : "لا توجد ملفات متاحة حالياً — ستصلك إشعارات فور توفر ملفات جديدة."}
             </CardContent>
           </Card>
         )}
@@ -387,17 +543,55 @@ function QueueCard({
         </div>
         <div className="space-y-1 text-xs text-muted-foreground">
           <p className="flex items-center gap-1.5">
-            <Globe className="size-3.5" />
+            <Globe className="size-3.5 shrink-0" />
             {project.source_language?.name_ar} ← {project.target_language?.name_ar}
           </p>
           <p className="flex items-center gap-1.5">
-            <FileText className="size-3.5" />
+            <FileText className="size-3.5 shrink-0" />
             {project.total_words
               ? `${project.total_words.toLocaleString("ar-EG")} كلمة`
               : "عدد الكلمات غير محدد"}
             {project.total_pages ? ` · ${project.total_pages.toLocaleString("ar-EG")} صفحة` : ""}
           </p>
+          <p className="flex items-center gap-1.5">
+            <Stamp className="size-3.5 shrink-0" />
+            {project.service_type === "certified" ? "ترجمة معتمدة" : "ترجمة عادية"}
+            {project.country_code ? ` · ${project.country_code}` : ""}
+          </p>
+          {project.deadline_at && (
+            <p className="flex items-center gap-1.5">
+              <Clock className="size-3.5 shrink-0" />
+              {dateTimeFormatter.format(new Date(project.deadline_at))}
+            </p>
+          )}
         </div>
+
+        {!!project.files?.length && (
+          <div className="space-y-1 rounded-lg bg-muted/50 p-2">
+            <p className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+              <Paperclip className="size-3 shrink-0" />
+              الملفات ({project.files.length})
+            </p>
+            <ul className="space-y-0.5">
+              {project.files.map((file) => (
+                <li key={file.id} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="truncate" title={file.original_name}>
+                    {file.original_name}
+                  </span>
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {formatBytes(file.size_bytes)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {project.instructions && (
+          <p className="line-clamp-3 rounded-lg bg-amber-500/10 p-2 text-[11px] leading-relaxed text-foreground/80">
+            {project.instructions}
+          </p>
+        )}
       </CardContent>
       <div className="border-t p-3">
         <Button
