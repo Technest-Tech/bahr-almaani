@@ -11,7 +11,11 @@ import { cn } from "@/lib/utils";
  * Template assets live on the private disk behind a bearer token, so previews are
  * fetched as blobs and handed to the browser as object URLs (revoked on unmount).
  */
-export function useTemplateAsset(templateId: number | null): {
+export function useTemplateAsset(
+  templateId: number | null,
+  /** Translators have no letterheads.view, so the portal reads its own route. */
+  assetPath: (id: number) => string = (id) => `/letterheads/${id}/asset`,
+): {
   src: string | null;
   failed: boolean;
 } {
@@ -26,7 +30,7 @@ export function useTemplateAsset(templateId: number | null): {
 
     (async () => {
       try {
-        const blob = await fetchBlob(`/letterheads/${templateId}/asset`);
+        const blob = await fetchBlob(assetPath(templateId));
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setSrc(objectUrl);
@@ -39,6 +43,8 @@ export function useTemplateAsset(templateId: number | null): {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
+    // assetPath is a stable per-caller closure; keying on the id is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateId]);
 
   return { src, failed };
@@ -52,11 +58,13 @@ export function useTemplateAsset(templateId: number | null): {
 export function TemplateAsset({
   template,
   className,
+  assetPath,
 }: {
   template: LetterheadTemplate;
   className?: string;
+  assetPath?: (id: number) => string;
 }) {
-  const { src, failed } = useTemplateAsset(template.id);
+  const { src, failed } = useTemplateAsset(template.id, assetPath);
   const paper = template.kind === "letterhead";
 
   if (failed) {

@@ -116,15 +116,21 @@ export async function downloadFile(path: string, filename: string): Promise<void
  * The object URL is kept alive deliberately — revoking it immediately would blank
  * the tab that just opened it. The browser reclaims it when the tab closes.
  */
-export async function openRendered(path: string): Promise<void> {
+export async function openRendered(path: string, form?: FormData): Promise<void> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers: {
       Accept: "application/pdf",
       ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
     },
+    // Deliberately no Content-Type: the browser must set the multipart boundary.
+    ...(form ? { body: form } : {}),
   });
-  if (!response.ok) throw new ApiError(response.status, "تعذر إنشاء المعاينة");
+  if (!response.ok) {
+    // A validation failure comes back as JSON even though we asked for a PDF.
+    const body = await response.json().catch(() => null);
+    throw new ApiError(response.status, body?.message ?? "تعذر إنشاء المعاينة", body?.errors);
+  }
 
   window.open(URL.createObjectURL(await response.blob()), "_blank", "noopener");
 }

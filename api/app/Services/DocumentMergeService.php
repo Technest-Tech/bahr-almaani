@@ -71,10 +71,19 @@ class DocumentMergeService
      * Draw the letterhead and stamp onto every page of $pdfPath.
      *
      * @param  string  $pdfPath  absolute path to the source PDF
+     * @param  string|null  $watermark  stamped diagonally across every page when set.
+     *                                  Only the translator's draft preview passes this;
+     *                                  the approved final file must never carry one, so
+     *                                  it defaults to null and the merge path the
+     *                                  MergeFinalFileJob uses is byte-for-byte unchanged.
      * @return string binary PDF
      */
-    public function merge(string $pdfPath, ?LetterheadTemplate $letterhead, ?LetterheadTemplate $stamp): string
-    {
+    public function merge(
+        string $pdfPath,
+        ?LetterheadTemplate $letterhead,
+        ?LetterheadTemplate $stamp,
+        ?string $watermark = null,
+    ): string {
         $pdf = new Fpdi('P', 'mm');
         $pdf->setPrintHeader(false);
         $pdf->setPrintFooter(false);
@@ -114,9 +123,44 @@ class DocumentMergeService
             if ($stamp && $this->appliesToPage($stampPlacement['pages'], $page, $pageCount)) {
                 $this->draw($pdf, $stamp, $stampPlacement, null, $width, $height);
             }
+
+            // Last, so it sits over the stamp too — a draft has to stay obviously
+            // a draft even on the page carrying the office's seal.
+            if ($watermark !== null) {
+                $this->drawWatermark($pdf, $watermark, $width, $height);
+            }
         }
 
         return $pdf->Output('', 'S');
+    }
+
+    /**
+     * Diagonal translucent text across the page.
+     *
+     * Deliberately hard to crop out or mistake for decoration: it crosses the
+     * centre of the page, sits above the stamp, and repeats on every page.
+     */
+    private function drawWatermark(Fpdi $pdf, string $text, float $width, float $height): void
+    {
+        // The merge PDF is built LTR (it only ever placed images before), so an
+        // Arabic watermark would come out with its words in reverse order. Flip
+        // for the draw and put it back — the caller's pages must not inherit it.
+        $rtl = $pdf->getRTL();
+        $pdf->setRTL(true);
+
+        $pdf->StartTransform();
+        $pdf->SetAlpha(0.28);
+        $pdf->SetTextColor(190, 30, 45);
+        // Scale with the page so it spans A4 and a wide scan alike.
+        $pdf->SetFont('dejavusans', 'B', max(28, min(64, $width / 6)));
+        $pdf->Rotate(45, $width / 2, $height / 2);
+        $pdf->SetXY(0, $height / 2 - 12);
+        $pdf->Cell($width, 24, $text, 0, 0, 'C');
+        $pdf->StopTransform();
+        $pdf->SetAlpha(1);
+        $pdf->SetTextColor(0, 0, 0);
+
+        $pdf->setRTL($rtl);
     }
 
     /** Convenience wrapper: convert then merge, cleaning up the intermediate file. */
@@ -125,11 +169,12 @@ class DocumentMergeService
         string $originalName,
         ?LetterheadTemplate $letterhead,
         ?LetterheadTemplate $stamp,
+        ?string $watermark = null,
     ): string {
         $pdfPath = $this->toPdf($diskPath, $originalName);
 
         try {
-            return $this->merge($pdfPath, $letterhead, $stamp);
+            return $this->merge($pdfPath, $letterhead, $stamp, $watermark);
         } finally {
             @unlink($pdfPath);
         }

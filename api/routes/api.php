@@ -140,6 +140,13 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/history', [PortalController::class, 'history']);
             Route::get('/files/{fileId}/download', [PortalController::class, 'downloadFile']);
 
+            // Draft preview with a letterhead/stamp — never a certified file (see
+            // PortalController::previewMerge). Named limiter, never inline.
+            Route::get('/templates', [PortalController::class, 'templates']);
+            Route::get('/templates/{letterhead}/asset', [PortalController::class, 'templateAsset']);
+            Route::post('/preview', [PortalController::class, 'previewMerge'])
+                ->middleware('throttle:portal-previews');
+
             // The translator's own daily word log — personal, no extra permission.
             Route::get('/daily-words', [DailyWordLogController::class, 'index']);
             Route::post('/daily-words', [DailyWordLogController::class, 'store']);

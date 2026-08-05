@@ -7,13 +7,17 @@ use App\Events\ProjectDelivered;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AssignmentResource;
 use App\Http\Resources\PortalProjectResource;
+use App\Http\Resources\PortalTemplateResource;
 use App\Models\Assignment;
+use App\Models\LetterheadTemplate;
 use App\Models\Project;
 use App\Notifications\ProjectDeliveredNotification;
+use App\Services\DocumentMergeService;
 use App\Services\PortalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -107,5 +111,102 @@ class PortalController extends Controller
         $file = $assignment->project->files()->whereKey($fileId)->firstOrFail();
 
         return Storage::disk('local')->download($file->disk_path, $file->original_name);
+    }
+
+    /** Active templates only — the picker for the translator's draft preview. */
+    public function templates(): AnonymousResourceCollection
+    {
+        return PortalTemplateResource::collection(
+            LetterheadTemplate::query()->active()->orderBy('kind')->orderBy('name')->get(),
+        );
+    }
+
+    /**
+     * The template's own image, for the picker thumbnail.
+     *
+     * Gated on is_active as well as existence: a retired stamp should not be
+     * readable through the portal just because its id is still guessable.
+     */
+    public function templateAsset(LetterheadTemplate $letterhead): StreamedResponse
+    {
+        abort_unless($letterhead->is_active, 404);
+        abort_unless(Storage::disk('local')->exists($letterhead->disk_path), 404);
+
+        return Storage::disk('local')->response(
+            $letterhead->disk_path,
+            basename($letterhead->disk_path),
+            ['Cache-Control' => 'private, max-age=300'],
+        );
+    }
+
+    /**
+     * Draft preview: the translator's own file, merged with a letterhead and stamp
+     * so they can see the text clears the header and the seal misses the last lines.
+     *
+     * This is NOT a certified document and must never become one:
+     *   - every page carries a diagonal "مسودة — غير معتمدة" watermark,
+     *   - nothing is written to project_files, so it cannot be mistaken for a
+     *     delivery or picked up by the merge job,
+     *   - the project's own letterhead_id/stamp_id are untouched; approval still
+     *     decides what the real final file carries.
+     *
+     * Requires holding the project, so it costs a Gotenberg conversion only for
+     * someone actually working on a file.
+     */
+    public function previewMerge(Request $request, DocumentMergeService $merger): Response
+    {
+        $assignment = $this->portal->currentAssignment($request->user());
+        abort_if($assignment === null, 404, __('portal.no_active_assignment'));
+
+        $validated = $request->validate([
+            'file' => ['required', 'file', 'max:51200'],
+            'letterhead_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
+            'stamp_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
+        ]);
+
+        $letterhead = $this->activeTemplate($validated['letterhead_id'] ?? null, LetterheadTemplate::KIND_LETTERHEAD);
+        $stamp = $this->activeTemplate($validated['stamp_id'] ?? null, LetterheadTemplate::KIND_STAMP);
+
+        abort_if(
+            $letterhead === null && $stamp === null,
+            422,
+            __('portal.preview_requires_template'),
+        );
+
+        // Stored under the holder's own id, not the project's, so a preview can
+        // never be confused with the project's real files.
+        $path = $request->file('file')->store("previews/{$request->user()->id}", 'local');
+
+        try {
+            $pdf = $merger->mergeStoredFile(
+                $path,
+                $request->file('file')->getClientOriginalName(),
+                $letterhead,
+                $stamp,
+                __('portal.draft_watermark'),
+            );
+        } finally {
+            Storage::disk('local')->delete($path);
+        }
+
+        return response($pdf, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="draft-'.$assignment->project->code.'.pdf"',
+            'Cache-Control' => 'private, no-store',
+        ]);
+    }
+
+    /** An active template of the expected kind, or null. */
+    private function activeTemplate(?int $id, string $kind): ?LetterheadTemplate
+    {
+        if ($id === null) {
+            return null;
+        }
+
+        return LetterheadTemplate::query()
+            ->active()
+            ->where('kind', $kind)
+            ->whereKey($id)
+            ->first();
     }
 }

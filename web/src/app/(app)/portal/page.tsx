@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  FileSearch,
   FileText,
   Globe,
   Inbox,
@@ -43,6 +44,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
+import { DraftPreviewDialog } from "@/components/portal/draft-preview-dialog";
 
 const ALL = "all";
 
@@ -353,6 +355,7 @@ function CurrentAssignmentCard({
   onDelivered: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const { confirm } = useConfirm();
   const [uploading, setUploading] = useState(false);
   const project = assignment.project!;
@@ -487,13 +490,21 @@ function CurrentAssignmentCard({
           </div>
         )}
 
-        <div className="flex justify-end border-t pt-4">
+        <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
           <input ref={inputRef} type="file" hidden onChange={handleDeliver} />
+          {/* Before delivering, not after: the point is to fix the document while
+              it is still yours to fix. */}
+          <Button size="lg" variant="outline" onClick={() => setPreviewOpen(true)}>
+            <FileSearch className="size-4" />
+            معاينة بالترويسة والختم
+          </Button>
           <Button size="lg" loading={uploading} onClick={() => inputRef.current?.click()}>
             <Send className="size-4" />
             {revisionNote ? "تسليم التعديل" : "تسليم الترجمة"}
           </Button>
         </div>
+
+        <DraftPreviewDialog open={previewOpen} onClose={() => setPreviewOpen(false)} />
       </CardContent>
     </Card>
   );

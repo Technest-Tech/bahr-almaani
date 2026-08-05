@@ -41,5 +41,12 @@ class AppServiceProvider extends ServiceProvider
 
         // Guessing a reference is already hopeless (~40 bits); this only makes it slow.
         RateLimiter::for('quote-lookups', fn (Request $request) => Limit::perMinute(20)->by($request->ip()));
+
+        // A draft preview is a Gotenberg conversion plus a full FPDI redraw — the
+        // most expensive thing a translator can trigger. Keyed by user, not IP: a
+        // shared office connection must not throttle a colleague, and an inline
+        // throttle here would share one bucket with every other authenticated
+        // route (see HANDOFF §6c — that mistake locked people out of login).
+        RateLimiter::for('portal-previews', fn (Request $request) => Limit::perMinute(6)->by($request->user()?->id ?: $request->ip()));
     }
 }
