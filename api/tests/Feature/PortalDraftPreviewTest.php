@@ -7,6 +7,7 @@ use App\Models\LetterheadTemplate;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\User;
+use App\Services\DocumentMergeService;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -126,7 +127,7 @@ class PortalDraftPreviewTest extends TestCase
      */
     public function test_the_draft_is_watermarked_and_the_final_file_is_not(): void
     {
-        $merger = app(\App\Services\DocumentMergeService::class);
+        $merger = app(DocumentMergeService::class);
         $source = Storage::disk('local')->path(
             UploadedFile::fake()->createWithContent('t.pdf', $this->samplePdf(1))->store('tmp', 'local'),
         );
