@@ -72,8 +72,11 @@ class OptimizeLetterheadsCommand extends Command
             $totalBefore += $before;
 
             if ($dryRun) {
-                // Measure on a copy so a dry run cannot mutate anything.
-                $probe = $absolute.'.probe';
+                // Measure on a copy so a dry run cannot mutate anything. The copy has
+                // to keep the original extension — the optimiser dispatches on it, and
+                // a `.pdf.probe` file silently reports "no change" for everything.
+                $extension = pathinfo($absolute, PATHINFO_EXTENSION);
+                $probe = $absolute.'.probe.'.$extension;
                 copy($absolute, $probe);
                 $result = AssetOptimizer::optimize($probe);
                 @unlink($probe);
