@@ -1,8 +1,45 @@
 # Deployment runbook — بحر المعاني
 
-Target: a single DigitalOcean droplet (2 vCPU / 4 GB is enough for the pilot;
-4 vCPU / 8 GB once the whole team is on it) running Ubuntu 24.04 + Docker.
-Everything is containerised — no PHP, Node or Postgres installed on the host.
+Target: a single VPS running Ubuntu 24.04 + Docker. Everything is containerised —
+no PHP, Node or Postgres installed on the host.
+
+## 0. The live server
+
+Production has been up since 2026-08-01. These are the real coordinates; the rest
+of this runbook is written against them.
+
+| | |
+|---|---|
+| Public URL | `https://bahralmaani.com` (also `www.`) |
+| Host | **Contabo** VPS `169.58.105.64` — *not* DigitalOcean, despite earlier drafts |
+| Spec | 4 vCPU / 8 GB RAM / Ubuntu 24.04.4 LTS / Docker 29.1.3 |
+| SSH | `ssh bahr` — alias in `~/.ssh/config`, user `root`, key `~/.ssh/bahr_almaani` |
+| App path | `/var/www/bahr-almaaani` (note the **three** a's — `/var/www/bahr-almaani` is a stale empty dir) |
+| Compose project | `bahr-almaaani-prod` |
+| CDN / DNS | **Cloudflare proxies the origin.** `cf-cache-status` on every response |
+| TLS | Let's Encrypt via DNS-01, `bahralmaani.com` + `www.` — auto-renews (§2 TLS) |
+
+`~/.ssh/config` entry, for a machine that does not have it yet:
+
+```
+Host bahr
+    HostName 169.58.105.64
+    User root
+    IdentityFile ~/.ssh/bahr_almaani
+    IdentitiesOnly yes
+    ServerAliveInterval 60
+```
+
+The root password is deliberately **not** recorded in this repo — key auth is
+configured and is the only access path that should be used.
+
+Sanity check the whole stack in one command:
+
+```bash
+ssh bahr 'cd /var/www/bahr-almaaani && docker compose -f docker-compose.prod.yml ps'
+```
+
+Ten containers should be `Up`; `app`, `web` and `postgres` also report `(healthy)`.
 
 ## 1. Topology
 
@@ -59,6 +96,10 @@ in production. Change the admin password from inside the app after first login.
 
 ### TLS
 
+> Already done on the live server: `bahralmaani.com` + `www.bahralmaani.com`, issued
+> over DNS-01, renewing automatically. `certbot certificates` on the box confirms it.
+> The rest of this section is how it was set up, kept for a rebuild.
+
 The 443 server block is built in and **switches itself on when a certificate is
 present**: `40-enable-tls.sh` runs at container boot and renders
 `docker/nginx/tls.conf` into `/etc/nginx/tls/` only if `TLS_DOMAIN` is set *and*
@@ -101,7 +142,7 @@ app reads `X-Forwarded-Proto` and generates https:// links either way.
 ## 3. Every deploy
 
 ```bash
-ssh root@<droplet> '/var/www/bahr-almaaani/deploy.sh'
+ssh bahr '/var/www/bahr-almaaani/deploy.sh'
 ```
 
 `deploy.sh` is idempotent and does, in order:
@@ -155,7 +196,7 @@ outside `local`, so nothing is exposed.
 `web/ops-prod-smoke.mjs` checks all four in a real browser:
 
 ```bash
-cd web && BASE=https://<domain> EMAIL=… PASSWORD=… node ops-prod-smoke.mjs
+cd web && BASE=https://bahralmaani.com EMAIL=… PASSWORD=… node ops-prod-smoke.mjs
 ```
 
 ## 6. Verified

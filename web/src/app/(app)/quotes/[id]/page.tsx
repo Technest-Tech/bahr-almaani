@@ -25,7 +25,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, downloadFile } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useFileTransfer } from "@/lib/use-transfer";
 import { useAuth } from "@/lib/auth";
 import {
   PRIORITY_LABELS,
@@ -56,6 +57,7 @@ function formatBytes(bytes: number): string {
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useAuth();
+  const { download } = useFileTransfer();
   const { confirm } = useConfirm();
   const queryClient = useQueryClient();
   const [responding, setResponding] = useState(false);
@@ -297,7 +299,7 @@ export default function QuoteDetailPage() {
                         size="icon-sm"
                         title="تنزيل"
                         onClick={() =>
-                          downloadFile(
+                          download(
                             `/quote-requests/${quote.id}/files/${file.id}`,
                             file.original_name,
                           ).catch(() => toast.error("تعذر تنزيل الملف"))

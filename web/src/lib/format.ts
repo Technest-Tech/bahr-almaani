@@ -77,6 +77,37 @@ export function looseMatch(haystack: string, needle: string): boolean {
     .some((word) => withinEditDistance(word.slice(0, query.length), query, 1));
 }
 
+/** "١٧٫٦ م.ب" — file size, matching the units already used on the project page. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} م.ب`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} ك.ب`;
+  return `${bytes} بايت`;
+}
+
+/** "١٫٢ م.ب/ث" — transfer rate. */
+export function formatSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "—";
+  return `${formatBytes(bytesPerSecond)}/ث`;
+}
+
+/**
+ * "28 ثانية متبقية" — time remaining.
+ *
+ * Latin digits on purpose. This sits on the same line as formatBytes/formatSpeed,
+ * which are Latin, and mixing the two numeral systems inside one RTL text run makes
+ * the bidi algorithm reorder them — "١٨" rendered as "٨١" on the first pass.
+ *
+ * Deliberately coarse above a minute: a jittery "47 ثانية → 51 ثانية" reads as the
+ * system guessing, which is worse than no estimate at all.
+ */
+export function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "";
+  if (seconds < 60) return `${Math.ceil(seconds)} ثانية متبقية`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `${minutes} دقيقة متبقية`;
+  return `${Math.ceil(minutes / 60)} ساعة متبقية`;
+}
+
 /** "بعد ٥ ساعات" / "قبل ٣ أيام" — relative to now. */
 export function formatRelative(iso: string): string {
   const diffSeconds = (new Date(iso).getTime() - Date.now()) / 1000;

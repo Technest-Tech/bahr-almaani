@@ -1,9 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Upload } from "lucide-react";
+import { TriangleAlert, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { apiForm, ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { formatBytes } from "@/lib/format";
+import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import { contentBandStyle, placementStyle } from "@/lib/placement";
 import {
   PLACEMENT_ANCHOR_LABELS,
@@ -88,13 +90,22 @@ interface Props {
   onSaved: () => void;
 }
 
+/**
+ * Above this, warn. The artwork is embedded in every merged deliverable, so a
+ * 17 MB scanned letterhead turned a 20 KB translation into a 3.3 MB download —
+ * which is what the client experienced as "downloads are slow".
+ */
+const HEAVY_ASSET_BYTES = 1024 * 1024;
+
 /** Parent remounts via `key`, so state initializes cleanly from props. */
 export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const { upload } = useFileTransfer();
   const [kind, setKind] = useState<TemplateKind>(template?.kind ?? "letterhead");
   const [name, setName] = useState(template?.name ?? "");
   const [isActive, setIsActive] = useState(template?.is_active ?? true);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [fileSize, setFileSize] = useState<number | null>(null);
   const [placement, setPlacement] = useState(() =>
     template
       ? {
@@ -151,6 +162,7 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
   function pickFile(file: File | undefined) {
     if (localAsset) URL.revokeObjectURL(localAsset.src);
     setFileName(file?.name ?? null);
+    setFileSize(file?.size ?? null);
     setLocalAsset(
       file
         ? { src: URL.createObjectURL(file), isPdf: file.type === "application/pdf" }
@@ -179,13 +191,17 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
     if (file) form.append("asset", file);
 
     try {
-      await apiForm(template ? `/letterheads/${template.id}` : "/letterheads", form);
+      await upload(
+        template ? `/letterheads/${template.id}` : "/letterheads",
+        form,
+        file?.name ?? name,
+      );
       toast.success(template ? "تم حفظ القالب" : "تم رفع القالب");
       onSaved();
       onClose();
     } catch (err) {
       if (err instanceof ApiError && err.errors) setErrors(err.errors);
-      else toast.error(err instanceof Error ? err.message : "حدث خطأ");
+      else if (!isAbort(err)) toast.error(err instanceof Error ? err.message : "حدث خطأ");
       setSubmitting(false);
     }
   }
@@ -265,6 +281,19 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
                 {fileName ?? template?.file_name ?? "لم يُختر ملف بعد"}
               </span>
             </div>
+
+            {fileSize !== null && fileSize > HEAVY_ASSET_BYTES && (
+              <p className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-[11px] leading-relaxed text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                <TriangleAlert className="mt-px size-3.5 shrink-0" />
+                <span>
+                  حجم القالب {formatBytes(fileSize)}. تُدمج صورة القالب في{" "}
+                  <strong>كل ملف نهائي</strong>، فيرثه العميل مع كل تسليم — قالب بهذا
+                  الحجم يجعل تحميل كل ملف أبطأ بمقدار أضعاف. يُفضَّل ملف أقل من{" "}
+                  {formatBytes(HEAVY_ASSET_BYTES)} (تصدير نظيف من ملف التصميم، لا صورة
+                  ممسوحة ضوئياً بدقة ٣٠٠).
+                </span>
+              </p>
+            )}
           </Field>
 
           <div className="rounded-xl border bg-muted/30 p-4">

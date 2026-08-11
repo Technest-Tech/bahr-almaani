@@ -5,8 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { useState } from "react";
 import { ConfirmProvider } from "@/components/confirm";
+import { TransferPanel } from "@/components/transfer-panel";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/lib/auth";
+import { TransferProvider } from "@/lib/transfers";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -24,8 +26,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
             <ConfirmProvider>
-              {children}
-              <Toaster position="bottom-left" dir="rtl" richColors closeButton />
+              <TransferProvider>
+                {children}
+                <TransferPanel />
+                <Toaster position="bottom-left" dir="rtl" richColors closeButton />
+              </TransferProvider>
             </ConfirmProvider>
           </AuthProvider>
         </QueryClientProvider>

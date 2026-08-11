@@ -67,13 +67,15 @@ class MergeFinalFileJob implements ShouldQueue
             // Re-merging after a retry must not accumulate final files.
             $this->discardPreviousFinals($project);
 
+            // The path stays code-based: it is a filesystem location, and a
+            // client-supplied name has no business in one.
             $finalPath = "projects/{$project->id}/final/{$project->code}-final.pdf";
             Storage::disk('local')->put($finalPath, $pdf);
 
             $project->files()->create([
                 'category' => ProjectFile::CATEGORY_FINAL,
                 'uploaded_by' => $deliverable->uploaded_by,
-                'original_name' => "{$project->code}-final.pdf",
+                'original_name' => $this->deliveredName($project),
                 'disk_path' => $finalPath,
                 'mime_type' => 'application/pdf',
                 'size_bytes' => strlen($pdf),
@@ -136,6 +138,30 @@ class MergeFinalFileJob implements ShouldQueue
             ->concat(array_filter([$project->creator]))
             ->unique('id')
             ->values();
+    }
+
+    /**
+     * The client gets back the name they sent in.
+     *
+     * They identify a job by the filename they emailed over, so `BM-2026-00004-final.pdf`
+     * forces them to cross-reference a code they never use. The basename comes from the
+     * first source file; the extension is always .pdf because the merge rasterises
+     * everything through Gotenberg — a .docx cannot come back as a .docx with a
+     * letterhead burned into it. A project with no source file (all-reference, or the
+     * sources were deleted) falls back to the project code.
+     *
+     * Only ever used as a Content-Disposition name, never as a path — see $finalPath.
+     */
+    private function deliveredName(Project $project): string
+    {
+        $source = $project->files()
+            ->where('category', ProjectFile::CATEGORY_SOURCE)
+            ->orderBy('id')
+            ->value('original_name');
+
+        $base = trim(pathinfo((string) $source, PATHINFO_FILENAME));
+
+        return $base === '' ? "{$project->code}-final.pdf" : "{$base}.pdf";
     }
 
     private function discardPreviousFinals(Project $project): void

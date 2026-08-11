@@ -55,7 +55,7 @@ class LetterheadMergeTest extends TestCase
         $this->assertNotNull($final, 'The merge should have produced a final file.');
         $this->assertSame(Project::STATUS_COMPLETED, $project->fresh()->status);
         $this->assertSame('application/pdf', $final->mime_type);
-        $this->assertStringEndsWith('-final.pdf', $final->original_name);
+        $this->assertSame('عقد تأسيس.pdf', $final->original_name);
 
         // A real, parsable PDF — not an empty placeholder.
         $bytes = Storage::disk('local')->get($final->disk_path);
@@ -64,6 +64,46 @@ class LetterheadMergeTest extends TestCase
 
         Notification::assertSentTo($this->pm, ProjectCompletedNotification::class);
         Notification::assertSentTo($this->admin, ProjectCompletedNotification::class);
+    }
+
+    /**
+     * The client identifies a job by the filename they sent, so that is the name
+     * that has to come back — not the internal project code.
+     */
+    public function test_the_final_file_is_named_after_the_file_the_client_sent(): void
+    {
+        Notification::fake();
+        $project = $this->approvedProject('Lease Agreement 2026.docx');
+
+        $final = $project->fresh()->files()->where('category', ProjectFile::CATEGORY_FINAL)->firstOrFail();
+
+        // Extension is always .pdf — the merge rasterises through Gotenberg.
+        $this->assertSame('Lease Agreement 2026.pdf', $final->original_name);
+
+        // The stored path stays code-based: a client-supplied name never reaches the disk.
+        $this->assertSame("projects/{$project->id}/final/{$project->code}-final.pdf", $final->disk_path);
+    }
+
+    public function test_a_project_with_no_source_file_falls_back_to_the_project_code(): void
+    {
+        Notification::fake();
+        $project = $this->approvedProject(sourceName: null);
+
+        $final = $project->fresh()->files()->where('category', ProjectFile::CATEGORY_FINAL)->firstOrFail();
+
+        $this->assertSame("{$project->code}-final.pdf", $final->original_name);
+    }
+
+    public function test_a_path_traversal_filename_cannot_escape_the_final_directory(): void
+    {
+        Notification::fake();
+        $project = $this->approvedProject('../../../etc/passwd.docx');
+
+        $final = $project->fresh()->files()->where('category', ProjectFile::CATEGORY_FINAL)->firstOrFail();
+
+        $this->assertSame("projects/{$project->id}/final/{$project->code}-final.pdf", $final->disk_path);
+        $this->assertStringNotContainsString('..', $final->disk_path);
+        $this->assertTrue(Storage::disk('local')->exists($final->disk_path));
     }
 
     public function test_the_merged_file_keeps_every_page_of_the_deliverable(): void
@@ -240,9 +280,9 @@ class LetterheadMergeTest extends TestCase
     }
 
     /** An approved project whose merge has already run (the happy path). */
-    private function approvedProject(): Project
+    private function approvedProject(?string $sourceName = 'عقد تأسيس.docx'): Project
     {
-        $project = $this->approvableProject();
+        $project = $this->approvableProject($sourceName);
 
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
@@ -254,8 +294,13 @@ class LetterheadMergeTest extends TestCase
         return $project->fresh();
     }
 
-    /** A project sitting in `in_review` with a deliverable, ready to approve. */
-    private function approvableProject(): Project
+    /**
+     * A project sitting in `in_review` with a deliverable, ready to approve.
+     *
+     * @param  string|null  $sourceName  the file the client sent in; null models the
+     *                                   edge case of a project with no source file at all.
+     */
+    private function approvableProject(?string $sourceName = 'عقد تأسيس.docx'): Project
     {
         $en = Language::where('code', 'en')->firstOrFail();
         $ar = Language::where('code', 'ar')->firstOrFail();
@@ -272,6 +317,20 @@ class LetterheadMergeTest extends TestCase
             'created_by' => $this->pm->id,
             'published_at' => now()->subDay(),
         ]);
+
+        if ($sourceName !== null) {
+            Storage::disk('local')->put("projects/{$project->id}/source/s1.docx", 'أصل');
+
+            $project->files()->create([
+                'category' => ProjectFile::CATEGORY_SOURCE,
+                'uploaded_by' => $this->pm->id,
+                'original_name' => $sourceName,
+                'disk_path' => "projects/{$project->id}/source/s1.docx",
+                'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'size_bytes' => 12,
+                'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
+            ]);
+        }
 
         Storage::disk('local')->put("projects/{$project->id}/deliverable/v1.docx", 'ترجمة');
 

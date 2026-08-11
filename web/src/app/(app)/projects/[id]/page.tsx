@@ -27,7 +27,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, ApiError, downloadFile, getToken } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import { formatDuration } from "@/lib/format";
 import {
   COUNT_STATUS_LABELS,
@@ -72,6 +73,7 @@ function formatBytes(bytes: number): string {
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { can } = useAuth();
+  const { download } = useFileTransfer();
   const { prompt, confirm } = useConfirm();
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
@@ -279,10 +281,12 @@ export default function ProjectDetailPage() {
           {project.status === "completed" && (
             <Button
               onClick={() =>
-                downloadFile(
+                // The merge names the final file after the source the client sent,
+                // so take the name from the record rather than rebuilding it here.
+                download(
                   `/projects/${project.id}/final-file`,
-                  `${project.code}-final.pdf`,
-                )
+                  finalFiles[0]?.original_name ?? `${project.code}-final.pdf`,
+                ).catch(() => toast.error("تعذر تحميل الملف"))
               }
             >
               <FileCheck2 className="size-4" />
@@ -619,6 +623,7 @@ function FilesCard({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { confirm } = useConfirm();
+  const { download, upload } = useFileTransfer();
   const [uploading, setUploading] = useState(false);
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
@@ -631,23 +636,15 @@ function FilesCard({
     formData.append("category", category);
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
-      const response = await fetch(`${API_URL}/projects/${project.id}/files`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${getToken()}`,
-        },
-        body: formData,
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new ApiError(response.status, body.message ?? "فشل رفع الملف");
-      }
+      await upload(`/projects/${project.id}/files`, formData, file.name);
       toast.success("تم رفع الملف" + (category === "source" ? " — جارِ عد الكلمات…" : ""));
       onChanged();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "فشل رفع الملف");
+      // Cancelling is the user's own doing — the panel already says so, and a
+      // red toast on top of it would read as a failure.
+      if (!isAbort(err)) {
+        toast.error(err instanceof ApiError ? err.message : "فشل رفع الملف");
+      }
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -739,7 +736,7 @@ function FilesCard({
                 size="icon-sm"
                 title="تحميل"
                 onClick={() =>
-                  downloadFile(
+                  download(
                     `/projects/${project.id}/files/${file.id}/download`,
                     file.original_name,
                   ).catch(() => toast.error("تعذر تحميل الملف"))

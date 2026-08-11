@@ -19,7 +19,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, ApiError, downloadFile, getToken } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import { formatDuration, formatRelative, dateTimeFormatter } from "@/lib/format";
 import {
   PRIORITY_LABELS,
@@ -357,6 +358,7 @@ function CurrentAssignmentCard({
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const { confirm } = useConfirm();
+  const { download, upload } = useFileTransfer();
   const [uploading, setUploading] = useState(false);
   const project = assignment.project!;
 
@@ -379,20 +381,13 @@ function CurrentAssignmentCard({
     formData.append("file", file);
 
     try {
-      const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
-      const response = await fetch(`${API_URL}/portal/deliver`, {
-        method: "POST",
-        headers: { Accept: "application/json", Authorization: `Bearer ${getToken()}` },
-        body: formData,
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new ApiError(response.status, body.message ?? "فشل التسليم");
-      }
+      await upload("/portal/deliver", formData, file.name);
       toast.success("تم تسليم الترجمة — شكراً لك 🎉");
       onDelivered();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "فشل التسليم");
+      if (!isAbort(err)) {
+        toast.error(err instanceof ApiError ? err.message : "فشل التسليم");
+      }
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -478,7 +473,7 @@ function CurrentAssignmentCard({
                       size="icon-xs"
                       title="تحميل"
                       onClick={() =>
-                        downloadFile(`/portal/files/${file.id}/download`, file.original_name)
+                        download(`/portal/files/${file.id}/download`, file.original_name)
                           .catch(() => toast.error("تعذر تحميل الملف"))
                       }
                     >

@@ -5,7 +5,8 @@ import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Download, FileSpreadsheet, FileText, Info, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, downloadFile } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useFileTransfer } from "@/lib/use-transfer";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -72,6 +73,7 @@ function today(): string {
 
 export default function ReportsPage() {
   const { can } = useAuth();
+  const { download } = useFileTransfer();
   const queryClient = useQueryClient();
   const [type, setType] = useState<ReportType>("translators");
   const [from, setFrom] = useState(firstOfMonth());
@@ -240,7 +242,7 @@ export default function ReportsPage() {
                         size="icon-xs"
                         title="تحميل"
                         onClick={() =>
-                          downloadFile(
+                          download(
                             `/reports/exports/${item.id}/download`,
                             `${item.report_label}.${item.format}`,
                           ).catch(() => toast.error("تعذر تحميل الملف"))

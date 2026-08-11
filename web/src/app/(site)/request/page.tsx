@@ -19,7 +19,8 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ApiError, apiForm, api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
+import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import type { Language, Priority, PublicQuoteRequest } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -99,6 +100,7 @@ function RequestForm({
   onSubmitted: (quote: PublicQuoteRequest) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const { upload } = useFileTransfer();
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
@@ -171,7 +173,14 @@ function RequestForm({
     files.forEach((file) => body.append("files[]", file));
 
     try {
-      const response = await apiForm<{ data: PublicQuoteRequest }>("/public/quote-requests", body);
+      // The client uploads their document here — this is the slowest thing a
+      // visitor ever does on the site, so it gets the progress panel too.
+      const label = files.length === 1 ? files[0].name : `${files.length} ملفات`;
+      const response = await upload<{ data: PublicQuoteRequest }>(
+        "/public/quote-requests",
+        body,
+        label,
+      );
       onSubmitted(response.data);
     } catch (error) {
       if (error instanceof ApiError && error.errors) {
@@ -179,7 +188,7 @@ function RequestForm({
         toast.error("راجع الحقول المطلوبة");
       } else if (error instanceof ApiError && error.status === 429) {
         toast.error("أرسلت طلبات كثيرة خلال وقت قصير. حاول بعد قليل.");
-      } else {
+      } else if (!isAbort(error)) {
         toast.error(error instanceof Error ? error.message : "تعذر إرسال الطلب");
       }
       setSubmitting(false);
