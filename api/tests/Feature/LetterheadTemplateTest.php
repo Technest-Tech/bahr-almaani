@@ -63,6 +63,47 @@ class LetterheadTemplateTest extends TestCase
         Storage::disk('local')->assertExists($template->disk_path);
     }
 
+    /**
+     * The artwork is redrawn into every delivery, so the upload path shrinks it and
+     * tells the admin what it now costs (App\Support\AssetOptimizer).
+     */
+    public function test_an_oversized_upload_is_optimised_and_the_saving_is_reported(): void
+    {
+        $response = $this->asJson($this->admin)->post('/api/v1/letterheads', [
+            'name' => 'ترويسة ممسوحة ضوئياً',
+            'kind' => 'letterhead',
+            // Wider than A4 at 300 DPI, so the optimiser has something to do.
+            'asset' => UploadedFile::fake()->image('scan.jpg', 4000, 5600),
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('meta.optimization.applied', true);
+
+        $before = $response->json('meta.optimization.before');
+        $after = $response->json('meta.optimization.after');
+
+        $this->assertLessThan($before, $after);
+
+        $template = LetterheadTemplate::firstOrFail();
+        $stored = Storage::disk('local')->path($template->disk_path);
+        $this->assertSame($after, filesize($stored), 'The reported size must be what is on disk.');
+
+        [$width] = getimagesize($stored);
+        $this->assertLessThanOrEqual(2480, $width);
+    }
+
+    /** Optimisation must never be able to fail an upload. */
+    public function test_an_asset_that_cannot_be_optimised_still_uploads(): void
+    {
+        $this->asJson($this->admin)->post('/api/v1/letterheads', [
+            'name' => 'ترويسة صغيرة',
+            'kind' => 'letterhead',
+            'asset' => UploadedFile::fake()->image('tiny.png', 60, 40),
+        ])->assertCreated();
+
+        Storage::disk('local')->assertExists(LetterheadTemplate::firstOrFail()->disk_path);
+    }
+
     public function test_stamp_gets_stamp_defaults_and_accepts_a_custom_placement(): void
     {
         $this->asJson($this->admin)->post('/api/v1/letterheads', [

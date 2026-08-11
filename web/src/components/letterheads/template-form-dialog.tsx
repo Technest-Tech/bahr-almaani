@@ -97,6 +97,13 @@ interface Props {
  */
 const HEAVY_ASSET_BYTES = 1024 * 1024;
 
+/** `meta.optimization` from an upload response — see LetterheadController. */
+interface Optimization {
+  before: number;
+  after: number;
+  applied: boolean;
+}
+
 /** Parent remounts via `key`, so state initializes cleanly from props. */
 export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -191,12 +198,21 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
     if (file) form.append("asset", file);
 
     try {
-      await upload(
+      const response = await upload<{ meta?: { optimization?: Optimization } }>(
         template ? `/letterheads/${template.id}` : "/letterheads",
         form,
         file?.name ?? name,
       );
-      toast.success(template ? "تم حفظ القالب" : "تم رفع القالب");
+
+      const saving = response.meta?.optimization;
+      toast.success(template ? "تم حفظ القالب" : "تم رفع القالب", {
+        // The artwork is merged into every delivery, so what it weighs after
+        // optimisation is the number that decides how fast clients get their files.
+        description:
+          saving?.applied && saving.before > 0
+            ? `ضُغطت الصورة من ${formatBytes(saving.before)} إلى ${formatBytes(saving.after)} — أصغر بنسبة ${Math.round((1 - saving.after / saving.before) * 100)}٪، وهو ما يخفّ من حجم كل ملف يُسلَّم للعميل.`
+            : undefined,
+      });
       onSaved();
       onClose();
     } catch (err) {

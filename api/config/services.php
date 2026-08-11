@@ -39,4 +39,15 @@ return [
         'url' => env('GOTENBERG_URL', 'http://127.0.0.1:3300'),
     ],
 
+    /*
+     * Resolution letterhead artwork is re-encoded at on upload (App\Support\
+     * AssetOptimizer). 300 matches A4 at scanner resolution, so it keeps every
+     * original pixel — the client's 17.6 MB letterhead still came out at 280 KB,
+     * because the weight was bad encoding rather than detail. Lower it only if the
+     * office wants smaller files and has approved how the result looks on paper.
+     */
+    'ghostscript' => [
+        'dpi' => (int) env('LETTERHEAD_DPI', 300),
+    ],
+
 ];

@@ -11,9 +11,13 @@
 # ── base: PHP + the extensions this app actually uses ────────────────────────
 FROM php:8.2-fpm-alpine AS base
 
+# ghostscript downsamples the images inside an uploaded letterhead (App\Support\
+# AssetOptimizer). It is optional at runtime — the optimizer keeps the original when
+# the binary is missing — but without it every delivery carries the letterhead at
+# full scan resolution, which is what made a 20 KB translation a 3.3 MB download.
 RUN apk add --no-cache \
         postgresql-libs libzip icu-libs oniguruma libpng libjpeg-turbo freetype \
-        fcgi tini \
+        fcgi tini ghostscript \
     && apk add --no-cache --virtual .build-deps \
         $PHPIZE_DEPS postgresql-dev libzip-dev icu-dev oniguruma-dev \
         libpng-dev libjpeg-turbo-dev freetype-dev \

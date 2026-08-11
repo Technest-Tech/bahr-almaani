@@ -7,6 +7,7 @@ use App\Http\Requests\StoreLetterheadTemplateRequest;
 use App\Http\Resources\LetterheadTemplateResource;
 use App\Models\LetterheadTemplate;
 use App\Services\DocumentMergeService;
+use App\Support\AssetOptimizer;
 use App\Support\ImageTrimmer;
 use App\Support\PlacementConfig;
 use Illuminate\Http\JsonResponse;
@@ -26,6 +27,14 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class LetterheadController extends Controller
 {
+    /**
+     * Byte counts from the most recent upload in this request, surfaced on the
+     * response so the admin sees what the artwork now costs every delivery.
+     *
+     * @var array{before:int, after:int, applied:bool}|null
+     */
+    private ?array $lastOptimization = null;
+
     /** Small catalogue — returned unpaginated so gallery and pickers share one query. */
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -61,6 +70,7 @@ class LetterheadController extends Controller
         ]);
 
         return LetterheadTemplateResource::make($this->withUsage($template))
+            ->additional($this->optimizationPayload())
             ->response()
             ->setStatusCode(201);
     }
@@ -87,7 +97,8 @@ class LetterheadController extends Controller
 
         $letterhead->update($attributes);
 
-        return LetterheadTemplateResource::make($this->withUsage($letterhead->fresh()));
+        return LetterheadTemplateResource::make($this->withUsage($letterhead->fresh()))
+            ->additional($this->optimizationPayload());
     }
 
     public function destroy(LetterheadTemplate $letterhead): JsonResponse
@@ -142,20 +153,45 @@ class LetterheadController extends Controller
     }
 
     /**
-     * Store the asset, trimming the dead paper off stamp scans.
+     * Store the uploaded artwork, then trim and shrink it.
      *
-     * A stamp is almost always scanned on a full sheet; without the trim, `width_mm`
-     * would size the sheet rather than the stamp (see App\Support\ImageTrimmer).
+     * A stamp is almost always scanned on a full sheet, so it is trimmed to its ink
+     * first — otherwise `width_mm` sizes the sheet rather than the stamp (see
+     * App\Support\ImageTrimmer) and the optimiser spends its budget on empty paper.
+     * The optimiser then downsamples what is left: this artwork is redrawn into every
+     * page of every delivery, so its weight is paid on every client download
+     * (App\Support\AssetOptimizer).
+     *
+     * Both steps are best-effort. Neither can fail the upload.
      */
     private function storeAsset(UploadedFile $asset, string $kind): string
     {
         $path = $asset->store('letterheads', 'local');
+        $absolute = Storage::disk('local')->path($path);
 
         if ($kind === LetterheadTemplate::KIND_STAMP) {
-            ImageTrimmer::trim(Storage::disk('local')->path($path));
+            ImageTrimmer::trim($absolute);
         }
 
+        $this->lastOptimization = AssetOptimizer::optimize($absolute);
+
         return $path;
+    }
+
+    /**
+     * `meta.optimization` on an upload response, absent when nothing was uploaded.
+     *
+     * The admin who picked the file is the one person who can act on it — if the
+     * artwork barely shrank, it is still a scan and still costs every client every
+     * download, and they can go get a cleaner export.
+     *
+     * @return array{meta?: array{optimization: array{before:int, after:int, applied:bool}}}
+     */
+    private function optimizationPayload(): array
+    {
+        return $this->lastOptimization === null
+            ? []
+            : ['meta' => ['optimization' => $this->lastOptimization]];
     }
 
     private function withUsage(LetterheadTemplate $template): LetterheadTemplate
