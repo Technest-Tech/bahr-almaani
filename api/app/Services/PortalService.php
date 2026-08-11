@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\ClaimConflictException;
+use App\Jobs\CountWordsJob;
 use App\Models\Assignment;
 use App\Models\Project;
 use App\Models\ProjectFile;
@@ -134,16 +135,23 @@ class PortalService
             $version = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->count() + 1;
             $path = $upload->store("projects/{$project->id}/deliverable", 'local');
 
-            $project->files()->create([
+            $deliverable = $project->files()->create([
                 'category' => ProjectFile::CATEGORY_DELIVERABLE,
                 'uploaded_by' => $translator->id,
                 'original_name' => $upload->getClientOriginalName(),
                 'disk_path' => $path,
                 'mime_type' => $upload->getClientMimeType(),
                 'size_bytes' => $upload->getSize(),
-                'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
                 'version' => $version,
             ]);
+
+            // The delivered file is counted like any other upload. It used to be
+            // written straight to `not_applicable`, so a translator's output never
+            // carried a word count even when it was a .docx the counter reads
+            // perfectly — which is what the office reported as "the system does not
+            // calculate the words". Queued after commit so the count runs against a
+            // row that exists.
+            CountWordsJob::dispatch($deliverable)->afterCommit();
 
             $windowStart = $project->status === Project::STATUS_REVISION_REQUESTED
                 ? $project->transitions()

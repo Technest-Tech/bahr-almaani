@@ -167,14 +167,17 @@ class Project extends Model
     /** Recompute cached totals from counted source files. */
     public function refreshTotals(): void
     {
+        // Source only, deliberately: these totals drive the quote, and the quote is
+        // priced off what the client sent, not off what the translator produced.
         $totals = $this->files()
             ->where('category', ProjectFile::CATEGORY_SOURCE)
-            ->selectRaw('COALESCE(SUM(word_count), 0) AS words, COALESCE(SUM(page_count), 0) AS pages')
+            ->selectRaw('COALESCE(SUM(word_count), 0) AS words, COALESCE(SUM(page_count), 0) AS pages, COALESCE(SUM(char_count), 0) AS chars')
             ->first();
 
         $this->forceFill([
             'total_words' => (int) $totals->words ?: null,
             'total_pages' => (int) $totals->pages ?: null,
+            'total_chars' => (int) $totals->chars ?: null,
         ])->saveQuietly();
     }
 

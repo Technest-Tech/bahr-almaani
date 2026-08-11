@@ -25,6 +25,7 @@ class ProjectResource extends JsonResource
             'declared_pages' => $this->declared_pages,
             'total_words' => $this->total_words,
             'total_pages' => $this->total_pages,
+            'total_chars' => $this->total_chars,
             'deadline_at' => $this->deadline_at?->toIso8601String(),
             'is_late' => $this->isLate(),
             'instructions' => $this->instructions,

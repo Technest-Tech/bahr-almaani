@@ -6,21 +6,29 @@ use Smalot\PdfParser\Parser as PdfParser;
 use ZipArchive;
 
 /**
- * Extracts word/page counts from uploaded documents.
+ * Extracts word/page/character counts from uploaded documents.
  * DOCX: docProps/app.xml statistics, falling back to parsing document.xml.
  * PDF:  text extraction via smalot/pdfparser; empty text ⇒ scanned ⇒ not countable (OCR is Phase 2).
+ *
+ * Characters exclude whitespace, tatweel and Arabic diacritics — see charCount().
  */
 class DocumentCounter
 {
-    /** @return array{countable: bool, words: int|null, pages: int|null} */
+    /** @return array{countable: bool, words: int|null, pages: int|null, chars: int|null} */
     public function count(string $absolutePath, string $extension): array
     {
         return match (strtolower($extension)) {
             'docx' => $this->countDocx($absolutePath),
             'pdf' => $this->countPdf($absolutePath),
             'txt' => $this->countText((string) file_get_contents($absolutePath)),
-            default => ['countable' => false, 'words' => null, 'pages' => null],
+            default => self::uncountable(),
         };
+    }
+
+    /** @return array{countable: bool, words: null, pages: int|null, chars: null} */
+    private static function uncountable(?int $pages = null): array
+    {
+        return ['countable' => false, 'words' => null, 'pages' => $pages, 'chars' => null];
     }
 
     private function countDocx(string $path): array
@@ -28,32 +36,37 @@ class DocumentCounter
         $zip = new ZipArchive;
 
         if ($zip->open($path) !== true) {
-            return ['countable' => false, 'words' => null, 'pages' => null];
+            return self::uncountable();
         }
 
         try {
             $words = null;
             $pages = null;
+            $chars = null;
 
-            // Preferred: statistics stamped by Word/LibreOffice.
+            // Preferred: statistics stamped by Word/LibreOffice. Its `Characters` is
+            // already the excluding-spaces figure, which is the one we bill on.
             if (($appXml = $zip->getFromName('docProps/app.xml')) !== false) {
                 $props = @simplexml_load_string($appXml);
                 if ($props !== false) {
                     $words = isset($props->Words) ? (int) $props->Words : null;
                     $pages = isset($props->Pages) ? (int) $props->Pages : null;
+                    $chars = isset($props->Characters) ? (int) $props->Characters : null;
                 }
             }
 
             // Fallback: count the actual text runs.
-            if (! $words && ($docXml = $zip->getFromName('word/document.xml')) !== false) {
+            if ((! $words || ! $chars) && ($docXml = $zip->getFromName('word/document.xml')) !== false) {
                 $text = strip_tags(preg_replace('/<w:p[ >]/', "\n<w:p ", $docXml));
-                $words = $this->wordCount($text);
+                $words = $words ?: $this->wordCount($text);
+                $chars = $chars ?: $this->charCount($text);
             }
 
             return [
                 'countable' => $words !== null,
                 'words' => $words ?: null,
                 'pages' => $pages ?: null,
+                'chars' => $chars ?: null,
             ];
         } finally {
             $zip->close();
@@ -65,22 +78,47 @@ class DocumentCounter
         try {
             $pdf = (new PdfParser)->parseFile($path);
             $pages = count($pdf->getPages());
-            $words = $this->wordCount($pdf->getText());
+            $text = $pdf->getText();
+            $words = $this->wordCount($text);
 
             // A PDF with pages but (almost) no extractable text is a scan — needs OCR or manual count.
             if ($pages > 0 && $words < 3) {
-                return ['countable' => false, 'words' => null, 'pages' => $pages];
+                return self::uncountable($pages);
             }
 
-            return ['countable' => true, 'words' => $words, 'pages' => $pages];
+            return ['countable' => true, 'words' => $words, 'pages' => $pages, 'chars' => $this->charCount($text)];
         } catch (\Throwable) {
-            return ['countable' => false, 'words' => null, 'pages' => null];
+            return self::uncountable();
         }
     }
 
     private function countText(string $content): array
     {
-        return ['countable' => true, 'words' => $this->wordCount($content), 'pages' => null];
+        return [
+            'countable' => true,
+            'words' => $this->wordCount($content),
+            'pages' => null,
+            'chars' => $this->charCount($content),
+        ];
+    }
+
+    /**
+     * Billable characters: no whitespace, no tatweel, no diacritics.
+     *
+     * Tatweel (ـ) only stretches a glyph and tashkeel are vowel marks — counting
+     * either would inflate an Arabic document against an English one carrying the
+     * same content, which is exactly the number an office bills on. This is the
+     * excluding-spaces convention; Word calls it `Characters`.
+     */
+    private function charCount(string $text): int
+    {
+        $stripped = preg_replace(
+            '/[\s\x{0640}\x{064B}-\x{0652}\x{0670}\x{200B}-\x{200F}\x{FEFF}]/u',
+            '',
+            $text,
+        );
+
+        return $stripped === null ? 0 : mb_strlen($stripped);
     }
 
     /** Unicode-aware word count (Arabic text breaks str_word_count). */

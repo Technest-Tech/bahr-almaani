@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Language;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\DocumentCounter;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -42,6 +43,90 @@ class WordCountingTest extends TestCase
             'deadline_at' => now()->addDay(),
             'created_by' => $this->pm->id,
         ]);
+    }
+
+    /**
+     * Characters are billed on in this market, so they are counted alongside words.
+     *
+     * The convention is Word's `Characters`: no spaces. Tatweel and tashkeel are
+     * excluded too — they are typography, not content, and counting them would make
+     * the same document cost more in Arabic than in English.
+     */
+    public function test_arabic_characters_exclude_spaces_tatweel_and_diacritics(): void
+    {
+        $counter = app(DocumentCounter::class);
+
+        $plain = tempnam(sys_get_temp_dir(), 'txt').'.txt';
+        file_put_contents($plain, 'عقد إيجار');            // 8 letters + 1 space
+        $this->assertSame(8, $counter->count($plain, 'txt')['chars']);
+        @unlink($plain);
+
+        // Same nine letters, now stretched with tatweel and vowelled.
+        $decorated = tempnam(sys_get_temp_dir(), 'txt').'.txt';
+        file_put_contents($decorated, 'عَقــد إيجَار');
+        $this->assertSame(8, $counter->count($decorated, 'txt')['chars']);
+        @unlink($decorated);
+    }
+
+    public function test_a_counted_source_file_reports_characters_and_rolls_into_the_project(): void
+    {
+        $docx = $this->makeDocxWithChars('عقد إيجار تجاري', words: 3, pages: 1, chars: 13);
+
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$this->project->id}/files", [
+            'file' => UploadedFile::fake()->createWithContent('contract.docx', file_get_contents($docx)),
+            'category' => 'source',
+        ])->assertCreated();
+
+        // The 201 is serialised before the sync-queue job writes the count, so the
+        // assertion is on what was persisted — same pattern as the word-count test.
+        $this->actingAs($this->pm, 'sanctum')
+            ->getJson("/api/v1/projects/{$this->project->id}")
+            ->assertOk()
+            ->assertJsonPath('data.files.0.char_count', 13)
+            ->assertJsonPath('data.total_chars', 13);
+
+        $this->assertSame(13, $this->project->fresh()->total_chars);
+    }
+
+    public function test_manual_entry_accepts_a_character_count(): void
+    {
+        $file = $this->project->files()->create([
+            'category' => 'source',
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'scan.pdf',
+            'disk_path' => 'projects/1/source/scan.pdf',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 10,
+            'count_status' => 'not_applicable',
+        ]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->putJson("/api/v1/projects/{$this->project->id}/files/{$file->id}/manual-count", [
+                'char_count' => 4200,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.char_count', 4200)
+            ->assertJsonPath('data.count_source', 'manual');
+
+        $this->assertSame(4200, $this->project->fresh()->total_chars);
+    }
+
+    /** A .docx carrying Word's own `Characters` statistic. */
+    private function makeDocxWithChars(string $text, int $words, int $pages, int $chars): string
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'docx');
+        $zip = new ZipArchive;
+        $zip->open($tmp, ZipArchive::OVERWRITE);
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>');
+        $zip->addFromString(
+            'docProps/app.xml',
+            '<?xml version="1.0"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
+            .'<Words>'.$words.'</Words><Pages>'.$pages.'</Pages><Characters>'.$chars.'</Characters></Properties>',
+        );
+        $zip->addFromString('word/document.xml', '<?xml version="1.0"?><w:document><w:body><w:p><w:r><w:t>'.$text.'</w:t></w:r></w:p></w:body></w:document>');
+        $zip->close();
+
+        return $tmp;
     }
 
     /** Builds a real minimal .docx with Word-stamped statistics. */

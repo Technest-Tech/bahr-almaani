@@ -153,6 +153,7 @@ export interface ProjectFile {
   size_bytes: number;
   word_count: number | null;
   page_count: number | null;
+  char_count: number | null;
   count_status: "pending" | "processing" | "done" | "failed" | "not_applicable";
   count_source: "auto" | "manual";
   version: number;
@@ -206,6 +207,7 @@ export interface Project {
   declared_pages: number | null;
   total_words: number | null;
   total_pages: number | null;
+  total_chars: number | null;
   deadline_at: string;
   is_late: boolean;
   instructions: string | null;

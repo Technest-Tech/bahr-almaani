@@ -41,6 +41,7 @@ class ProjectFile extends Model
         'size_bytes',
         'word_count',
         'page_count',
+        'char_count',
         'count_status',
         'count_source',
         'version',

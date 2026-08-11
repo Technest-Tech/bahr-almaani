@@ -32,6 +32,7 @@ class CountWordsJob implements ShouldQueue
         $file->update([
             'word_count' => $result['words'],
             'page_count' => $result['pages'],
+            'char_count' => $result['chars'],
             'count_status' => $result['countable']
                 ? ProjectFile::COUNT_DONE
                 : ProjectFile::COUNT_NOT_APPLICABLE,

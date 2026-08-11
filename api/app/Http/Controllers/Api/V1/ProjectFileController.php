@@ -70,8 +70,9 @@ class ProjectFileController extends Controller
         abort_unless($file->project_id === $project->id, 404);
 
         $validated = $request->validate([
-            'word_count' => ['nullable', 'integer', 'min:0', 'max:10000000', 'required_without:page_count'],
-            'page_count' => ['nullable', 'integer', 'min:0', 'max:100000', 'required_without:word_count'],
+            'word_count' => ['nullable', 'integer', 'min:0', 'max:10000000', 'required_without_all:page_count,char_count'],
+            'page_count' => ['nullable', 'integer', 'min:0', 'max:100000', 'required_without_all:word_count,char_count'],
+            'char_count' => ['nullable', 'integer', 'min:0', 'max:100000000', 'required_without_all:word_count,page_count'],
         ]);
 
         abort_unless(
@@ -83,6 +84,7 @@ class ProjectFileController extends Controller
         $file->update([
             'word_count' => $validated['word_count'] ?? $file->word_count,
             'page_count' => $validated['page_count'] ?? $file->page_count,
+            'char_count' => $validated['char_count'] ?? $file->char_count,
             'count_status' => ProjectFile::COUNT_DONE,
             'count_source' => 'manual',
         ]);

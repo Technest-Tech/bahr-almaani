@@ -19,6 +19,7 @@ class ProjectFileResource extends JsonResource
             'size_bytes' => $this->size_bytes,
             'word_count' => $this->word_count,
             'page_count' => $this->page_count,
+            'char_count' => $this->char_count,
             'count_status' => $this->count_status,
             'count_source' => $this->count_source,
             'version' => $this->version,

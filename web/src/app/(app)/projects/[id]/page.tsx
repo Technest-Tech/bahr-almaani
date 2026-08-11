@@ -64,6 +64,15 @@ const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
   timeStyle: "short",
 });
 
+/**
+ * Categories that carry a word/page count.
+ *
+ * Source drives the quote; deliverable is what the translator actually produced,
+ * and on this client's projects the source is usually a scan — so the deliverable
+ * is frequently the only document in the project a machine can count.
+ */
+const COUNTED_CATEGORIES: ProjectFile["category"][] = ["source", "deliverable"];
+
 function formatBytes(bytes: number): string {
   if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} م.ب`;
   if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} ك.ب`;
@@ -362,6 +371,10 @@ export default function ProjectDetailPage() {
         />
         <InfoTile label="الكلمات" value={project.total_words?.toLocaleString("ar-EG") ?? "—"} />
         <InfoTile label="الصفحات" value={project.total_pages?.toLocaleString("ar-EG") ?? "—"} />
+        <InfoTile
+          label="الأحرف"
+          value={project.total_chars?.toLocaleString("ar-EG") ?? "—"}
+        />
       </div>
 
       {project.instructions && (
@@ -706,11 +719,17 @@ function FilesCard({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatBytes(file.size_bytes)}
-                  {category === "source" && (
+                  {/* Deliverables are counted too: when the source is a scan, the
+                      translator's file is the only countable document in the project. */}
+                  {COUNTED_CATEGORIES.includes(category) && (
                     <>
                       {" · "}
                       {file.count_status === "done"
                         ? `${file.word_count?.toLocaleString("ar-EG") ?? "—"} كلمة${
+                            file.char_count
+                              ? ` · ${file.char_count.toLocaleString("ar-EG")} حرف`
+                              : ""
+                          }${
                             file.page_count
                               ? ` · ${file.page_count.toLocaleString("ar-EG")} صفحة`
                               : ""
@@ -720,7 +739,7 @@ function FilesCard({
                   )}
                 </p>
               </div>
-              {category === "source" &&
+              {COUNTED_CATEGORIES.includes(category) &&
                 ["not_applicable", "failed", "done"].includes(file.count_status) && (
                   <Button
                     variant="ghost"
@@ -775,6 +794,7 @@ function ManualCountDialog({
   onSaved: () => void;
 }) {
   const [words, setWords] = useState(() => file?.word_count?.toString() ?? "");
+  const [chars, setChars] = useState(() => file?.char_count?.toString() ?? "");
   const [pages, setPages] = useState(() => file?.page_count?.toString() ?? "");
   const [submitting, setSubmitting] = useState(false);
 
@@ -787,6 +807,7 @@ function ManualCountDialog({
         json: {
           word_count: words ? Number(words) : null,
           page_count: pages ? Number(pages) : null,
+          char_count: chars ? Number(chars) : null,
         },
       });
       toast.success("تم حفظ العد اليدوي");
@@ -802,14 +823,14 @@ function ManualCountDialog({
     <Dialog open={!!file} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>عد يدوي للكلمات والصفحات</DialogTitle>
+          <DialogTitle>عد يدوي للكلمات والأحرف والصفحات</DialogTitle>
           <DialogDescription>
             للمستندات الممسوحة ضوئياً التي يتعذر عدها تلقائياً (استخراج النصوص OCR ضمن المرحلة
             الثانية).
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Field label="عدد الكلمات" htmlFor="mc-words">
               <Input
                 id="mc-words"
@@ -818,6 +839,16 @@ function ManualCountDialog({
                 dir="ltr"
                 value={words}
                 onChange={(e) => setWords(e.target.value)}
+              />
+            </Field>
+            <Field label="عدد الأحرف" htmlFor="mc-chars">
+              <Input
+                id="mc-chars"
+                type="number"
+                min={0}
+                dir="ltr"
+                value={chars}
+                onChange={(e) => setChars(e.target.value)}
               />
             </Field>
             <Field label="عدد الصفحات" htmlFor="mc-pages">
@@ -831,6 +862,10 @@ function ManualCountDialog({
               />
             </Field>
           </div>
+          {/* The office bills on this figure, so say plainly which one it is. */}
+          <p className="text-xs text-muted-foreground">
+            الأحرف تُحسب دون المسافات والتشكيل والتطويل.
+          </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               إلغاء

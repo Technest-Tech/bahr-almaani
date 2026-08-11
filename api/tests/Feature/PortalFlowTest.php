@@ -287,6 +287,60 @@ class PortalFlowTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')->getJson('/api/v1/portal/queue')->assertForbidden();
     }
 
+    /**
+     * The translator's own output has to carry a word count.
+     *
+     * It used to be written straight to `not_applicable`, so every delivered file in
+     * production showed no count even when it was a .docx the counter reads fine —
+     * reported by the office as "the system does not calculate the words". It matters
+     * most on this client's projects, where the *source* is usually a scan and the
+     * deliverable is the only countable document in the project.
+     */
+    public function test_a_delivered_file_is_counted(): void
+    {
+        Notification::fake();
+        $project = $this->makeAvailableProject();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->createWithContent(
+                'translation.txt',
+                'مرحبا بالعالم هذه ترجمة تجريبية من خمس كلمات',
+            ),
+        ])->assertOk();
+
+        $deliverable = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->firstOrFail();
+
+        $this->assertSame(ProjectFile::COUNT_DONE, $deliverable->count_status);
+        // مرحبا بالعالم هذه ترجمة تجريبية من خمس كلمات
+        $this->assertSame(8, $deliverable->word_count);
+        $this->assertSame('auto', $deliverable->count_source);
+    }
+
+    /** A scan still delivers fine; it just cannot be counted without OCR. */
+    public function test_an_uncountable_deliverable_still_delivers(): void
+    {
+        Notification::fake();
+        $project = $this->makeAvailableProject();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->image('scan.png', 800, 1000),
+        ])->assertOk();
+
+        $deliverable = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->firstOrFail();
+
+        $this->assertSame(ProjectFile::COUNT_NOT_APPLICABLE, $deliverable->count_status);
+        $this->assertNull($deliverable->word_count);
+        $this->assertSame(Project::STATUS_DELIVERED, $project->fresh()->status);
+    }
+
     public function test_deliver_tracks_work_time_and_notifies_pm(): void
     {
         Notification::fake();
