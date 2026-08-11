@@ -254,3 +254,29 @@ leaving the project `approved` with no final file to download.
 failure, rewrites the file as PDF 1.4 through ghostscript. Ghostscript is installed
 in the API image for this and for letterhead compression; if it is ever removed, the
 merge fails exactly as it did before rather than producing a broken file.
+
+## 9. Running artisan on the server
+
+The entrypoint fixes ownership on the `storage` volume as root, then drops to
+`www-data` for every role except php-fpm. So the queue worker, the scheduler and
+`compose run --rm app …` all write files that php-fpm can read back.
+
+`docker compose exec` **skips the entrypoint**, so it runs as root. Anything that
+writes into storage must be run as `www-data` or it produces files php-fpm cannot
+read:
+
+```bash
+# right
+docker compose -f docker-compose.prod.yml exec -u www-data app php artisan letterheads:optimize
+docker compose -f docker-compose.prod.yml run --rm app php artisan files:recount
+
+# wrong — leaves root-owned files, and downloads of them 404
+docker compose -f docker-compose.prod.yml exec app php artisan queue:retry all
+```
+
+Symptom to recognise: a file exists on disk and its row exists in the database, yet
+the API returns 404 for it. Check ownership first:
+
+```bash
+docker compose -f docker-compose.prod.yml exec app find storage/app/private ! -user www-data
+```
