@@ -172,8 +172,8 @@ export default function ProjectDetailPage() {
           <Skeleton className="h-8 w-72" />
           <Skeleton className="h-4 w-32" />
         </div>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
+          {Array.from({ length: 7 }).map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
         </div>
@@ -347,7 +347,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Info grid */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-7">
         <InfoTile label="العميل" value={project.client?.name ?? "—"} />
         <InfoTile
           label="اللغات"
