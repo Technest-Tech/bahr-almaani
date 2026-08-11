@@ -137,6 +137,15 @@ services:
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: unless-stopped
+    # Fonts the office's documents actually use, mounted read-only from the repo.
+    #
+    # LibreOffice re-paginates whenever it cannot find a document's font: a .docx
+    # set in Sakkal Majalla came out of the converter at 20 pages where Word had
+    # recorded 12, because the substituted face has different metrics. The
+    # translated text was all there — it had simply reflowed. Anything dropped in
+    # docker/fonts/ is picked up on the next restart; see docs/DEPLOYMENT.md §7.
+    volumes:
+      - ./docker/fonts:/usr/share/fonts/truetype/office:ro
     command:
       - gotenberg
       - --api-timeout=120s

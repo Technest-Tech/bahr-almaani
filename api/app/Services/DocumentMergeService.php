@@ -3,11 +3,15 @@
 namespace App\Services;
 
 use App\Models\LetterheadTemplate;
+use App\Support\AssetOptimizer;
 use App\Support\PlacementConfig;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use RuntimeException;
 use setasign\Fpdi\Tcpdf\Fpdi;
+use Throwable;
 
 /**
  * M9b — the letterhead + stamp merge (the 11k EGP contract item).
@@ -46,7 +50,7 @@ class DocumentMergeService
         }
 
         if ($extension === 'pdf') {
-            return $this->writeTemp($contents, 'pdf');
+            return $this->ensureFpdiReadable($this->writeTemp($contents, 'pdf'));
         }
 
         if (in_array($extension, self::IMAGE_EXTENSIONS, true)) {
@@ -64,7 +68,49 @@ class DocumentMergeService
             ])
             ->throw();
 
-        return $this->writeTemp($response->body(), 'pdf');
+        return $this->ensureFpdiReadable($this->writeTemp($response->body(), 'pdf'));
+    }
+
+    /**
+     * Hand back a PDF that FPDI can actually open.
+     *
+     * FPDI 2.x free has no reader for object streams or compressed cross-reference
+     * tables, so a deliverable saved by a recent Word, Acrobat or scanner app throws
+     * "This PDF document probably uses a compression technique which is not supported
+     * by the free parser shipped with FPDI" and the merge fails — the project stays
+     * `approved`, the PM gets a failure mail and there is no final file to download.
+     * That is what happened to BM-2026-00006 in production.
+     *
+     * Parsing is attempted first so a PDF that already works costs nothing; only a
+     * file that genuinely cannot be opened is rewritten. If ghostscript is missing or
+     * the rewrite fails the original path is returned unchanged, and the merge fails
+     * exactly as it did before — no new failure mode.
+     */
+    private function ensureFpdiReadable(string $path): string
+    {
+        try {
+            (new Fpdi)->setSourceFile($path);
+
+            return $path;
+        } catch (Throwable $e) {
+            $repaired = AssetOptimizer::normalizeToPdf14($path);
+
+            if ($repaired === null) {
+                Log::warning('Deliverable is unreadable by FPDI and could not be normalised', [
+                    'error' => $e->getMessage(),
+                ]);
+
+                return $path;
+            }
+
+            file_put_contents($path, $repaired);
+
+            Log::info('Deliverable rewritten as PDF 1.4 so the merge could read it', [
+                'reason' => Str::limit($e->getMessage(), 120),
+            ]);
+
+            return $path;
+        }
     }
 
     /**

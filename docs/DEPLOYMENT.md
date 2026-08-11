@@ -207,3 +207,50 @@ rendered through nginx for a logged-in admin, websocket upgraded to Reverb with
 a `connection_established` frame, an xlsx export processed by the queue worker,
 the scheduler running `projects:scan-deadlines`, `scout:import` against
 Meilisearch, and a report-ready mail delivered over SMTP — zero console errors.
+
+## 7. Document fonts (page counts that do not match Word)
+
+LibreOffice re-paginates whenever it cannot find the font a document was written
+in. A `.docx` set in **Sakkal Majalla** — a font that ships with Windows/Office and
+is not in the Gotenberg image — converted to **20 pages** where Word had recorded
+**12**. No text was lost and the merge duplicated nothing; the substituted face has
+different metrics, so every line rewrapped. The office reported it as "the result
+has double the pages of the original".
+
+The merge itself is page-for-page and there is a test pinning that
+(`LetterheadMergeTest::test_the_merge_never_changes_the_page_count`).
+
+**Fix:** put the fonts the office actually types in on the server.
+
+```bash
+scp "Sakkal Majalla.ttf" bahr:/var/www/bahr-almaaani/docker/fonts/
+ssh bahr 'cd /var/www/bahr-almaaani && docker compose -f docker-compose.prod.yml up -d gotenberg'
+ssh bahr 'cd /var/www/bahr-almaaani && docker compose -f docker-compose.prod.yml exec gotenberg fc-list | grep -i majalla'
+```
+
+`docker/fonts/` is mounted read-only into the converter. **Do not commit font
+files** — Sakkal Majalla and Aptos are proprietary; the office is licensed for them,
+this repository is not. `docker/fonts/.gitignore` enforces that.
+
+To find what a given document needs:
+
+```bash
+unzip -p file.docx word/fontTable.xml | grep -o 'w:name w:val="[^"]*"'
+```
+
+Even with the right font, LibreOffice pagination is not guaranteed to match Word to
+the page — line-breaking differs slightly. With the correct font it is close; with a
+substituted one it is not.
+
+## 8. PDFs the merge cannot open
+
+FPDI 2.x (free) has no reader for object streams or compressed cross-reference
+tables, which current Word, Acrobat and phone scanner apps all emit. Such a
+deliverable used to fail the merge outright with *"This PDF document probably uses a
+compression technique which is not supported by the free parser shipped with FPDI"*,
+leaving the project `approved` with no final file to download.
+
+`DocumentMergeService::ensureFpdiReadable()` now tries to parse first and, only on
+failure, rewrites the file as PDF 1.4 through ghostscript. Ghostscript is installed
+in the API image for this and for letterhead compression; if it is ever removed, the
+merge fails exactly as it did before rather than producing a broken file.

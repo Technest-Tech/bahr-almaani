@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Notifications\MergeFailedNotification;
 use App\Notifications\ProjectCompletedNotification;
 use App\Services\DocumentMergeService;
+use App\Support\AssetOptimizer;
 use App\Support\PlacementConfig;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -18,6 +19,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
+use setasign\Fpdi\Tcpdf\Fpdi;
+use Symfony\Component\Process\Process;
 use Tests\Concerns\FakesDocumentConversion;
 use Tests\TestCase;
 
@@ -104,6 +107,104 @@ class LetterheadMergeTest extends TestCase
         $this->assertSame("projects/{$project->id}/final/{$project->code}-final.pdf", $final->disk_path);
         $this->assertStringNotContainsString('..', $final->disk_path);
         $this->assertTrue(Storage::disk('local')->exists($final->disk_path));
+    }
+
+    /**
+     * A deliverable saved by a modern producer must still merge.
+     *
+     * FPDI 2.x free cannot read object streams or compressed cross-reference tables,
+     * which current Word, Acrobat and phone scanner apps all emit. The merge threw
+     * "This PDF document probably uses a compression technique which is not supported
+     * by the free parser shipped with FPDI", the project stayed `approved`, and there
+     * was no final file for the PM to download — BM-2026-00006 in production.
+     */
+    public function test_a_modern_pdf_deliverable_is_normalised_and_merges(): void
+    {
+        if (! AssetOptimizer::supportsPdf()) {
+            $this->markTestSkipped('ghostscript not installed in this environment');
+        }
+
+        $modern = $this->pdfThatFpdiCannotRead(pages: 3);
+
+        // Guard the premise: if FPDI ever learns to read these, this test is moot.
+        try {
+            (new Fpdi)->setSourceFile($modern);
+            $this->fail('Expected FPDI to reject this PDF; the fixture no longer reproduces the bug.');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('compression technique', $e->getMessage());
+        }
+
+        $merger = app(DocumentMergeService::class);
+        $converted = $merger->toPdf(
+            tap('deliverables/modern.pdf', fn ($path) => Storage::disk('local')->put($path, file_get_contents($modern))),
+            'modern.pdf',
+        );
+
+        $pdf = $merger->merge($converted, null, null);
+
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $this->assertSame(3, $this->pageCount($pdf), 'Repairing the container must not change the page count.');
+
+        @unlink($modern);
+        @unlink($converted);
+    }
+
+    /** The merge must be page-for-page: no duplication, no dropped pages. */
+    public function test_the_merge_never_changes_the_page_count(): void
+    {
+        $merger = app(DocumentMergeService::class);
+
+        foreach ([1, 3, 10] as $pages) {
+            $source = $this->plainPdf($pages);
+            $merged = $merger->merge(
+                $source,
+                LetterheadTemplate::factory()->create(['created_by' => $this->admin->id]),
+                LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]),
+            );
+
+            $this->assertSame(
+                $pages,
+                $this->pageCount($merged),
+                "A {$pages}-page document must merge to {$pages} pages.",
+            );
+
+            @unlink($source);
+        }
+    }
+
+    /** A plain FPDI-readable PDF with $pages pages. */
+    private function plainPdf(int $pages): string
+    {
+        $pdf = new Fpdi('P', 'mm', 'A4');
+        $pdf->setPrintHeader(false);
+        $pdf->setPrintFooter(false);
+
+        for ($i = 1; $i <= $pages; $i++) {
+            $pdf->AddPage();
+            $pdf->SetFont('dejavusans', '', 12);
+            $pdf->Cell(0, 10, "صفحة {$i}");
+        }
+
+        $path = tempnam(sys_get_temp_dir(), 'plain').'.pdf';
+        $pdf->Output($path, 'F');
+
+        return $path;
+    }
+
+    /** The same document rewritten as PDF 1.7, which FPDI's free parser refuses. */
+    private function pdfThatFpdiCannotRead(int $pages): string
+    {
+        $plain = $this->plainPdf($pages);
+        $modern = tempnam(sys_get_temp_dir(), 'modern').'.pdf';
+
+        $process = new Process([
+            'gs', '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER', '-sDEVICE=pdfwrite',
+            '-dCompatibilityLevel=1.7', "-sOutputFile={$modern}", $plain,
+        ]);
+        $process->run();
+        @unlink($plain);
+
+        return $modern;
     }
 
     public function test_the_merged_file_keeps_every_page_of_the_deliverable(): void

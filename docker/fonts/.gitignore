@@ -1,0 +1,5 @@
+# Proprietary fonts (Sakkal Majalla, Aptos, …) are licensed to the office, not to
+# this repository. Copy them onto the server; never commit them.
+*
+!.gitignore
+!README.md

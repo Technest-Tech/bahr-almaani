@@ -98,7 +98,58 @@ class AssetOptimizer
         return self::ghostscript() !== null;
     }
 
+    /**
+     * Rewrite a PDF as plain PDF 1.4, changing nothing else.
+     *
+     * FPDI 2.x free cannot read object streams or compressed cross-reference tables,
+     * which every modern producer emits — a translator delivering a PDF saved by a
+     * recent Word, Acrobat or phone scanner app hands us a file the merge simply
+     * cannot open ("This PDF document probably uses a compression technique which is
+     * not supported by the free parser shipped with FPDI"). It happened on
+     * BM-2026-00006 in production. Ghostscript rewrites the same content into the
+     * older container, and FPDI reads it.
+     *
+     * No downsampling here on purpose: this is the translator's finished work, and
+     * the only thing wrong with it is the container version.
+     *
+     * @return string|null the rewritten bytes, or null when ghostscript is absent or fails
+     */
+    public static function normalizeToPdf14(string $absolutePath): ?string
+    {
+        return self::ghostscriptRewrite($absolutePath, [], 'PDF 1.4 normalisation');
+    }
+
     private static function optimizePdf(string $path): ?string
+    {
+        $dpi = (int) config('services.ghostscript.dpi', self::DEFAULT_DPI);
+
+        return self::ghostscriptRewrite($path, [
+            '-dDetectDuplicateImages=true',
+            '-dDownsampleColorImages=true',
+            '-dColorImageDownsampleType=/Bicubic',
+            "-dColorImageResolution={$dpi}",
+            '-dDownsampleGrayImages=true',
+            '-dGrayImageDownsampleType=/Bicubic',
+            "-dGrayImageResolution={$dpi}",
+            // Line art rasterised as 1-bit: downsampling it is what makes scanned
+            // text look ragged, so it keeps roughly twice the resolution.
+            '-dDownsampleMonoImages=true',
+            '-dMonoImageDownsampleType=/Subsample',
+            '-dMonoImageResolution='.($dpi * 2),
+            '-dCompressFonts=true',
+            '-dSubsetFonts=true',
+        ], 'letterhead optimisation');
+    }
+
+    /**
+     * Run ghostscript's pdfwrite over $path and return the result.
+     *
+     * Always PDF 1.4 — see the class docblock. Never throws: every caller has a
+     * sensible "keep the original" fallback.
+     *
+     * @param  list<string>  $flags  extra pdfwrite options
+     */
+    private static function ghostscriptRewrite(string $path, array $flags, string $what): ?string
     {
         $binary = self::ghostscript();
 
@@ -106,7 +157,6 @@ class AssetOptimizer
             return null;
         }
 
-        $dpi = (int) config('services.ghostscript.dpi', self::DEFAULT_DPI);
         $output = tempnam(sys_get_temp_dir(), 'gs-').'.pdf';
 
         try {
@@ -114,22 +164,9 @@ class AssetOptimizer
                 $binary,
                 '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER',
                 '-sDEVICE=pdfwrite',
-                // Rule 3. Do not raise this without replacing FPDI's parser.
+                // Do not raise this without replacing FPDI's parser.
                 '-dCompatibilityLevel=1.4',
-                '-dDetectDuplicateImages=true',
-                '-dDownsampleColorImages=true',
-                '-dColorImageDownsampleType=/Bicubic',
-                "-dColorImageResolution={$dpi}",
-                '-dDownsampleGrayImages=true',
-                '-dGrayImageDownsampleType=/Bicubic',
-                "-dGrayImageResolution={$dpi}",
-                // Line art rasterised as 1-bit: downsampling it is what makes scanned
-                // text look ragged, so it keeps roughly twice the resolution.
-                '-dDownsampleMonoImages=true',
-                '-dMonoImageDownsampleType=/Subsample',
-                '-dMonoImageResolution='.($dpi * 2),
-                '-dCompressFonts=true',
-                '-dSubsetFonts=true',
+                ...$flags,
                 "-sOutputFile={$output}",
                 $path,
             ]);
@@ -137,7 +174,7 @@ class AssetOptimizer
             $process->run();
 
             if (! $process->isSuccessful() || ! is_file($output)) {
-                Log::warning('Letterhead PDF optimisation failed; keeping the original', [
+                Log::warning("Ghostscript {$what} failed; keeping the original", [
                     'path' => basename($path),
                     'exit' => $process->getExitCode(),
                     'stderr' => mb_substr($process->getErrorOutput(), 0, 500),
@@ -148,10 +185,10 @@ class AssetOptimizer
 
             $bytes = file_get_contents($output);
 
-            // A truncated or non-PDF result would break every merge silently.
+            // A truncated or non-PDF result would break the merge silently.
             return is_string($bytes) && str_starts_with($bytes, '%PDF-') ? $bytes : null;
-        } catch (ProcessTimedOutException $e) {
-            Log::warning('Letterhead PDF optimisation timed out; keeping the original', [
+        } catch (ProcessTimedOutException) {
+            Log::warning("Ghostscript {$what} timed out; keeping the original", [
                 'path' => basename($path),
             ]);
 
