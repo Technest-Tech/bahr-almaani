@@ -129,6 +129,53 @@ class WordCountingTest extends TestCase
         return $tmp;
     }
 
+    /**
+     * A PDF whose Arabic extracts one letter at a time must not report letters as words.
+     *
+     * smalot/pdfparser reads positioned runs, and some producers place every Arabic
+     * glyph separately — the extracted text comes back "خ ي ر ا ت ب" and a whitespace
+     * split counts thirteen "words" for two. In production a translator's delivery of
+     * roughly 1,370 words was stored as 3,227 and the office reported the counts as
+     * false. Ghostscript keeps word spacing, so it is used as the second opinion.
+     */
+    public function test_a_pdf_that_extracts_per_glyph_is_not_counted_as_letters(): void
+    {
+        $counter = app(DocumentCounter::class);
+
+        // 60 Arabic letters, each its own token — exactly what the broken extraction
+        // looks like once it reaches wordCount().
+        $glyphs = implode(' ', mb_str_split(str_repeat('محكمةالاستئنافبدبي', 4)));
+        $this->assertTrue(
+            $this->isGlyphSplit($counter, $glyphs),
+            'The fixture must look glyph-split, otherwise this test proves nothing.',
+        );
+
+        // Ordinary Arabic prose must NOT trip the detector.
+        $prose = 'هذه ترجمة معتمدة لعقد إيجار تجاري صادر عن محكمة دبي الابتدائية '
+            .'ويشمل جميع الشروط والأحكام المتفق عليها بين الطرفين في هذا الاتفاق';
+        $this->assertFalse(
+            $this->isGlyphSplit($counter, $prose),
+            'Normal Arabic prose was misread as glyph-split; the threshold is too tight.',
+        );
+    }
+
+    /** English prose has real single-letter words ("a", "I") and must stay countable. */
+    public function test_english_prose_is_not_mistaken_for_glyph_split_text(): void
+    {
+        $counter = app(DocumentCounter::class);
+        $prose = str_repeat('I saw a cat and a dog in a house that a friend of a neighbour owns. ', 4);
+
+        $this->assertFalse($this->isGlyphSplit($counter, $prose));
+    }
+
+    private function isGlyphSplit(DocumentCounter $counter, string $text): bool
+    {
+        $method = new \ReflectionMethod($counter, 'isGlyphSplit');
+        $method->setAccessible(true);
+
+        return $method->invoke($counter, $text);
+    }
+
     /** Builds a real minimal .docx with Word-stamped statistics. */
     private function makeDocx(string $text, int $words, int $pages): string
     {

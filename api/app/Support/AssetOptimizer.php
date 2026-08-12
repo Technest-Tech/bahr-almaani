@@ -2,10 +2,6 @@
 
 namespace App\Support;
 
-use Illuminate\Support\Facades\Log;
-use Symfony\Component\Process\Exception\ProcessTimedOutException;
-use Symfony\Component\Process\Process;
-
 /**
  * Shrinks a letterhead or stamp asset in place, before it is ever merged.
  *
@@ -52,9 +48,6 @@ class AssetOptimizer
 
     private const JPEG_QUALITY = 82;
 
-    /** A letterhead is one page of artwork; anything slower than this is stuck. */
-    private const TIMEOUT_SECONDS = 60;
-
     /**
      * Optimise the file at $absolutePath in place.
      *
@@ -95,7 +88,7 @@ class AssetOptimizer
     /** True when ghostscript is on PATH — false in a bare dev checkout, and that is fine. */
     public static function supportsPdf(): bool
     {
-        return self::ghostscript() !== null;
+        return Ghostscript::available();
     }
 
     /**
@@ -116,14 +109,14 @@ class AssetOptimizer
      */
     public static function normalizeToPdf14(string $absolutePath): ?string
     {
-        return self::ghostscriptRewrite($absolutePath, [], 'PDF 1.4 normalisation');
+        return Ghostscript::rewritePdf($absolutePath, [], 'PDF 1.4 normalisation');
     }
 
     private static function optimizePdf(string $path): ?string
     {
         $dpi = (int) config('services.ghostscript.dpi', self::DEFAULT_DPI);
 
-        return self::ghostscriptRewrite($path, [
+        return Ghostscript::rewritePdf($path, [
             '-dDetectDuplicateImages=true',
             '-dDownsampleColorImages=true',
             '-dColorImageDownsampleType=/Bicubic',
@@ -139,65 +132,6 @@ class AssetOptimizer
             '-dCompressFonts=true',
             '-dSubsetFonts=true',
         ], 'letterhead optimisation');
-    }
-
-    /**
-     * Run ghostscript's pdfwrite over $path and return the result.
-     *
-     * Always PDF 1.4 — see the class docblock. Never throws: every caller has a
-     * sensible "keep the original" fallback.
-     *
-     * @param  list<string>  $flags  extra pdfwrite options
-     */
-    private static function ghostscriptRewrite(string $path, array $flags, string $what): ?string
-    {
-        $binary = self::ghostscript();
-
-        if ($binary === null) {
-            return null;
-        }
-
-        $output = tempnam(sys_get_temp_dir(), 'gs-').'.pdf';
-
-        try {
-            $process = new Process([
-                $binary,
-                '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER',
-                '-sDEVICE=pdfwrite',
-                // Do not raise this without replacing FPDI's parser.
-                '-dCompatibilityLevel=1.4',
-                ...$flags,
-                "-sOutputFile={$output}",
-                $path,
-            ]);
-            $process->setTimeout(self::TIMEOUT_SECONDS);
-            $process->run();
-
-            if (! $process->isSuccessful() || ! is_file($output)) {
-                Log::warning("Ghostscript {$what} failed; keeping the original", [
-                    'path' => basename($path),
-                    'exit' => $process->getExitCode(),
-                    'stderr' => mb_substr($process->getErrorOutput(), 0, 500),
-                ]);
-
-                return null;
-            }
-
-            $bytes = file_get_contents($output);
-
-            // A truncated or non-PDF result would break the merge silently.
-            return is_string($bytes) && str_starts_with($bytes, '%PDF-') ? $bytes : null;
-        } catch (ProcessTimedOutException) {
-            Log::warning("Ghostscript {$what} timed out; keeping the original", [
-                'path' => basename($path),
-            ]);
-
-            return null;
-        } finally {
-            if (is_file($output)) {
-                @unlink($output);
-            }
-        }
     }
 
     /**
@@ -286,37 +220,5 @@ class AssetOptimizer
         $scaled = @imagescale($image, $width);
 
         return $scaled === false ? null : $scaled;
-    }
-
-    /**
-     * Absolute path to ghostscript, or null when it is not installed.
-     *
-     * Resolved once per process and memoised — this is called on every upload, and
-     * shelling out to `which` each time would be pure waste.
-     */
-    private static function ghostscript(): ?string
-    {
-        static $resolved = false;
-        static $path = null;
-
-        if ($resolved) {
-            return $path;
-        }
-
-        $resolved = true;
-
-        foreach (['/usr/bin/gs', '/usr/local/bin/gs', '/opt/homebrew/bin/gs'] as $candidate) {
-            if (is_executable($candidate)) {
-                return $path = $candidate;
-            }
-        }
-
-        // Not in the usual places — fall back to PATH.
-        $which = new Process(['which', 'gs']);
-        $which->run();
-
-        $found = trim($which->getOutput());
-
-        return $path = ($which->isSuccessful() && $found !== '' && is_executable($found)) ? $found : null;
     }
 }

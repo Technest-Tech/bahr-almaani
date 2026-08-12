@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Ghostscript;
 use Smalot\PdfParser\Parser as PdfParser;
 use ZipArchive;
 
@@ -9,6 +10,7 @@ use ZipArchive;
  * Extracts word/page/character counts from uploaded documents.
  * DOCX: docProps/app.xml statistics, falling back to parsing document.xml.
  * PDF:  text extraction via smalot/pdfparser; empty text ⇒ scanned ⇒ not countable (OCR is Phase 2).
+ *       Per-glyph extraction is detected and re-read through ghostscript — see isGlyphSplit().
  *
  * Characters exclude whitespace, tatweel and Arabic diacritics — see charCount().
  */
@@ -79,17 +81,69 @@ class DocumentCounter
             $pdf = (new PdfParser)->parseFile($path);
             $pages = count($pdf->getPages());
             $text = $pdf->getText();
-            $words = $this->wordCount($text);
 
             // A PDF with pages but (almost) no extractable text is a scan — needs OCR or manual count.
-            if ($pages > 0 && $words < 3) {
+            if ($pages > 0 && $this->wordCount($text) < 3) {
                 return self::uncountable($pages);
             }
 
-            return ['countable' => true, 'words' => $words, 'pages' => $pages, 'chars' => $this->charCount($text)];
+            if ($this->isGlyphSplit($text)) {
+                $rescued = Ghostscript::extractText($path);
+
+                if ($rescued === null || $this->wordCount($rescued) < 3 || $this->isGlyphSplit($rescued)) {
+                    // Better no number than a wrong one — the office bills on this.
+                    // The manual-count box on the project page takes it from here.
+                    return self::uncountable($pages);
+                }
+
+                $text = $rescued;
+            }
+
+            return [
+                'countable' => true,
+                'words' => $this->wordCount($text),
+                'pages' => $pages,
+                'chars' => $this->charCount($text),
+            ];
         } catch (\Throwable) {
             return self::uncountable();
         }
+    }
+
+    /**
+     * Has the extractor emitted one token per *glyph* instead of per word?
+     *
+     * smalot/pdfparser reads text as positioned runs. Some producers place every
+     * Arabic letter as its own run, so the extracted text comes back as
+     * "خ ي ر ا ت ب ة م ج ر ت ل ا" — thirteen tokens for two words. Splitting that on
+     * whitespace counts letters, not words: a translator's 1,370-word delivery was
+     * stored as 3,227, and the office reported the counts as false.
+     *
+     * The real word boundaries are gone at that point — a genuine space and a glyph
+     * separator are both just whitespace — so the text cannot be repaired, only
+     * replaced (ghostscript's txtwrite keeps word spacing intact).
+     *
+     * Threshold: their sound documents run 0–19% single-character tokens, the broken
+     * one 77%. 40% sits well clear of both. Short extracts are exempt because a
+     * handful of tokens says nothing.
+     */
+    private function isGlyphSplit(string $text): bool
+    {
+        $tokens = preg_split('/[\s\x{200B}-\x{200D}\x{00A0}]+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($tokens === false || count($tokens) < 20) {
+            return false;
+        }
+
+        $singles = 0;
+
+        foreach ($tokens as $token) {
+            if (mb_strlen($token) === 1) {
+                $singles++;
+            }
+        }
+
+        return ($singles / count($tokens)) > 0.4;
     }
 
     private function countText(string $content): array
