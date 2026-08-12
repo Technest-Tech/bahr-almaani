@@ -20,15 +20,15 @@ use Illuminate\Support\Facades\Storage;
  *   php artisan files:recount                        # write counts
  *   php artisan files:recount --category=deliverable # limit to one category
  *
- * A manual count always wins: if someone typed a number for a scan, re-running
- * this must not silently replace it with the machine's opinion.
+ * A manual count always wins, --force included: if someone typed a number for a
+ * scan, re-running this must never replace it with the machine's opinion.
  */
 class RecountFilesCommand extends Command
 {
     protected $signature = 'files:recount
                             {--dry-run : Report what would change without writing}
                             {--category=* : Limit to these categories (default: source, deliverable)}
-                            {--force : Also recount files that already have a count}';
+                            {--force : Also re-read files that already carry an automatic count}';
 
     protected $description = 'Re-run word and page counting over stored project files';
 
@@ -39,9 +39,21 @@ class RecountFilesCommand extends Command
             ProjectFile::CATEGORY_DELIVERABLE,
         ];
 
+        // A manual count always wins, --force included. Someone typed that number
+        // off a scan the machine cannot read; replacing it with the machine's
+        // opinion would silently destroy the only correct figure in the project.
+        // --force only re-reads files whose count came from an earlier auto run.
         $files = ProjectFile::query()
             ->whereIn('category', $categories)
-            ->when(! $this->option('force'), fn ($query) => $query->where('count_source', '!=', 'manual'))
+            ->where('count_source', '!=', 'manual')
+            ->when(
+                ! $this->option('force'),
+                fn ($query) => $query->whereIn('count_status', [
+                    ProjectFile::COUNT_PENDING,
+                    ProjectFile::COUNT_NOT_APPLICABLE,
+                    ProjectFile::COUNT_FAILED,
+                ]),
+            )
             ->orderBy('id')
             ->get();
 

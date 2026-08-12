@@ -176,6 +176,28 @@ class WordCountingTest extends TestCase
         return $method->invoke($counter, $text);
     }
 
+    /** --force re-reads automatic counts, but a typed-in number is never touched. */
+    public function test_recount_force_never_overwrites_a_manual_count(): void
+    {
+        $file = $this->project->files()->create([
+            'category' => 'source',
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'scan.pdf',
+            'disk_path' => 'projects/1/source/scan.pdf',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 10,
+            'word_count' => 4200,
+            'count_status' => 'done',
+            'count_source' => 'manual',
+        ]);
+
+        $this->artisan('files:recount', ['--force' => true])->assertSuccessful();
+
+        $file->refresh();
+        $this->assertSame(4200, $file->word_count);
+        $this->assertSame('manual', $file->count_source);
+    }
+
     /** Builds a real minimal .docx with Word-stamped statistics. */
     private function makeDocx(string $text, int $words, int $pages): string
     {
