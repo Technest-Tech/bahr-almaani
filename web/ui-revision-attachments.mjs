@@ -8,6 +8,7 @@
  */
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
+import { deflateSync } from "node:zlib";
 
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const OUT = process.env.SHOTS ?? "revision-shots";
@@ -17,7 +18,6 @@ mkdirSync(OUT, { recursive: true });
 
 /** A small solid-colour PNG, built inline so the check needs no fixtures. */
 function png(rgb) {
-  const zlib = require("node:zlib");
   const w = 320, h = 200;
   const raw = Buffer.alloc((w * 3 + 1) * h);
   for (let y = 0; y < h; y++) {
@@ -39,7 +39,7 @@ function png(rgb) {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", ihdr),
-    chunk("IDAT", zlib.deflateSync(raw)),
+    chunk("IDAT", deflateSync(raw)),
     chunk("IEND", Buffer.alloc(0)),
   ]);
 }
@@ -58,9 +58,6 @@ function crc32(buf) {
   for (const b of buf) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
   return c ^ 0xffffffff;
 }
-
-const { createRequire } = await import("node:module");
-globalThis.require = createRequire(import.meta.url);
 
 const browser = await chromium.launch();
 
