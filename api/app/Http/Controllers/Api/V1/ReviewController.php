@@ -8,6 +8,7 @@ use App\Jobs\MergeFinalFileJob;
 use App\Models\Assignment;
 use App\Models\LetterheadTemplate;
 use App\Models\Project;
+use App\Models\ProjectFile;
 use App\Notifications\RevisionRequestedNotification;
 use App\Services\ProjectTransitionService;
 use Illuminate\Http\Request;
@@ -16,6 +17,11 @@ use Illuminate\Validation\Rule;
 
 class ReviewController extends Controller
 {
+    /** Enough to show a page and a detail; more than that belongs in the note. */
+    private const MAX_ATTACHMENTS = 5;
+
+    private const MAX_ATTACHMENT_KB = 10240; // 10 MB each
+
     public function __construct(
         private readonly ProjectTransitionService $transitions,
     ) {}
@@ -28,17 +34,60 @@ class ReviewController extends Controller
         return $this->fresh($project);
     }
 
-    /** in_review → revision_requested (note mandatory; translator re-locked + notified). */
+    /**
+     * in_review → revision_requested (note mandatory; translator re-locked + notified).
+     *
+     * The note may carry attachments — a marked-up screenshot says more about a
+     * mis-set seal or a wrong line than a paragraph describing it. They are stored as
+     * ordinary project files under the `revision` category and bound to the transition
+     * this call creates, so a translator on round three sees round three's images and
+     * not round one's.
+     *
+     * Multipart, therefore: the request arrives as form-data when files are attached.
+     */
     public function requestRevision(Request $request, Project $project): ProjectResource
     {
-        $validated = $request->validate(['note' => ['required', 'string', 'max:2000']]);
+        $validated = $request->validate([
+            'note' => ['required', 'string', 'max:2000'],
+            'attachments' => ['nullable', 'array', 'max:'.self::MAX_ATTACHMENTS],
+            'attachments.*' => [
+                'file',
+                'mimes:png,jpg,jpeg,webp,pdf',
+                'max:'.self::MAX_ATTACHMENT_KB,
+            ],
+        ], [], ['attachments.*' => __('projects.revision_attachment')]);
 
-        $project = $this->transitions->transition(
-            $project,
-            Project::STATUS_REVISION_REQUESTED,
-            $request->user(),
-            $validated['note'],
-        );
+        $project = DB::transaction(function () use ($request, $project, $validated): Project {
+            $project = $this->transitions->transition(
+                $project,
+                Project::STATUS_REVISION_REQUESTED,
+                $request->user(),
+                $validated['note'],
+            );
+
+            $transition = $project->transitions()
+                ->where('to_status', Project::STATUS_REVISION_REQUESTED)
+                ->latest('created_at')
+                ->latest('id')
+                ->first();
+
+            foreach ($request->file('attachments') ?? [] as $upload) {
+                $project->files()->create([
+                    'transition_id' => $transition?->id,
+                    'category' => ProjectFile::CATEGORY_REVISION,
+                    'uploaded_by' => $request->user()->id,
+                    'original_name' => $upload->getClientOriginalName(),
+                    'disk_path' => $upload->store("projects/{$project->id}/revision", 'local'),
+                    'mime_type' => $upload->getClientMimeType(),
+                    'size_bytes' => $upload->getSize(),
+                    // Feedback images are not part of the job's volume — counting them
+                    // would inflate the project's totals and the translator's payslip.
+                    'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
+                ]);
+            }
+
+            return $project;
+        });
 
         $project->assignments()
             ->where('status', Assignment::STATUS_DELIVERED)

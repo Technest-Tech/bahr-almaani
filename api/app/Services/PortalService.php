@@ -197,8 +197,9 @@ class PortalService
 
         return $project->transitions()
             ->where('to_status', Project::STATUS_REVISION_REQUESTED)
-            ->with('actor:id,name')
+            ->with(['actor:id,name', 'attachments'])
             ->latest('created_at')
+            ->latest('id')
             ->first();
     }
 

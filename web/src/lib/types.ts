@@ -169,7 +169,8 @@ export interface Transition {
   to_label: string;
   note: string | null;
   actor: { id: number; name: string } | null;
-  created_at: string;
+  created_at: string;  /** Files attached to this transition — revision-request screenshots. */
+  attachments?: ProjectFile[];
 }
 
 export interface Assignment {

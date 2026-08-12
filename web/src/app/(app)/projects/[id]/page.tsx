@@ -56,6 +56,7 @@ import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { TemplateAsset } from "@/components/letterheads/template-asset";
 import { ApproveDialog } from "@/components/projects/approve-dialog";
+import { RevisionRequestDialog } from "@/components/projects/revision-request-dialog";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +88,7 @@ export default function ProjectDetailPage() {
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
   const [approving, setApproving] = useState(false);
+  const [requestingRevision, setRequestingRevision] = useState(false);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", id],
@@ -247,19 +249,7 @@ export default function ProjectDetailPage() {
                 <BadgeCheck className="size-4" />
                 اعتماد وإنهاء
               </Button>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  const note = await prompt({
-                    title: "طلب تعديل",
-                    description: "تُرسل الملاحظات للمترجم ويُعاد قفله حتى تسليم التعديل.",
-                    label: "ملاحظات المراجعة",
-                    placeholder: "وضّح المطلوب تعديله…",
-                    confirmLabel: "إرسال للمترجم",
-                  });
-                  if (note) reviewAction.mutate({ action: "request-revision", note });
-                }}
-              >
+              <Button variant="outline" onClick={() => setRequestingRevision(true)}>
                 <RotateCcw className="size-4" />
                 طلب تعديل
               </Button>
@@ -576,7 +566,34 @@ export default function ProjectDetailPage() {
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t.actor?.name ?? "النظام"} · {dateFormatter.format(new Date(t.created_at))}
                   </p>
-                  {t.note && <p className="mt-1 text-xs text-muted-foreground">«{t.note}»</p>}
+                  {t.note && (
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                      «{t.note}»
+                    </p>
+                  )}
+                  {/* Revision screenshots stay with the round they were sent in. */}
+                  {!!t.attachments?.length && (
+                    <ul className="mt-1.5 space-y-1">
+                      {t.attachments.map((file) => (
+                        <li key={file.id} className="flex items-center gap-1.5">
+                          <Paperclip className="size-3 shrink-0 text-muted-foreground/60" />
+                          <button
+                            type="button"
+                            dir="ltr"
+                            onClick={() =>
+                              download(
+                                `/projects/${project.id}/files/${file.id}/download`,
+                                file.original_name,
+                              ).catch(() => toast.error("تعذر تحميل المرفق"))
+                            }
+                            className="truncate text-start text-[11px] text-primary hover:underline"
+                          >
+                            {file.original_name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               ))}
             </ol>
@@ -599,6 +616,18 @@ export default function ProjectDetailPage() {
         projectId={project.id}
         onClose={() => setApproving(false)}
         onApproved={invalidate}
+      />
+
+      <RevisionRequestDialog
+
+        open={requestingRevision}
+
+        projectId={project.id}
+
+        onClose={() => setRequestingRevision(false)}
+
+        onRequested={invalidate}
+
       />
     </div>
   );

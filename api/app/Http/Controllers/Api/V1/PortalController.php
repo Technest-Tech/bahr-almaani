@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AssignmentResource;
 use App\Http\Resources\PortalProjectResource;
 use App\Http\Resources\PortalTemplateResource;
+use App\Http\Resources\ProjectFileResource;
 use App\Models\Assignment;
 use App\Models\LetterheadTemplate;
 use App\Models\Project;
@@ -72,6 +73,9 @@ class PortalController extends Controller
                 'note' => $revision->note,
                 'by' => $revision->actor?->name,
                 'at' => $revision->created_at->toIso8601String(),
+                // Only this round's attachments — the loop can run several times and
+                // last round's screenshots would be actively misleading here.
+                'attachments' => ProjectFileResource::collection($revision->attachments)->resolve($request),
             ] : null,
         ]);
     }

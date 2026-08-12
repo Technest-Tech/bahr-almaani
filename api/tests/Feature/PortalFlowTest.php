@@ -341,6 +341,103 @@ class PortalFlowTest extends TestCase
         $this->assertSame(Project::STATUS_DELIVERED, $project->fresh()->status);
     }
 
+    /**
+     * The PM can point at the problem instead of describing it.
+     *
+     * Attachments are ordinary project files under the `revision` category, bound to
+     * the transition that carried the note — so a translator on round two is shown
+     * round two's screenshots and not round one's.
+     */
+    public function test_a_revision_request_can_carry_attachments(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredProjectInReview();
+
+        $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$project->id}/review/request-revision", [
+            'note' => 'الختم في غير موضعه — انظر الصورة',
+            'attachments' => [
+                UploadedFile::fake()->image('stamp-position.png', 900, 1200),
+                UploadedFile::fake()->image('page-two.jpg', 800, 1000),
+            ],
+        ])->assertOk()->assertJsonPath('data.status', 'revision_requested');
+
+        $attachments = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_REVISION)->get();
+
+        $this->assertCount(2, $attachments);
+        $this->assertNotNull($attachments->first()->transition_id);
+        foreach ($attachments as $file) {
+            Storage::disk('local')->assertExists($file->disk_path);
+            // Feedback images are not job volume; counting them would inflate the
+            // project totals and the translator's payslip.
+            $this->assertSame(ProjectFile::COUNT_NOT_APPLICABLE, $file->count_status);
+        }
+
+        // The translator sees this round's note and its attachments, and can pull them.
+        $current = $this->actingAs($this->translator1, 'sanctum')->getJson('/api/v1/portal/current')->assertOk();
+        $current->assertJsonCount(2, 'revision_note.attachments');
+        $this->assertSame('stamp-position.png', $current->json('revision_note.attachments.0.original_name'));
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->get("/api/v1/portal/files/{$attachments->first()->id}/download")
+            ->assertOk();
+    }
+
+    /** Round two must not show round one's screenshots. */
+    public function test_only_the_current_rounds_attachments_are_shown(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredProjectInReview();
+
+        $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$project->id}/review/request-revision", [
+            'note' => 'الجولة الأولى',
+            'attachments' => [UploadedFile::fake()->image('round-one.png')],
+        ])->assertOk();
+
+        // Translator re-delivers, PM sends it back again with a different image.
+        $this->actingAs($this->translator1, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->createWithContent('v2.txt', 'ترجمة منقحة'),
+        ])->assertOk();
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/open")->assertOk();
+        $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$project->id}/review/request-revision", [
+            'note' => 'الجولة الثانية',
+            'attachments' => [UploadedFile::fake()->image('round-two.png')],
+        ])->assertOk();
+
+        $current = $this->actingAs($this->translator1, 'sanctum')->getJson('/api/v1/portal/current')->assertOk();
+
+        $this->assertSame('الجولة الثانية', $current->json('revision_note.note'));
+        $current->assertJsonCount(1, 'revision_note.attachments');
+        $this->assertSame('round-two.png', $current->json('revision_note.attachments.0.original_name'));
+    }
+
+    public function test_revision_attachments_reject_executables_and_oversized_files(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredProjectInReview();
+
+        $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$project->id}/review/request-revision", [
+            'note' => 'مرفق غير مسموح',
+            'attachments' => [UploadedFile::fake()->create('script.exe', 10)],
+        ])->assertUnprocessable()->assertJsonValidationErrors('attachments.0');
+
+        $this->assertSame(Project::STATUS_IN_REVIEW, $project->fresh()->status);
+    }
+
+    /** A delivered project sitting in `in_review`, ready for the PM to act on. */
+    private function deliveredProjectInReview(): Project
+    {
+        $project = $this->makeAvailableProject();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+        $this->actingAs($this->translator1, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->createWithContent('v1.txt', 'ترجمة أولى'),
+        ])->assertOk();
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/open")->assertOk();
+
+        return $project;
+    }
+
     public function test_deliver_tracks_work_time_and_notifies_pm(): void
     {
         Notification::fake();

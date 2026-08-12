@@ -184,7 +184,7 @@ class ProjectController extends Controller
     public function timeline(Project $project): AnonymousResourceCollection
     {
         return TransitionResource::collection(
-            $project->transitions()->with('actor:id,name')->get()
+            $project->transitions()->with(['actor:id,name', 'attachments'])->get()
         );
     }
 }

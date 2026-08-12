@@ -18,6 +18,8 @@ class TransitionResource extends JsonResource
             'to_status' => $this->to_status,
             'to_label' => __("projects.status.{$this->to_status}"),
             'note' => $this->note,
+            // Present on revision requests: what the PM attached to that round.
+            'attachments' => ProjectFileResource::collection($this->whenLoaded('attachments')),
             'actor' => $this->whenLoaded('actor', fn () => $this->actor ? [
                 'id' => $this->actor->id,
                 'name' => $this->actor->name,

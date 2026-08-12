@@ -25,4 +25,6 @@ return [
         'archived' => 'مؤرشف',
         'cancelled' => 'ملغي',
     ],
+
+    'revision_attachment' => 'المرفق',
 ];

@@ -25,4 +25,6 @@ return [
         'archived' => 'Archived',
         'cancelled' => 'Cancelled',
     ],
+
+    'revision_attachment' => 'attachment',
 ];

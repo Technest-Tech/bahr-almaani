@@ -30,6 +30,7 @@ import {
   type Language,
   type Paginated,
   type Project,
+  type ProjectFile,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,6 +50,14 @@ import { DraftPreviewDialog } from "@/components/portal/draft-preview-dialog";
 
 const ALL = "all";
 
+/** The PM's feedback for the current round, with anything they attached to it. */
+interface RevisionNote {
+  note: string;
+  by: string;
+  at: string;
+  attachments?: ProjectFile[];
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
@@ -57,7 +66,7 @@ function formatBytes(bytes: number): string {
 
 interface CurrentResponse {
   data: Assignment | null;
-  revision_note?: { note: string; by: string; at: string } | null;
+  revision_note?: RevisionNote | null;
 }
 
 export default function PortalPage() {
@@ -352,7 +361,7 @@ function CurrentAssignmentCard({
   onDelivered,
 }: {
   assignment: Assignment;
-  revisionNote?: { note: string; by: string; at: string } | null;
+  revisionNote?: RevisionNote | null;
   onDelivered: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -437,7 +446,38 @@ function CurrentAssignmentCard({
             <p className="mb-1 text-xs font-semibold text-destructive">
               ملاحظات المراجعة — {revisionNote.by}
             </p>
-            {revisionNote.note}
+            <p className="whitespace-pre-wrap">{revisionNote.note}</p>
+
+            {/* Only this round's attachments — the API scopes them to the transition. */}
+            {!!revisionNote.attachments?.length && (
+              <ul className="mt-3 space-y-1.5 border-t border-destructive/20 pt-2.5">
+                {revisionNote.attachments.map((file) => (
+                  <li key={file.id} className="flex items-center gap-2">
+                    <Paperclip className="size-3.5 shrink-0 text-destructive/70" />
+                    <span dir="ltr" className="min-w-0 flex-1 truncate text-start text-xs">
+                      {file.original_name}
+                    </span>
+                    {/* bdi: the unit is Latin and the run is RTL — without it "666 B"
+                        renders as "B 666". */}
+                    <bdi className="shrink-0 text-[11px] text-muted-foreground">
+                      {formatBytes(file.size_bytes)}
+                    </bdi>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title="تحميل المرفق"
+                      onClick={() =>
+                        download(`/portal/files/${file.id}/download`, file.original_name).catch(
+                          () => toast.error("تعذر تحميل المرفق"),
+                        )
+                      }
+                    >
+                      <Download className="size-3.5" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

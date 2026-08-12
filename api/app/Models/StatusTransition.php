@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StatusTransition extends Model
 {
@@ -24,5 +25,11 @@ class StatusTransition extends Model
     public function actor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'actor_id');
+    }
+
+    /** Files the actor attached to this transition (revision-request screenshots). */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(ProjectFile::class, 'transition_id');
     }
 }

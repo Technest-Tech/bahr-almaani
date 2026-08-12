@@ -15,6 +15,9 @@ class ProjectFile extends Model
 
     public const CATEGORY_FINAL = 'final';
 
+    /** Screenshots the PM attaches when sending work back — see the transition relation. */
+    public const CATEGORY_REVISION = 'revision';
+
     public const COUNT_PENDING = 'pending';
 
     public const COUNT_PROCESSING = 'processing';
@@ -33,6 +36,7 @@ class ProjectFile extends Model
 
     protected $fillable = [
         'project_id',
+        'transition_id',
         'category',
         'uploaded_by',
         'original_name',
@@ -50,6 +54,12 @@ class ProjectFile extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /** Set only on revision attachments: which round of feedback this belongs to. */
+    public function transition(): BelongsTo
+    {
+        return $this->belongsTo(StatusTransition::class, 'transition_id');
     }
 
     public function uploader(): BelongsTo
