@@ -17,6 +17,9 @@ class ProjectResource extends JsonResource
             'id' => $this->id,
             'code' => $this->code,
             'title' => $this->title,
+            // The UI shows the field empty when the name is still the system's, so a
+            // PM sees a blank box to type in rather than a code they did not choose.
+            'title_auto' => (bool) $this->title_auto,
             'status' => $this->status,
             'status_label' => __("projects.status.{$this->status}"),
             'priority' => $this->priority,

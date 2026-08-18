@@ -87,7 +87,7 @@ export default function NewProjectPage() {
       const created = await api<{ data: Project }>("/projects", {
         method: "POST",
         json: {
-          title: form.title,
+          title: form.title.trim() || null,
           client_id: form.client_id ? Number(form.client_id) : null,
           source_language_id: Number(form.source_language_id),
           target_language_id: Number(form.target_language_id),
@@ -134,14 +134,15 @@ export default function NewProjectPage() {
               title="البيانات الأساسية"
               description="عنوان يظهر للمترجمين، والعميل صاحب الطلب، ودولة إصدار المستند."
             >
+              {/* Optional: left blank, the first source file names the project. */}
               <Field
-                label={<>عنوان المشروع <Required /></>}
+                label="عنوان المشروع"
                 htmlFor="p-title"
                 error={errors.title?.[0]}
+                hint="اتركه فارغاً ليأخذ اسم أول ملف ترفعه"
               >
                 <Input
                   id="p-title"
-                  required
                   placeholder="مثال: ترجمة عقد تأسيس شركة"
                   value={form.title}
                   onChange={(e) => set("title", e.target.value)}

@@ -53,6 +53,7 @@ class Project extends Model
         'code',
         'client_id',
         'title',
+        'title_auto',
         'source_language_id',
         'target_language_id',
         'country_code',
@@ -79,6 +80,7 @@ class Project extends Model
             'completed_at' => 'datetime',
             'cancelled_at' => 'datetime',
             'quoted_amount' => 'decimal:2',
+            'title_auto' => 'boolean',
         ];
     }
 

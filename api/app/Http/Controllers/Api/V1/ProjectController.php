@@ -69,9 +69,19 @@ class ProjectController extends Controller
 
     public function store(StoreProjectRequest $request, ProjectCodeGenerator $codes): JsonResponse
     {
+        $validated = $request->validated();
+        $code = $codes->next();
+
+        // A blank name is seeded with the code so every notification, export and
+        // event still has a real string to print, and flagged so the first source
+        // file can claim it — the project exists before any file does.
+        $titled = filled($validated['title'] ?? null);
+
         $project = Project::create([
-            ...$request->validated(),
-            'code' => $codes->next(),
+            ...$validated,
+            'title' => $titled ? $validated['title'] : $code,
+            'title_auto' => ! $titled,
+            'code' => $code,
             'status' => Project::STATUS_DRAFT,
             'created_by' => $request->user()->id,
         ]);
@@ -89,7 +99,17 @@ class ProjectController extends Controller
             __('projects.edit_draft_only'),
         );
 
-        $project->update($request->validated());
+        $validated = $request->validated();
+
+        // Typing a name takes ownership of it; blanking the field hands it back to
+        // the file. Either way the column keeps a value — it is NOT NULL.
+        if (array_key_exists('title', $validated)) {
+            $named = filled($validated['title']);
+            $validated['title'] = $named ? $validated['title'] : $project->code;
+            $validated['title_auto'] = ! $named;
+        }
+
+        $project->update($validated);
 
         return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
     }

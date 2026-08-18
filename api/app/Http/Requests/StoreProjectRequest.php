@@ -10,7 +10,9 @@ class StoreProjectRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'title' => ['required', 'string', 'max:255'],
+            // Optional: left blank, the first source file names the project
+            // (ProjectController::store + ProjectFileController::store).
+            'title' => ['nullable', 'string', 'max:255'],
             'client_id' => ['nullable', 'integer', Rule::exists('clients', 'id')->withoutTrashed()],
             'source_language_id' => ['required', 'integer', Rule::exists('languages', 'id')->where('is_active', true)],
             'target_language_id' => [

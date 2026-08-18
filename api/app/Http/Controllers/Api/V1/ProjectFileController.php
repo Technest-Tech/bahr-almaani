@@ -15,6 +15,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -56,6 +57,11 @@ class ProjectFileController extends Controller
             abort_if(in_array($project->status, Project::SETTLED_STATUSES, true), 422, __('projects.source_upload_draft_only'));
         }
 
+        // Read before the batch lands: "the first source file names the project"
+        // means the first one ever, not the first of this upload — otherwise adding
+        // page two later would rename the project.
+        $hadSources = $project->files()->where('category', ProjectFile::CATEGORY_SOURCE)->exists();
+
         // One transaction: a batch that fails halfway must not leave the project with
         // three of five pages attached and no sign that the rest went missing.
         $files = DB::transaction(function () use ($request, $project, $category, $uploads): Collection {
@@ -84,7 +90,44 @@ class ProjectFileController extends Controller
             }
         });
 
+        $this->nameProjectAfterFirstSource($project, $category, $files, $hadSources);
+
         return ProjectFileResource::collection($files)->response()->setStatusCode(201);
+    }
+
+    /**
+     * Let the first source file name an unnamed project.
+     *
+     * The office asked to skip the name field: the project is created before any
+     * file exists, so it starts life carrying its own code (ProjectController::store)
+     * and the first source upload replaces that. `title_auto` is what marks it as
+     * still the system's to set — a PM who types a name owns it, and no later upload
+     * overwrites their wording.
+     *
+     * Reference documents never name a project: a passport photocopy attached for
+     * context is not what the job is called.
+     *
+     * @param  Collection<int, ProjectFile>  $files
+     */
+    private function nameProjectAfterFirstSource(
+        Project $project,
+        string $category,
+        Collection $files,
+        bool $hadSources,
+    ): void {
+        if ($category !== ProjectFile::CATEGORY_SOURCE || $hadSources || ! $project->title_auto) {
+            return;
+        }
+
+        $base = trim(pathinfo((string) $files->first()?->original_name, PATHINFO_FILENAME));
+
+        if ($base === '') {
+            return;
+        }
+
+        // Truncated, not rejected: the column is 255 and a phone-generated filename
+        // can be longer than that.
+        $project->forceFill(['title' => Str::limit($base, 255, '')])->save();
     }
 
     /**
