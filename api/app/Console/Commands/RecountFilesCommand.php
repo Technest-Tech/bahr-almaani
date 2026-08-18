@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Services\DocumentCounter;
+use App\Services\OcrCounter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 
@@ -19,25 +20,37 @@ use Illuminate\Support\Facades\Storage;
  *   php artisan files:recount --dry-run              # report only
  *   php artisan files:recount                        # write counts
  *   php artisan files:recount --category=deliverable # limit to one category
+ *   php artisan files:recount --ocr                  # also OCR scans/photos (slow)
  *
  * A manual count always wins, --force included: if someone typed a number for a
- * scan, re-running this must never replace it with the machine's opinion.
+ * scan, re-running this must never replace it with the machine's opinion. An OCR
+ * estimate is protected one step less: --force alone keeps it (text extraction
+ * would only wipe it back to nothing), --force --ocr re-estimates it.
  */
 class RecountFilesCommand extends Command
 {
     protected $signature = 'files:recount
                             {--dry-run : Report what would change without writing}
                             {--category=* : Limit to these categories (default: source, deliverable)}
-                            {--force : Also re-read files that already carry an automatic count}';
+                            {--force : Also re-read files that already carry an automatic count}
+                            {--ocr : OCR scans and images that have no text layer (estimates, stored as count_source=ocr)}';
 
     protected $description = 'Re-run word and page counting over stored project files';
 
-    public function handle(DocumentCounter $counter): int
+    public function handle(DocumentCounter $counter, OcrCounter $ocr): int
     {
         $categories = $this->option('category') ?: [
             ProjectFile::CATEGORY_SOURCE,
             ProjectFile::CATEGORY_DELIVERABLE,
         ];
+
+        $useOcr = (bool) $this->option('ocr');
+
+        if ($useOcr && ! $ocr->available()) {
+            $this->error('The tesseract binary is not installed in this container — --ocr cannot run.');
+
+            return self::FAILURE;
+        }
 
         // A manual count always wins, --force included. Someone typed that number
         // off a scan the machine cannot read; replacing it with the machine's
@@ -70,14 +83,36 @@ class RecountFilesCommand extends Command
                 continue;
             }
 
-            $result = $counter->count(
-                Storage::disk('local')->path($file->disk_path),
-                pathinfo($file->original_name, PATHINFO_EXTENSION),
-            );
+            $path = Storage::disk('local')->path($file->disk_path);
+            $extension = pathinfo($file->original_name, PATHINFO_EXTENSION);
+            $result = $counter->count($path, $extension);
+            $source = 'auto';
 
-            $outcome = $result['countable']
-                ? sprintf('%s words', number_format((int) $result['words']))
-                : 'not countable (scan → needs manual entry or OCR)';
+            if (! $result['countable'] && $useOcr && OcrCounter::supports($extension)) {
+                $estimate = $ocr->count($path, $extension);
+
+                if ($estimate['countable']) {
+                    $estimate['pages'] ??= $result['pages'];
+                    $result = $estimate;
+                    $source = 'ocr';
+                } else {
+                    $result['pages'] ??= $estimate['pages'];
+                }
+            }
+
+            // Without --ocr, a --force pass over an OCR-estimated file only sees
+            // "no text layer" — writing that would wipe a good estimate to nothing.
+            if (! $result['countable'] && $file->count_source === 'ocr' && ! $useOcr) {
+                $rows[] = [$file->id, $file->category, $this->name($file), $file->count_status, 'kept OCR estimate (use --ocr to refresh)'];
+
+                continue;
+            }
+
+            $outcome = match (true) {
+                $result['countable'] && $source === 'ocr' => sprintf('≈ %s words (OCR)', number_format((int) $result['words'])),
+                $result['countable'] => sprintf('%s words', number_format((int) $result['words'])),
+                default => 'not countable (scan → needs OCR or manual entry)',
+            };
 
             $rows[] = [
                 $file->id,
@@ -100,7 +135,7 @@ class RecountFilesCommand extends Command
                     'count_status' => $result['countable']
                         ? ProjectFile::COUNT_DONE
                         : ProjectFile::COUNT_NOT_APPLICABLE,
-                    'count_source' => 'auto',
+                    'count_source' => $source,
                 ]);
                 $projects->push($file->project_id);
             }
@@ -126,11 +161,9 @@ class RecountFilesCommand extends Command
         $uncountable = $files->count() - $counted;
 
         if ($uncountable > 0) {
-            $this->warn(sprintf(
-                '%d file(s) are scans or images with no text layer. Those need OCR (Phase 2) '
-                .'or a manual entry from the project page.',
-                $uncountable,
-            ));
+            $this->warn($useOcr
+                ? sprintf('%d file(s) could not be read reliably even with OCR. Those need a manual entry from the project page.', $uncountable)
+                : sprintf('%d file(s) have no text layer. Re-run with --ocr to estimate them, or enter counts manually from the project page.', $uncountable));
         }
 
         if ($dryRun) {

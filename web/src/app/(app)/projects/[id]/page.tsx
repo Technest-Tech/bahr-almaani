@@ -754,7 +754,7 @@ function FilesCard({
                     <>
                       {" · "}
                       {file.count_status === "done"
-                        ? `${file.word_count?.toLocaleString("ar-EG") ?? "—"} كلمة${
+                        ? `${file.count_source === "ocr" ? "≈ " : ""}${file.word_count?.toLocaleString("ar-EG") ?? "—"} كلمة${
                             file.char_count
                               ? ` · ${file.char_count.toLocaleString("ar-EG")} حرف`
                               : ""
@@ -762,7 +762,13 @@ function FilesCard({
                             file.page_count
                               ? ` · ${file.page_count.toLocaleString("ar-EG")} صفحة`
                               : ""
-                          }${file.count_source === "manual" ? " (يدوي)" : ""}`
+                          }${
+                            file.count_source === "manual"
+                              ? " (يدوي)"
+                              : file.count_source === "ocr"
+                                ? " (تقدير OCR)"
+                                : ""
+                          }`
                         : COUNT_STATUS_LABELS[file.count_status]}
                     </>
                   )}

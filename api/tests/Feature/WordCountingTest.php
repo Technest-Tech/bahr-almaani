@@ -6,6 +6,8 @@ use App\Models\Language;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\DocumentCounter;
+use App\Services\OcrCounter;
+use App\Support\Tesseract;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -259,6 +261,105 @@ class WordCountingTest extends TestCase
 
         $this->project->refresh();
         $this->assertNull($this->project->total_words);
+    }
+
+    /**
+     * A source with no text layer gets an OCR estimate instead of reading zero.
+     *
+     * The OCR service is mocked — CI has no tesseract — so this asserts the
+     * wiring: the job falls back to OCR, stores the estimate as
+     * count_source = 'ocr', and rolls it into the project totals.
+     */
+    public function test_a_scan_falls_back_to_an_ocr_estimate(): void
+    {
+        $this->mock(OcrCounter::class, function ($mock) {
+            $mock->shouldReceive('available')->andReturn(true);
+            $mock->shouldReceive('count')->once()->andReturn([
+                'countable' => true,
+                'words' => 412,
+                'pages' => 2,
+                'chars' => 2260,
+            ]);
+        });
+
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$this->project->id}/files", [
+            'file' => UploadedFile::fake()->image('scanned-contract.png'),
+            'category' => 'source',
+        ])->assertCreated();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->getJson("/api/v1/projects/{$this->project->id}")
+            ->assertOk()
+            ->assertJsonPath('data.files.0.word_count', 412)
+            ->assertJsonPath('data.files.0.count_status', 'done')
+            ->assertJsonPath('data.files.0.count_source', 'ocr')
+            ->assertJsonPath('data.total_words', 412);
+    }
+
+    /** An OCR estimate survives --force: text extraction would only wipe it to nothing. */
+    public function test_recount_force_keeps_an_ocr_estimate_unless_ocr_is_rerun(): void
+    {
+        // Content is irrelevant: a .png is uncountable without OCR, and the
+        // protection branch must fire before any OCR attempt.
+        Storage::disk('local')->put('projects/1/source/scan.png', 'stub');
+
+        $file = $this->project->files()->create([
+            'category' => 'source',
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'scan.png',
+            'disk_path' => 'projects/1/source/scan.png',
+            'mime_type' => 'image/png',
+            'size_bytes' => 10,
+            'word_count' => 500,
+            'char_count' => 2700,
+            'count_status' => 'done',
+            'count_source' => 'ocr',
+        ]);
+
+        $this->artisan('files:recount', ['--force' => true])->assertSuccessful();
+
+        $file->refresh();
+        $this->assertSame(500, $file->word_count);
+        $this->assertSame('ocr', $file->count_source);
+    }
+
+    /**
+     * The real thing, end to end: a rendered image goes through tesseract and
+     * comes back with a plausible word count. Skipped where tesseract or its
+     * language models are not installed (CI); it runs inside the production
+     * image, which carries both.
+     */
+    public function test_ocr_estimates_words_from_a_rendered_image(): void
+    {
+        if (! Tesseract::available()) {
+            $this->markTestSkipped('tesseract is not installed');
+        }
+
+        $langs = (string) shell_exec(escapeshellarg((string) Tesseract::binary()).' --list-langs 2>/dev/null');
+
+        if (! str_contains($langs, 'eng') || ! str_contains($langs, 'ara')) {
+            $this->markTestSkipped('tesseract eng/ara models are not installed');
+        }
+
+        // Plain English on a white canvas — GD's bitmap font renders too small
+        // for OCR, so draw at 1x and scale up 3x.
+        $canvas = imagecreatetruecolor(560, 60);
+        imagefill($canvas, 0, 0, (int) imagecolorallocate($canvas, 255, 255, 255));
+        imagestring($canvas, 5, 12, 20, 'This is a certified translation of the attached passport', (int) imagecolorallocate($canvas, 0, 0, 0));
+        $scaled = imagescale($canvas, 1680);
+
+        $path = tempnam(sys_get_temp_dir(), 'ocr').'.png';
+        imagepng($scaled !== false ? $scaled : $canvas, $path);
+
+        try {
+            $result = app(OcrCounter::class)->count($path, 'png');
+
+            $this->assertTrue($result['countable'], 'OCR failed to read a clean rendered sentence.');
+            $this->assertEqualsWithDelta(9, $result['words'], 1);
+            $this->assertSame(1, $result['pages']);
+        } finally {
+            @unlink($path);
+        }
     }
 
     public function test_manual_count_fallback_updates_totals(): void

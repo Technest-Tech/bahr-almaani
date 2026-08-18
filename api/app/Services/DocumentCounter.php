@@ -9,7 +9,8 @@ use ZipArchive;
 /**
  * Extracts word/page/character counts from uploaded documents.
  * DOCX: docProps/app.xml statistics, falling back to parsing document.xml.
- * PDF:  text extraction via smalot/pdfparser; empty text ⇒ scanned ⇒ not countable (OCR is Phase 2).
+ * PDF:  text extraction via smalot/pdfparser; empty text ⇒ scanned ⇒ not countable here —
+ *       callers hand those to OcrCounter, which estimates via tesseract.
  *       Per-glyph extraction is detected and re-read through ghostscript — see isGlyphSplit().
  *
  * Characters exclude whitespace, tatweel and Arabic diacritics — see charCount().
@@ -82,7 +83,7 @@ class DocumentCounter
             $pages = count($pdf->getPages());
             $text = $pdf->getText();
 
-            // A PDF with pages but (almost) no extractable text is a scan — needs OCR or manual count.
+            // A PDF with pages but (almost) no extractable text is a scan — OcrCounter takes it from here.
             if ($pages > 0 && $this->wordCount($text) < 3) {
                 return self::uncountable($pages);
             }
@@ -164,7 +165,7 @@ class DocumentCounter
      * same content, which is exactly the number an office bills on. This is the
      * excluding-spaces convention; Word calls it `Characters`.
      */
-    private function charCount(string $text): int
+    public function charCount(string $text): int
     {
         $stripped = preg_replace(
             '/[\s\x{0640}\x{064B}-\x{0652}\x{0670}\x{200B}-\x{200F}\x{FEFF}]/u',
@@ -176,7 +177,7 @@ class DocumentCounter
     }
 
     /** Unicode-aware word count (Arabic text breaks str_word_count). */
-    private function wordCount(string $text): int
+    public function wordCount(string $text): int
     {
         $parts = preg_split('/[\s\x{200B}-\x{200D}\x{00A0}]+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY);
 

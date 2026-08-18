@@ -15,11 +15,15 @@ use Symfony\Component\Process\Process;
  *   - shrink letterhead artwork          (App\Support\AssetOptimizer)
  *   - rewrite a PDF that FPDI refuses    (App\Services\DocumentMergeService)
  *   - extract text pdfparser mangles     (App\Services\DocumentCounter)
+ *   - rasterise a scanned PDF for OCR    (App\Services\OcrCounter)
  */
 class Ghostscript
 {
     /** A single document; anything slower than this is stuck, not working. */
     private const TIMEOUT_SECONDS = 60;
+
+    /** Rendering every page of a scan at 300 DPI is legitimately slower than one pass. */
+    private const RASTERIZE_TIMEOUT_SECONDS = 180;
 
     /** Absolute path to the binary, or null when it is not installed. Memoised. */
     public static function binary(): ?string
@@ -82,6 +86,55 @@ class Ghostscript
     public static function extractText(string $path): ?string
     {
         return self::run($path, ['-sDEVICE=txtwrite'], 'txt', 'text extraction');
+    }
+
+    /**
+     * Render every page of a PDF to a grayscale PNG, for OCR.
+     *
+     * 300 DPI is what tesseract's models are trained around; grayscale because
+     * colour buys recognition nothing and triples the pixel data.
+     *
+     * @return list<string>|null absolute paths in page order, or null on failure
+     */
+    public static function rasterize(string $path, string $directory, int $dpi = 300): ?array
+    {
+        $binary = self::binary();
+
+        if ($binary === null) {
+            return null;
+        }
+
+        try {
+            $process = new Process([
+                $binary,
+                '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER',
+                '-sDEVICE=pnggray',
+                "-r{$dpi}",
+                '-sOutputFile='.$directory.'/page-%04d.png',
+                $path,
+            ]);
+            $process->setTimeout(self::RASTERIZE_TIMEOUT_SECONDS);
+            $process->run();
+
+            if (! $process->isSuccessful()) {
+                Log::warning('Ghostscript rasterize failed', [
+                    'path' => basename($path),
+                    'exit' => $process->getExitCode(),
+                    'stderr' => mb_substr($process->getErrorOutput(), 0, 500),
+                ]);
+
+                return null;
+            }
+
+            $pages = glob($directory.'/page-*.png') ?: [];
+            sort($pages);
+
+            return $pages === [] ? null : $pages;
+        } catch (ProcessTimedOutException) {
+            Log::warning('Ghostscript rasterize timed out', ['path' => basename($path)]);
+
+            return null;
+        }
     }
 
     /**

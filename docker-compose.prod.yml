@@ -44,6 +44,9 @@ x-php-env: &php-env
   CACHE_STORE: redis
   SESSION_DRIVER: redis
   QUEUE_CONNECTION: redis
+  # Must exceed the worker's --timeout=300, or redis re-delivers a job that is
+  # legitimately still running (an OCR pass over a multi-page scan is minutes).
+  REDIS_QUEUE_RETRY_AFTER: 360
   FILESYSTEM_DISK: local
 
   MAIL_MAILER: smtp

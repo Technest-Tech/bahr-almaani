@@ -155,7 +155,7 @@ export interface ProjectFile {
   page_count: number | null;
   char_count: number | null;
   count_status: "pending" | "processing" | "done" | "failed" | "not_applicable";
-  count_source: "auto" | "manual";
+  count_source: "auto" | "manual" | "ocr";
   version: number;
   uploaded_by?: { id: number; name: string };
   created_at: string;

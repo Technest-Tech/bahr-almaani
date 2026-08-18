@@ -15,11 +15,15 @@ FROM php:8.2-fpm-alpine AS base
 # AssetOptimizer). It is optional at runtime — the optimizer keeps the original when
 # the binary is missing — but without it every delivery carries the letterhead at
 # full scan resolution, which is what made a 20 KB translation a 3.3 MB download.
+# tesseract + the ara/eng models give scans and photos an estimated word count
+# (App\Services\OcrCounter) — also optional: without it those files stay
+# "not countable" and fall back to manual entry, as before OCR existed.
 # su-exec lets the entrypoint fix storage ownership as root and then run the
 # queue/scheduler/reverb as www-data, so files they write stay readable by php-fpm.
 RUN apk add --no-cache \
         postgresql-libs libzip icu-libs oniguruma libpng libjpeg-turbo freetype \
         fcgi tini ghostscript su-exec \
+        tesseract-ocr tesseract-ocr-data-ara tesseract-ocr-data-eng \
     && apk add --no-cache --virtual .build-deps \
         $PHPIZE_DEPS postgresql-dev libzip-dev icu-dev oniguruma-dev \
         libpng-dev libjpeg-turbo-dev freetype-dev \

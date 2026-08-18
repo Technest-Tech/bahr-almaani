@@ -64,7 +64,7 @@ class ProjectFileController extends Controller
         return response()->json(['message' => 'ok']);
     }
 
-    /** Manual word/page entry for scanned documents (OCR is Phase 2). */
+    /** Manual word/page entry — overrides the automatic count and any OCR estimate. */
     public function manualCount(Request $request, Project $project, ProjectFile $file): ProjectFileResource
     {
         abort_unless($file->project_id === $project->id, 404);
