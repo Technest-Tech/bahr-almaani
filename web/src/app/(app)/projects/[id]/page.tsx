@@ -280,16 +280,24 @@ export default function ProjectDetailPage() {
           {project.status === "completed" && (
             <Button
               onClick={() =>
-                // The merge names the final file after the source the client sent,
-                // so take the name from the record rather than rebuilding it here.
-                download(
-                  `/projects/${project.id}/final-file`,
-                  finalFiles[0]?.original_name ?? `${project.code}-final.pdf`,
-                ).catch(() => toast.error("تعذر تحميل الملف"))
+                // One certified document per delivered file, so a multi-document
+                // project is fetched as a zip rather than one click per file. The
+                // single-file name comes off the record — the merge names it after
+                // the source the client sent.
+                finalFiles.length > 1
+                  ? download(`/projects/${project.id}/final-files`, `${project.code}.zip`).catch(
+                      () => toast.error("تعذر تحميل الملفات"),
+                    )
+                  : download(
+                      `/projects/${project.id}/final-file`,
+                      finalFiles[0]?.original_name ?? `${project.code}-final.pdf`,
+                    ).catch(() => toast.error("تعذر تحميل الملف"))
               }
             >
               <FileCheck2 className="size-4" />
-              تحميل الملف النهائي
+              {finalFiles.length > 1
+                ? `تحميل الملفات النهائية (${finalFiles.length.toLocaleString("ar-EG")})`
+                : "تحميل الملف النهائي"}
             </Button>
           )}
 
@@ -669,17 +677,25 @@ function FilesCard({
   const [uploading, setUploading] = useState(false);
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const picked = Array.from(event.target.files ?? []);
+    if (picked.length === 0) return;
     setUploading(true);
 
+    // One request for the whole batch: the office photographs a document page by
+    // page, and uploading them one at a time was the complaint.
     const formData = new FormData();
-    formData.append("file", file);
+    picked.forEach((file) => formData.append("files[]", file));
     formData.append("category", category);
 
+    const label =
+      picked.length === 1 ? picked[0].name : `${picked.length.toLocaleString("ar-EG")} ملفات`;
+
     try {
-      await upload(`/projects/${project.id}/files`, formData, file.name);
-      toast.success("تم رفع الملف" + (category === "source" ? " — جارِ عد الكلمات…" : ""));
+      await upload(`/projects/${project.id}/files`, formData, label);
+      toast.success(
+        (picked.length === 1 ? "تم رفع الملف" : `تم رفع ${picked.length.toLocaleString("ar-EG")} ملفات`) +
+          (category === "source" ? " — جارِ عد الكلمات…" : ""),
+      );
       onChanged();
     } catch (err) {
       // Cancelling is the user's own doing — the panel already says so, and a
@@ -721,7 +737,7 @@ function FilesCard({
         </CardTitle>
         {canUpload && (
           <>
-            <input ref={inputRef} type="file" hidden onChange={handleUpload} />
+            <input ref={inputRef} type="file" hidden multiple onChange={handleUpload} />
             <Button
               size="sm"
               variant="outline"
@@ -729,7 +745,7 @@ function FilesCard({
               onClick={() => inputRef.current?.click()}
             >
               <Upload className="size-3.5" />
-              رفع ملف
+              رفع ملفات
             </Button>
           </>
         )}

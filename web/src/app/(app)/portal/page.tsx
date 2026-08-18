@@ -372,12 +372,17 @@ function CurrentAssignmentCard({
   const project = assignment.project!;
 
   async function handleDeliver(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    const picked = Array.from(event.target.files ?? []);
+    if (picked.length === 0) return;
 
     const confirmed = await confirm({
       title: "تسليم الترجمة؟",
-      description: `سيتم تسليم «${file.name}» لمدير المشروع وإيقاف عداد الوقت.`,
+      description:
+        picked.length === 1
+          ? `سيتم تسليم «${picked[0].name}» لمدير المشروع وإيقاف عداد الوقت.`
+          : `سيتم تسليم ${picked.length.toLocaleString("ar-EG")} ملفات (${picked
+              .map((f) => f.name)
+              .join("، ")}) لمدير المشروع وإيقاف عداد الوقت.`,
       confirmLabel: "تسليم",
     });
     if (!confirmed) {
@@ -386,11 +391,17 @@ function CurrentAssignmentCard({
     }
 
     setUploading(true);
+
+    // One delivery, however many documents — the merge letterheads each of them
+    // into its own certified file.
     const formData = new FormData();
-    formData.append("file", file);
+    picked.forEach((file) => formData.append("files[]", file));
+
+    const label =
+      picked.length === 1 ? picked[0].name : `${picked.length.toLocaleString("ar-EG")} ملفات`;
 
     try {
-      await upload("/portal/deliver", formData, file.name);
+      await upload("/portal/deliver", formData, label);
       toast.success("تم تسليم الترجمة — شكراً لك 🎉");
       onDelivered();
     } catch (err) {
@@ -526,7 +537,7 @@ function CurrentAssignmentCard({
         )}
 
         <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-          <input ref={inputRef} type="file" hidden onChange={handleDeliver} />
+          <input ref={inputRef} type="file" hidden multiple onChange={handleDeliver} />
           {/* Before delivering, not after: the point is to fix the document while
               it is still yours to fix. */}
           <Button size="lg" variant="outline" onClick={() => setPreviewOpen(true)}>

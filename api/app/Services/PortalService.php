@@ -116,9 +116,13 @@ class PortalService
      * Work time accumulates per active window: claim→deliver and each
      * revision-request→re-deliver, computed from the transition log.
      */
-    public function deliver(User $translator, UploadedFile $upload): Assignment
+    /**
+     * @param  list<UploadedFile>  $uploads  one delivery round; a visa application can
+     *                                       carry a passport, a licence and a contract
+     */
+    public function deliver(User $translator, array $uploads): Assignment
     {
-        return DB::transaction(function () use ($translator, $upload): Assignment {
+        return DB::transaction(function () use ($translator, $uploads): Assignment {
             $assignment = $this->currentAssignment($translator);
 
             abort_if($assignment === null, 404, __('portal.no_active_assignment'));
@@ -132,26 +136,31 @@ class PortalService
                 __('portal.not_deliverable'),
             );
 
-            $version = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->count() + 1;
-            $path = $upload->store("projects/{$project->id}/deliverable", 'local');
+            // One delivery is one round, however many files it carries, so they all
+            // share a version. The merge keys off that: it letterheads every file of
+            // the newest round and would otherwise mix a re-delivery with the round
+            // it replaces.
+            $version = ($project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->max('version') ?? 0) + 1;
 
-            $deliverable = $project->files()->create([
-                'category' => ProjectFile::CATEGORY_DELIVERABLE,
-                'uploaded_by' => $translator->id,
-                'original_name' => $upload->getClientOriginalName(),
-                'disk_path' => $path,
-                'mime_type' => $upload->getClientMimeType(),
-                'size_bytes' => $upload->getSize(),
-                'version' => $version,
-            ]);
+            foreach ($uploads as $upload) {
+                $deliverable = $project->files()->create([
+                    'category' => ProjectFile::CATEGORY_DELIVERABLE,
+                    'uploaded_by' => $translator->id,
+                    'original_name' => $upload->getClientOriginalName(),
+                    'disk_path' => $upload->store("projects/{$project->id}/deliverable", 'local'),
+                    'mime_type' => $upload->getClientMimeType(),
+                    'size_bytes' => $upload->getSize(),
+                    'version' => $version,
+                ]);
 
-            // The delivered file is counted like any other upload. It used to be
-            // written straight to `not_applicable`, so a translator's output never
-            // carried a word count even when it was a .docx the counter reads
-            // perfectly — which is what the office reported as "the system does not
-            // calculate the words". Queued after commit so the count runs against a
-            // row that exists.
-            CountWordsJob::dispatch($deliverable)->afterCommit();
+                // The delivered file is counted like any other upload. It used to be
+                // written straight to `not_applicable`, so a translator's output never
+                // carried a word count even when it was a .docx the counter reads
+                // perfectly — which is what the office reported as "the system does not
+                // calculate the words". Queued after commit so the count runs against a
+                // row that exists.
+                CountWordsJob::dispatch($deliverable)->afterCommit();
+            }
 
             $windowStart = $project->status === Project::STATUS_REVISION_REQUESTED
                 ? $project->transitions()

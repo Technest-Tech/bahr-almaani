@@ -424,6 +424,79 @@ class PortalFlowTest extends TestCase
         $this->assertSame(Project::STATUS_IN_REVIEW, $project->fresh()->status);
     }
 
+    /**
+     * A visa application is a passport, a licence and a contract — one delivery.
+     *
+     * All files of a round share a version, and the merge letterheads every one of
+     * them; taking only the first would silently drop two certified translations.
+     */
+    public function test_a_translator_can_deliver_several_files_as_one_round(): void
+    {
+        Notification::fake();
+        $project = $this->makeAvailableProject();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+
+        $this->actingAs($this->translator1, 'sanctum')->post('/api/v1/portal/deliver', [
+            'files' => [
+                UploadedFile::fake()->createWithContent('جواز السفر.txt', 'ترجمة الجواز'),
+                UploadedFile::fake()->createWithContent('الرخصة.txt', 'ترجمة الرخصة'),
+                UploadedFile::fake()->createWithContent('العقد.txt', 'ترجمة العقد'),
+            ],
+        ])->assertOk()->assertJsonPath('data.status', 'delivered');
+
+        $delivered = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)->orderBy('id')->get();
+
+        $this->assertCount(3, $delivered);
+        $this->assertSame([1, 1, 1], $delivered->pluck('version')->all(), 'One delivery is one round.');
+        $this->assertSame(
+            ['جواز السفر.txt', 'الرخصة.txt', 'العقد.txt'],
+            $delivered->pluck('original_name')->all(),
+        );
+        // Each is counted in its own right.
+        $this->assertTrue($delivered->every(fn ($f) => $f->count_status === ProjectFile::COUNT_DONE));
+    }
+
+    /** A re-delivery is a new round and must not be mixed with the one it replaces. */
+    public function test_a_redelivery_starts_a_new_round(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredProjectInReview();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->post("/api/v1/projects/{$project->id}/review/request-revision", ['note' => 'أعد الصياغة'])
+            ->assertOk();
+
+        $this->actingAs($this->translator1, 'sanctum')->post('/api/v1/portal/deliver', [
+            'files' => [
+                UploadedFile::fake()->createWithContent('v2-a.txt', 'منقح أ'),
+                UploadedFile::fake()->createWithContent('v2-b.txt', 'منقح ب'),
+            ],
+        ])->assertOk();
+
+        $byVersion = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->get()
+            ->groupBy('version')
+            ->map->count();
+
+        $this->assertSame(1, $byVersion[1], 'The first round stays one file.');
+        $this->assertSame(2, $byVersion[2], 'The re-delivery is round two.');
+    }
+
+    public function test_delivering_nothing_is_rejected(): void
+    {
+        Notification::fake();
+        $project = $this->makeAvailableProject();
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->postJson('/api/v1/portal/deliver', [])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('files');
+    }
+
     /** A delivered project sitting in `in_review`, ready for the PM to act on. */
     private function deliveredProjectInReview(): Project
     {

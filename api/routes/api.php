@@ -90,6 +90,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/projects/{project}/timeline', [ProjectController::class, 'timeline']);
             Route::get('/projects/{project}/files/{file}/download', [ProjectFileController::class, 'download']);
             Route::get('/projects/{project}/final-file', [ProjectFileController::class, 'finalFile']);
+            Route::get('/projects/{project}/final-files', [ProjectFileController::class, 'finalArchive']);
         });
 
         Route::middleware('permission:projects.manage')->group(function (): void {

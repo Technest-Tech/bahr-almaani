@@ -149,6 +149,140 @@ class LetterheadMergeTest extends TestCase
         @unlink($converted);
     }
 
+    /**
+     * Three delivered documents become three certified files, not one.
+     *
+     * Each is a separate legal artifact — a passport translation and a contract
+     * translation must not be stapled together — and the merge previously took only
+     * `latest('version')->firstOrFail()`, which would have dropped two of them.
+     */
+    public function test_every_file_of_a_delivery_round_becomes_its_own_final(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject();
+
+        foreach (['الرخصة.docx', 'العقد.docx'] as $index => $name) {
+            Storage::disk('local')->put("projects/{$project->id}/deliverable/extra-{$index}.docx", 'ترجمة');
+            $project->files()->create([
+                'category' => ProjectFile::CATEGORY_DELIVERABLE,
+                'uploaded_by' => $this->translator->id,
+                'original_name' => $name,
+                'disk_path' => "projects/{$project->id}/deliverable/extra-{$index}.docx",
+                'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'size_bytes' => 12,
+                'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
+                'version' => 1,
+            ]);
+        }
+
+        $this->approve($project);
+
+        $finals = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_FINAL)->orderBy('id')->get();
+
+        $this->assertCount(3, $finals, 'One final per delivered document.');
+        $this->assertSame(Project::STATUS_COMPLETED, $project->fresh()->status);
+
+        // With several documents each final carries its own deliverable's name —
+        // there is no reliable pairing back to the sources.
+        $this->assertSame(
+            ['translation.pdf', 'الرخصة.pdf', 'العقد.pdf'],
+            $finals->pluck('original_name')->all(),
+        );
+
+        // Distinct paths, and every one of them actually written.
+        $this->assertCount(3, $finals->pluck('disk_path')->unique());
+        foreach ($finals as $final) {
+            Storage::disk('local')->assertExists($final->disk_path);
+            $this->assertStringStartsWith('%PDF-', Storage::disk('local')->get($final->disk_path));
+        }
+    }
+
+    /** Only the newest round is letterheaded — a superseded delivery must not reappear. */
+    public function test_a_superseded_delivery_round_is_not_merged(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject();
+
+        // Round two carries two files, so the finals are named after the deliverables
+        // rather than the source — which is what makes round one's absence provable.
+        foreach (['النسخة الثانية.docx', 'ملحق.docx'] as $index => $name) {
+            Storage::disk('local')->put("projects/{$project->id}/deliverable/v2-{$index}.docx", 'ترجمة منقحة');
+            $project->files()->create([
+                'category' => ProjectFile::CATEGORY_DELIVERABLE,
+                'uploaded_by' => $this->translator->id,
+                'original_name' => $name,
+                'disk_path' => "projects/{$project->id}/deliverable/v2-{$index}.docx",
+                'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'size_bytes' => 12,
+                'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
+                'version' => 2,
+            ]);
+        }
+
+        $this->approve($project);
+
+        $finals = $project->fresh()->files()
+            ->where('category', ProjectFile::CATEGORY_FINAL)->orderBy('id')->get();
+
+        // Two, not three: the superseded round-one delivery was left out.
+        $this->assertCount(2, $finals);
+        $this->assertSame(
+            ['النسخة الثانية.pdf', 'ملحق.pdf'],
+            $finals->pluck('original_name')->all(),
+        );
+    }
+
+    public function test_all_final_files_download_as_one_zip(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject();
+
+        Storage::disk('local')->put("projects/{$project->id}/deliverable/second.docx", 'ترجمة');
+        $project->files()->create([
+            'category' => ProjectFile::CATEGORY_DELIVERABLE,
+            'uploaded_by' => $this->translator->id,
+            'original_name' => 'العقد.docx',
+            'disk_path' => "projects/{$project->id}/deliverable/second.docx",
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'size_bytes' => 12,
+            'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
+            'version' => 1,
+        ]);
+
+        $this->approve($project);
+
+        $response = $this->actingAs($this->pm, 'sanctum')
+            ->get("/api/v1/projects/{$project->id}/final-files")
+            ->assertOk();
+
+        $this->assertSame('application/zip', $response->headers->get('Content-Type'));
+
+        $path = tempnam(sys_get_temp_dir(), 'zip').'.zip';
+        file_put_contents($path, $response->streamedContent());
+
+        $zip = new \ZipArchive;
+        $this->assertTrue($zip->open($path) === true);
+        $names = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $names[] = $zip->getNameIndex($i);
+        }
+        $zip->close();
+        @unlink($path);
+
+        $this->assertCount(2, $names);
+        $this->assertSame(['translation.pdf', 'العقد.pdf'], $names);
+    }
+
+    public function test_the_zip_404s_before_the_merge_has_run(): void
+    {
+        $project = $this->approvableProject();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->getJson("/api/v1/projects/{$project->id}/final-files")
+            ->assertNotFound();
+    }
+
     /** The merge must be page-for-page: no duplication, no dropped pages. */
     public function test_the_merge_never_changes_the_page_count(): void
     {
@@ -383,8 +517,12 @@ class LetterheadMergeTest extends TestCase
     /** An approved project whose merge has already run (the happy path). */
     private function approvedProject(?string $sourceName = 'عقد تأسيس.docx'): Project
     {
-        $project = $this->approvableProject($sourceName);
+        return $this->approve($this->approvableProject($sourceName));
+    }
 
+    /** Approve with a fresh letterhead + stamp, which runs the merge on the sync queue. */
+    private function approve(Project $project): Project
+    {
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->admin->id])->id,

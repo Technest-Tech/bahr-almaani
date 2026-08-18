@@ -200,6 +200,52 @@ class WordCountingTest extends TestCase
         $this->assertSame('manual', $file->count_source);
     }
 
+    /**
+     * The office photographs a document page by page, so one "source" is routinely
+     * several images. Uploading them one at a time was the complaint.
+     */
+    public function test_several_source_files_upload_in_one_request(): void
+    {
+        $response = $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$this->project->id}/files", [
+            'files' => [
+                UploadedFile::fake()->createWithContent('page-1.txt', 'كلمة واحدة اثنتان'),
+                UploadedFile::fake()->createWithContent('page-2.txt', 'ثلاث أربع'),
+                UploadedFile::fake()->createWithContent('page-3.txt', 'خمس'),
+            ],
+            'category' => 'source',
+        ])->assertCreated();
+
+        $response->assertJsonCount(3, 'data');
+
+        $files = $this->project->fresh()->files()->orderBy('id')->get();
+        $this->assertSame(['page-1.txt', 'page-2.txt', 'page-3.txt'], $files->pluck('original_name')->all());
+        foreach ($files as $file) {
+            Storage::disk('local')->assertExists($file->disk_path);
+        }
+
+        // Each is counted, and the project total is their sum.
+        $this->assertSame(6, $this->project->fresh()->total_words);
+    }
+
+    /** The old single-`file` shape still works, so nothing posting it breaks. */
+    public function test_a_single_file_upload_still_works(): void
+    {
+        $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$this->project->id}/files", [
+            'file' => UploadedFile::fake()->createWithContent('one.txt', 'كلمة واحدة'),
+            'category' => 'source',
+        ])->assertCreated()->assertJsonCount(1, 'data');
+
+        $this->assertSame(1, $this->project->fresh()->files()->count());
+    }
+
+    public function test_uploading_no_file_at_all_is_rejected(): void
+    {
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$this->project->id}/files", ['category' => 'source'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('files');
+    }
+
     /** Builds a real minimal .docx with Word-stamped statistics. */
     private function makeDocx(string $text, int $words, int $pages): string
     {
@@ -236,7 +282,8 @@ class WordCountingTest extends TestCase
             ->assertJsonPath('data.total_words', 450)
             ->assertJsonPath('data.total_pages', 3);
 
-        $this->assertIsInt($response->json('data.id'));
+        // store() always answers with a collection now — it accepts several files.
+        $this->assertIsInt($response->json('data.0.id'));
     }
 
     public function test_txt_file_words_are_counted_with_arabic_support(): void
@@ -257,7 +304,7 @@ class WordCountingTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$this->project->id}/files", [
             'file' => UploadedFile::fake()->image('passport.jpg'),
             'category' => 'reference',
-        ])->assertCreated()->assertJsonPath('data.count_status', 'not_applicable');
+        ])->assertCreated()->assertJsonPath('data.0.count_status', 'not_applicable');
 
         $this->project->refresh();
         $this->assertNull($this->project->total_words);
@@ -370,7 +417,7 @@ class WordCountingTest extends TestCase
             'category' => 'source',
         ])->assertCreated();
 
-        $fileId = $upload->json('data.id');
+        $fileId = $upload->json('data.0.id');
 
         $this->actingAs($this->pm, 'sanctum')
             ->getJson("/api/v1/projects/{$this->project->id}")

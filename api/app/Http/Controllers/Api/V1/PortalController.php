@@ -19,11 +19,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PortalController extends Controller
 {
+    /** A visa application's worth of documents, with room to spare. */
+    private const MAX_DELIVERY_FILES = 20;
+
     public function __construct(
         private readonly PortalService $portal,
     ) {}
@@ -80,13 +85,28 @@ class PortalController extends Controller
         ]);
     }
 
+    /**
+     * Deliver one or more files as a single round.
+     *
+     * `files[]` is the shape; a lone `file` still works so nothing posting the old
+     * way breaks. Every file of the round is letterheaded into its own final —
+     * see MergeFinalFileJob.
+     */
     public function deliver(Request $request): AssignmentResource
     {
-        $validated = $request->validate([
-            'file' => ['required', 'file', 'max:51200'],
-        ]);
+        // Not mutated into the request: Request::allFiles() memoises on its first
+        // read, so a later write to the file bag is silently ignored and the upload
+        // validates but arrives as null.
+        $uploads = $request->hasFile('files')
+            ? Arr::wrap($request->file('files'))
+            : Arr::wrap($request->file('file'));
 
-        $assignment = $this->portal->deliver($request->user(), $validated['file']);
+        $validated = Validator::make(['files' => array_values(array_filter($uploads))], [
+            'files' => ['required', 'array', 'min:1', 'max:'.self::MAX_DELIVERY_FILES],
+            'files.*' => ['file', 'max:51200'],
+        ])->validate();
+
+        $assignment = $this->portal->deliver($request->user(), $validated['files']);
 
         $assignment->project->creator->notify(new ProjectDeliveredNotification($assignment->project, $request->user()));
         $this->broadcastLive(new ProjectDelivered($assignment->project, $request->user()));
