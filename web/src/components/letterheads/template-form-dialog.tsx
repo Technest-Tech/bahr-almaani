@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
 import { isAbort, useFileTransfer } from "@/lib/use-transfer";
-import { contentBandStyle, placementStyle } from "@/lib/placement";
+import { contentBandStyle, contentShrinkStyle, placementStyle } from "@/lib/placement";
 import {
   PLACEMENT_ANCHOR_LABELS,
   PLACEMENT_LAYER_LABELS,
@@ -155,6 +155,7 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
   };
 
   const bandStyle = kind === "letterhead" ? contentBandStyle(currentPlacement) : null;
+  const shrinkStyle = kind === "letterhead" ? contentShrinkStyle(currentPlacement) : null;
 
   /** Switching kind on a fresh upload re-seeds the geometry with that kind's defaults. */
   function changeKind(next: TemplateKind) {
@@ -349,12 +350,21 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
                       />
                     ))}
                   {bandStyle && (
-                    // The band a deliverable page is shrunk into — everything outside
+                    // The band the translated text is laid out in — everything outside
                     // it belongs to the letterhead's own header/footer artwork.
                     <div
                       style={bandStyle}
-                      title="نطاق النص المترجم"
+                      title="نطاق النص المترجم — ملفات Word"
                       className="pointer-events-none border-y-2 border-dashed border-emerald-500/70 bg-emerald-500/10"
+                    />
+                  )}
+                  {shrinkStyle && (
+                    // A ready-made PDF cannot be reflowed, so it is scaled into the band
+                    // instead and loses width with it. Shown so the gutters are a choice.
+                    <div
+                      style={shrinkStyle}
+                      title="ملفات PDF الجاهزة تُصغَّر إلى هذا الإطار"
+                      className="pointer-events-none border-2 border-dotted border-amber-500/70"
                     />
                   )}
                   <div className="absolute inset-0 grid grid-cols-3 grid-rows-3">
@@ -488,8 +498,11 @@ export function TemplateFormDialog({ open, template, onClose, onSaved }: Props) 
               <div className="mt-5 border-t pt-4">
                 <p className="text-sm font-semibold">نطاق النص المترجم</p>
                 <p className="mb-3 text-[13px] text-muted-foreground">
-                  ارتفاع الترويسة والتذييل المطبوعين. تُصغَّر صفحات الترجمة لتقع بينهما،
-                  فلا يتداخل النص مع الشعار أو بيانات المكتب. اتركها صفراً للدمج بدون تصغير.
+                  ارتفاع الترويسة والتذييل المطبوعين، فلا يتداخل النص مع الشعار أو بيانات
+                  المكتب. ملفات Word يُعاد ضبط هوامشها قبل التحويل فيُصَفّ النص داخل النطاق
+                  بحجمه الكامل (الإطار الأخضر)، أما ملفات PDF الجاهزة فلا يمكن إعادة صفّها
+                  وتُصغَّر إلى الإطار البرتقالي فتفقد العرض أيضاً. اتركها صفراً للدمج بدون
+                  أي تعديل.
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <Field

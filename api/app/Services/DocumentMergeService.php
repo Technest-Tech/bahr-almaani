@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\LetterheadTemplate;
 use App\Support\AssetOptimizer;
+use App\Support\DocxPageMargins;
 use App\Support\PlacementConfig;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -42,6 +43,25 @@ class DocumentMergeService
      */
     public function toPdf(string $diskPath, string $originalName): string
     {
+        return $this->convert($diskPath, $originalName, null)['path'];
+    }
+
+    /**
+     * Convert, reserving the letterhead's content band in the document's own layout
+     * where the format allows it.
+     *
+     * A .docx carries its page geometry, so widening `<w:pgMar>` before handing it to
+     * LibreOffice makes the translation reflow *into* the band at full size — the fix
+     * for pages that used to arrive shrunk to 80% with blank gutters down both sides.
+     * Everything else (a ready-made PDF, a scan, .rtf, .xlsx) has no geometry we can
+     * safely rewrite and falls back to `PlacementConfig::resolveContentRect()`.
+     *
+     * @param  array{top: float, bottom: float}|null  $band  from PlacementConfig::band()
+     * @return array{path: string, reserved: bool} `reserved` tells merge() the page is
+     *                                             already clear of the artwork
+     */
+    private function convert(string $diskPath, string $originalName, ?array $band): array
+    {
         $extension = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         $contents = Storage::disk('local')->get($diskPath);
 
@@ -50,15 +70,30 @@ class DocumentMergeService
         }
 
         if ($extension === 'pdf') {
-            return $this->ensureFpdiReadable($this->writeTemp($contents, 'pdf'));
+            return ['path' => $this->ensureFpdiReadable($this->writeTemp($contents, 'pdf')), 'reserved' => false];
         }
 
         if (in_array($extension, self::IMAGE_EXTENSIONS, true)) {
-            return $this->imageToPdf($contents, $extension);
+            return ['path' => $this->imageToPdf($contents, $extension), 'reserved' => false];
         }
 
         if (! in_array($extension, self::CONVERTIBLE, true)) {
             throw new RuntimeException("Cannot convert .{$extension} to PDF for merging.");
+        }
+
+        $reserved = false;
+
+        if ($band !== null && $extension === 'docx') {
+            $widened = DocxPageMargins::reserve($contents, $band['top'], $band['bottom']);
+
+            if ($widened !== null) {
+                $contents = $widened;
+                $reserved = true;
+            } else {
+                Log::info('Deliverable margins could not be widened; falling back to scaling the page', [
+                    'name' => $originalName,
+                ]);
+            }
         }
 
         $response = Http::timeout(120)
@@ -68,7 +103,10 @@ class DocumentMergeService
             ])
             ->throw();
 
-        return $this->ensureFpdiReadable($this->writeTemp($response->body(), 'pdf'));
+        return [
+            'path' => $this->ensureFpdiReadable($this->writeTemp($response->body(), 'pdf')),
+            'reserved' => $reserved,
+        ];
     }
 
     /**
@@ -122,6 +160,10 @@ class DocumentMergeService
      *                                  the approved final file must never carry one, so
      *                                  it defaults to null and the merge path the
      *                                  MergeFinalFileJob uses is byte-for-byte unchanged.
+     * @param  bool  $bandReservedInLayout  the deliverable was converted with the band
+     *                                      already reserved in its own page margins, so
+     *                                      its pages must be drawn at full size — see
+     *                                      convert() and App\Support\DocxPageMargins
      * @return string binary PDF
      */
     public function merge(
@@ -129,6 +171,7 @@ class DocumentMergeService
         ?LetterheadTemplate $letterhead,
         ?LetterheadTemplate $stamp,
         ?string $watermark = null,
+        bool $bandReservedInLayout = false,
     ): string {
         $pdf = new Fpdi('P', 'mm');
         $pdf->setPrintHeader(false);
@@ -159,11 +202,22 @@ class DocumentMergeService
 
             $pdf->AddPage($size['orientation'], [$width, $height]);
 
-            if ($letterhead && $this->appliesToPage($letterheadPlacement['pages'], $page, $pageCount)) {
+            $carriesLetterhead = $letterhead
+                && $this->appliesToPage($letterheadPlacement['pages'], $page, $pageCount);
+
+            if ($carriesLetterhead) {
                 $this->draw($pdf, $letterhead, $letterheadPlacement, $letterheadTemplate, $width, $height);
             }
 
-            $content = PlacementConfig::resolveContentRect($letterheadPlacement, $width, $height);
+            // Only a page that actually carries the artwork has anything to dodge, and
+            // a page whose text was already laid out inside the band must not be
+            // shrunk into it a second time. Both used to shrink regardless: on a
+            // `pages: first` letterhead every page after the first came out at 80%
+            // with blank gutters, dodging artwork that was never drawn on it.
+            $content = $carriesLetterhead && ! $bandReservedInLayout
+                ? PlacementConfig::resolveContentRect($letterheadPlacement, $width, $height)
+                : PlacementConfig::resolveContentRect(null, $width, $height);
+
             $pdf->useTemplate($imported, $content['x'], $content['y'], $content['width'], $content['height']);
 
             if ($stamp && $this->appliesToPage($stampPlacement['pages'], $page, $pageCount)) {
@@ -209,7 +263,14 @@ class DocumentMergeService
         $pdf->setRTL($rtl);
     }
 
-    /** Convenience wrapper: convert then merge, cleaning up the intermediate file. */
+    /**
+     * Convenience wrapper: convert then merge, cleaning up the intermediate file.
+     *
+     * The letterhead's content band is resolved here rather than inside merge(),
+     * because the conversion is the only chance to reserve it in the document's own
+     * layout — once LibreOffice has produced a page, the merge can do nothing but
+     * scale it.
+     */
     public function mergeStoredFile(
         string $diskPath,
         string $originalName,
@@ -217,12 +278,23 @@ class DocumentMergeService
         ?LetterheadTemplate $stamp,
         ?string $watermark = null,
     ): string {
-        $pdfPath = $this->toPdf($diskPath, $originalName);
+        $placement = $letterhead
+            ? PlacementConfig::normalize($letterhead->placement, $letterhead->kind)
+            : null;
+
+        // Widening the document's own margins moves every one of its pages, so it is
+        // only the right trade when every page carries the artwork. A first/last-page
+        // letterhead keeps the per-page fallback, which touches just those pages.
+        $band = $placement !== null && $placement['pages'] === 'all'
+            ? PlacementConfig::band($placement)
+            : null;
+
+        $converted = $this->convert($diskPath, $originalName, $band);
 
         try {
-            return $this->merge($pdfPath, $letterhead, $stamp, $watermark);
+            return $this->merge($converted['path'], $letterhead, $stamp, $watermark, $converted['reserved']);
         } finally {
-            @unlink($pdfPath);
+            @unlink($converted['path']);
         }
     }
 

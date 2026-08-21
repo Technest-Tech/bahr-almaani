@@ -269,6 +269,6 @@ priced, even after the project's own files are revised.
 | Job | Trigger | Does |
 |---|---|---|
 | `CountWordsJob` | source file uploaded | DOCX → parse XML (PHPWord); readable PDF → pdftotext; scanned → mark `not_applicable`, prompt manual count |
-| `MergeFinalFileJob` | approve transition | deliverable → PDF via Gotenberg (PDFs pass through untouched) → FPDI redraw: letterhead behind, deliverable page scaled into the content band, stamp on top → store as `final` file → transition to `completed`. On failure the project **stays `approved`** with `merge_error` set and PM+admin notified; `POST /projects/{id}/merge/retry` re-runs it |
+| `MergeFinalFileJob` | approve transition | deliverable → PDF via Gotenberg (PDFs pass through untouched; a .docx has its page margins widened first so the text reflows inside the content band at full size) → FPDI redraw: letterhead behind, deliverable page inside the content band, stamp on top → store as `final` file → transition to `completed`. On failure the project **stays `approved`** with `merge_error` set and PM+admin notified; `POST /projects/{id}/merge/retry` re-runs it |
 | `GenerateReportJob` | export request | build xlsx (Laravel Excel) / PDF, store, notify requester |
 | `DeadlineScannerCommand` | scheduler (5 min) | flag due-soon/late, fire one-time notifications per escalation level |

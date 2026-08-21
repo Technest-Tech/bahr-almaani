@@ -114,6 +114,13 @@ class PlacementConfig
      * asset right/down. `web/src/lib/placement.ts` mirrors this so the admin preview
      * and the merged PDF agree.
      *
+     * A null `width_mm` means "full bleed", and it is resolved by fitting the artwork
+     * *inside* the page rather than to its width. Fitting to width alone only works
+     * while every deliverable is A4: a US Letter page (215.9 × 279.4) took the
+     * office's A4 letterhead to 215.9 × 305.3mm, pushing 25.9mm off the bottom edge
+     * and taking the whole footer bar — phone, email, address — with it. On an A4
+     * page the two are the same calculation, so normal output is untouched.
+     *
      * @param  float  $assetRatio  asset height ÷ width
      * @return array{x: float, y: float, width: float, height: float}
      */
@@ -123,7 +130,7 @@ class PlacementConfig
         float $pageHeightMm,
         float $assetRatio,
     ): array {
-        $width = $placement['width_mm'] ?? $pageWidthMm;
+        $width = $placement['width_mm'] ?? self::containedWidth($pageWidthMm, $pageHeightMm, $assetRatio);
         $height = $width * $assetRatio;
         [$vertical, $horizontal] = explode('-', $placement['anchor']);
 
@@ -144,11 +151,51 @@ class PlacementConfig
     }
 
     /**
+     * The widest a full-bleed asset can be drawn without any of it leaving the page.
+     *
+     * @param  float  $assetRatio  asset height ÷ width
+     */
+    private static function containedWidth(float $pageWidthMm, float $pageHeightMm, float $assetRatio): float
+    {
+        return $assetRatio > 0.0
+            ? min($pageWidthMm, $pageHeightMm / $assetRatio)
+            : $pageWidthMm;
+    }
+
+    /**
+     * The band the letterhead's own header/footer artwork occupies, in mm.
+     *
+     * Returned separately from the placement because it is needed *before* the
+     * deliverable is converted: a Word file has its page margins widened to match
+     * (App\Support\DocxPageMargins) so its text is laid out inside the band at full
+     * size, which is far better than shrinking the finished page into it.
+     *
+     * @return array{top: float, bottom: float}|null null when the letterhead reserves
+     *                                               nothing, i.e. a plain overlay
+     */
+    public static function band(?array $placement): ?array
+    {
+        $top = (float) ($placement['content_top_mm'] ?? 0.0);
+        $bottom = (float) ($placement['content_bottom_mm'] ?? 0.0);
+
+        return $top <= 0.0 && $bottom <= 0.0
+            ? null
+            : ['top' => $top, 'bottom' => $bottom];
+    }
+
+    /**
      * Resolve where a deliverable page is drawn so it clears the letterhead's own artwork.
      *
      * The page is scaled uniformly (never enlarged) until its height fits the band left
      * between the header and footer, then centred horizontally. With no band configured
      * this returns the full page, i.e. a plain overlay.
+     *
+     * This is the FALLBACK path, for a deliverable that cannot be reflowed — a PDF the
+     * translator hands over ready-made. Uniform scaling is the only safe option there
+     * (anything else distorts the glyphs), but it costs width as well as height: the
+     * office's 33/27mm band leaves a scale of 0.798, so the page also loses 21mm to a
+     * blank gutter down each side. A Word deliverable avoids all of that by having its
+     * margins widened before conversion — see App\Support\DocxPageMargins.
      *
      * @param  array|null  $letterheadPlacement  null when the project has no letterhead
      * @return array{x: float, y: float, width: float, height: float, scale: float}

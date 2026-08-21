@@ -27,6 +27,13 @@ export function placementStyle(placement: Placement): CSSProperties {
     opacity: placement.opacity,
   };
 
+  // A null width_mm is "full bleed", and the merge resolves it by fitting the artwork
+  // inside the page, not to its width (PlacementConfig::containedWidth). max-height
+  // reproduces that here: the browser re-derives the used width from the constrained
+  // height, so a taller-than-A4 asset letterboxes in the preview exactly as it does
+  // in the export instead of running off the bottom of the sheet.
+  if (placement.width_mm === null) style.maxHeight = "100%";
+
   if (horizontal === "left") style.left = offsetX;
   else if (horizontal === "right") style.right = offsetX;
   else {
@@ -47,22 +54,60 @@ export function placementStyle(placement: Placement): CSSProperties {
 }
 
 /**
- * The band a deliverable page is shrunk into, as CSS on the same preview box.
+ * The band the translated text is laid out in, as CSS on the same preview box.
  *
- * Mirrors `PlacementConfig::resolveContentRect()` — change both together. Returns
- * null when the letterhead reserves no band, i.e. the merge is a plain overlay.
+ * This is what a Word deliverable gets: its page margins are widened before
+ * conversion (App\Support\DocxPageMargins), so the text reflows into the band at
+ * full size and full width. Returns null when the letterhead reserves no band, i.e.
+ * the merge is a plain overlay.
  */
 export function contentBandStyle(placement: Placement): CSSProperties | null {
-  const top = placement.content_top_mm ?? 0;
-  const bottom = placement.content_bottom_mm ?? 0;
+  const band = bandMm(placement);
 
-  if (top <= 0 && bottom <= 0) return null;
+  if (!band) return null;
 
   return {
     position: "absolute",
     left: 0,
     right: 0,
-    top: percentY(top),
-    height: percentY(A4_MM.height - top - bottom),
+    top: percentY(band.top),
+    height: percentY(band.available),
   };
+}
+
+/**
+ * The smaller rectangle a deliverable that CANNOT be reflowed is shrunk into — a PDF
+ * the translator hands over ready-made, or a scan.
+ *
+ * Mirrors `PlacementConfig::resolveContentRect()` — change both together. Drawn
+ * alongside `contentBandStyle` so the admin can see what the two paths cost before
+ * committing a band: the scale is uniform, so the page loses width as well as
+ * height, and a 33/27mm band on A4 leaves a 21mm blank gutter down each side.
+ */
+export function contentShrinkStyle(placement: Placement): CSSProperties | null {
+  const band = bandMm(placement);
+
+  if (!band) return null;
+
+  const width = A4_MM.width * (band.available / A4_MM.height);
+
+  return {
+    position: "absolute",
+    left: percentX((A4_MM.width - width) / 2),
+    width: percentX(width),
+    top: percentY(band.top),
+    height: percentY(band.available),
+  };
+}
+
+/** Shared band arithmetic; null when nothing is reserved or the band leaves no room. */
+function bandMm(placement: Placement): { top: number; available: number } | null {
+  const top = placement.content_top_mm ?? 0;
+  const bottom = placement.content_bottom_mm ?? 0;
+
+  if (top <= 0 && bottom <= 0) return null;
+
+  const available = A4_MM.height - top - bottom;
+
+  return available > 0 ? { top, available } : null;
 }

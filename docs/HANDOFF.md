@@ -341,8 +341,20 @@ rather than a deliverable, so it was never scoped or priced.
 which replaced `FinalizeProjectJob`): deliverable → PDF via Gotenberg
 `/forms/libreoffice/convert` (a PDF deliverable passes through untouched — re-rendering
 it rasterises Arabic shaping) → FPDI redraw per page: **letterhead behind → deliverable
-page scaled into the content band → stamp on top** → stored as the `final` file →
+page inside the content band → stamp on top** → stored as the `final` file →
 `approved → completed` via `ProjectTransitionService`.
+
+**How the content band is honoured** — two paths, and the difference is visible:
+- **.docx** (the normal case): `App\Support\DocxPageMargins` widens `<w:pgMar w:top/
+  w:bottom>` *before* conversion, so LibreOffice lays the translation out inside the
+  band at **full size and full width**. Gotenberg's LibreOffice route exposes no margin
+  fields — `marginTop` and friends belong to the Chromium routes — so the geometry has
+  to be changed in the document itself. Existing margins are only ever widened, never
+  narrowed, and a document this cannot rewrite falls back to the path below.
+- **anything else** (a ready-made PDF, a scan, .rtf, .xlsx): nothing to reflow, so
+  `PlacementConfig::resolveContentRect()` scales the finished page into the band.
+  Uniform scaling costs width too — the 33/27 band leaves a scale of 0.798 and a 21mm
+  blank gutter down each side, which is why the .docx path exists.
 
 **What the client actually supplied** (`samples/`, gitignored — real legal stamp and
 handwritten signature, never commit them):
@@ -354,7 +366,11 @@ handwritten signature, never commit them):
 
 **Decisions taken** (Ahmed: "go with your recommendations"):
 - Stamp and signature stay **one asset**, trimmed to their ink box on upload.
-- Deliverable pages are **shrunk into the content band** rather than overlaid raw.
+- Deliverable pages are kept **inside the content band** rather than overlaid raw —
+  by reflowing a .docx into it, and by scaling only what cannot be reflowed.
+- A full-bleed letterhead (`width_mm: null`) is fitted **inside** the page, not to its
+  width: a US Letter deliverable used to take the A4 artwork to 305.3 mm on a 279.4 mm
+  page and lose the whole footer bar off the bottom edge.
 - Letterhead and stamp on **all pages**; the asset size cap moved 10 MB → **25 MB**
   because the client's own letterhead is 17 MB.
 - Real placement that produced a correct document: letterhead
