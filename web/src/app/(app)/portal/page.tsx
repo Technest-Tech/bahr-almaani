@@ -31,6 +31,7 @@ import {
   type Paginated,
   type Project,
   type ProjectFile,
+  type StampPosition,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +48,7 @@ import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { DraftPreviewDialog } from "@/components/portal/draft-preview-dialog";
+import { DeliverDialog } from "@/components/portal/deliver-dialog";
 
 const ALL = "all";
 
@@ -366,43 +368,48 @@ function CurrentAssignmentCard({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  /** Files chosen but not yet handed over — the seal is positioned on these. */
+  const [staged, setStaged] = useState<File[]>([]);
   const { confirm } = useConfirm();
   const { download, upload } = useFileTransfer();
   const [uploading, setUploading] = useState(false);
   const project = assignment.project!;
 
-  async function handleDeliver(event: React.ChangeEvent<HTMLInputElement>) {
+  /**
+   * Picking files opens the delivery dialog rather than delivering outright: the
+   * translator gets a chance to put the office seal where it actually fits before the
+   * document leaves them. Confirmation lives in that dialog now.
+   */
+  function handleDeliver(event: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     if (picked.length === 0) return;
 
-    const confirmed = await confirm({
-      title: "تسليم الترجمة؟",
-      description:
-        picked.length === 1
-          ? `سيتم تسليم «${picked[0].name}» لمدير المشروع وإيقاف عداد الوقت.`
-          : `سيتم تسليم ${picked.length.toLocaleString("ar-EG")} ملفات (${picked
-              .map((f) => f.name)
-              .join("، ")}) لمدير المشروع وإيقاف عداد الوقت.`,
-      confirmLabel: "تسليم",
-    });
-    if (!confirmed) {
-      if (inputRef.current) inputRef.current.value = "";
-      return;
-    }
+    setStaged(picked);
+  }
 
+  function cancelDelivery() {
+    setStaged([]);
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  async function submitDelivery(placements: Record<number, StampPosition>) {
     setUploading(true);
 
     // One delivery, however many documents — the merge letterheads each of them
-    // into its own certified file.
+    // into its own certified file, each with its own seal position.
     const formData = new FormData();
-    picked.forEach((file) => formData.append("files[]", file));
+    staged.forEach((file) => formData.append("files[]", file));
+    Object.entries(placements).forEach(([index, placement]) =>
+      formData.append(`stamp_placements[${index}]`, JSON.stringify(placement)),
+    );
 
     const label =
-      picked.length === 1 ? picked[0].name : `${picked.length.toLocaleString("ar-EG")} ملفات`;
+      staged.length === 1 ? staged[0].name : `${staged.length.toLocaleString("ar-EG")} ملفات`;
 
     try {
       await upload("/portal/deliver", formData, label);
       toast.success("تم تسليم الترجمة — شكراً لك 🎉");
+      setStaged([]);
       onDelivered();
     } catch (err) {
       if (!isAbort(err)) {
@@ -551,6 +558,14 @@ function CurrentAssignmentCard({
         </div>
 
         <DraftPreviewDialog open={previewOpen} onClose={() => setPreviewOpen(false)} />
+
+        <DeliverDialog
+          open={staged.length > 0}
+          files={staged}
+          onCancel={cancelDelivery}
+          onConfirm={submitDelivery}
+          submitting={uploading}
+        />
       </CardContent>
     </Card>
   );

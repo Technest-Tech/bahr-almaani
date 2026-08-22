@@ -56,17 +56,9 @@ class StoreLetterheadTemplateRequest extends FormRequest
                 'max:'.self::MAX_ASSET_KB,
             ],
             'is_active' => ['sometimes', 'boolean'],
-            'placement' => ['sometimes', 'nullable', 'array'],
-            'placement.pages' => ['sometimes', Rule::in(PlacementConfig::PAGES)],
-            'placement.anchor' => ['sometimes', Rule::in(PlacementConfig::ANCHORS)],
-            'placement.offset_x_mm' => ['sometimes', 'numeric', 'between:-500,500'],
-            'placement.offset_y_mm' => ['sometimes', 'numeric', 'between:-500,500'],
-            'placement.width_mm' => ['sometimes', 'nullable', 'numeric', 'between:1,1000'],
-            'placement.opacity' => ['sometimes', 'numeric', 'between:0,1'],
-            'placement.layer' => ['sometimes', Rule::in(PlacementConfig::LAYERS)],
-            // Letterhead-only: the band its own header/footer artwork occupies (M9b).
-            'placement.content_top_mm' => ['sometimes', 'numeric', 'between:0,148'],
-            'placement.content_bottom_mm' => ['sometimes', 'numeric', 'between:0,148'],
+            // Shared with the portal and the approval dialog — see PlacementConfig::rules().
+            // withBand: only a letterhead reserves a content band (M9b).
+            ...PlacementConfig::rules(withBand: true),
         ];
     }
 

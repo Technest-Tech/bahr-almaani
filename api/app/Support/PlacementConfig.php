@@ -68,6 +68,42 @@ class PlacementConfig
         'layer' => 'foreground',
     ];
 
+    /**
+     * Validation rules for a placement arriving over the wire.
+     *
+     * Shared so the three doors into this geometry cannot drift apart: the admin
+     * editing a template (StoreLetterheadTemplateRequest), the translator placing the
+     * stamp on their own file (PortalController), and the PM adjusting it at approval
+     * (ReviewController). The bounds are deliberately loose — a negative offset is a
+     * legitimate bleed off the page edge — because normalize() is what actually makes
+     * the value safe; these rules only reject what is not geometry at all.
+     *
+     * @param  string  $key  the request key holding the placement array
+     * @param  bool  $withBand  include the letterhead-only content band keys
+     * @return array<string, array<int, string>>
+     */
+    public static function rules(string $key = 'placement', bool $withBand = false): array
+    {
+        $rules = [
+            $key => ['sometimes', 'nullable', 'array'],
+            "{$key}.pages" => ['sometimes', 'in:'.implode(',', self::PAGES)],
+            "{$key}.anchor" => ['sometimes', 'in:'.implode(',', self::ANCHORS)],
+            "{$key}.offset_x_mm" => ['sometimes', 'numeric', 'between:-500,500'],
+            "{$key}.offset_y_mm" => ['sometimes', 'numeric', 'between:-500,500'],
+            "{$key}.width_mm" => ['sometimes', 'nullable', 'numeric', 'between:1,1000'],
+            "{$key}.opacity" => ['sometimes', 'numeric', 'between:0,1'],
+            "{$key}.layer" => ['sometimes', 'in:'.implode(',', self::LAYERS)],
+        ];
+
+        if ($withBand) {
+            foreach (self::LETTERHEAD_ONLY_KEYS as $bandKey) {
+                $rules["{$key}.{$bandKey}"] = ['sometimes', 'numeric', 'between:0,148'];
+            }
+        }
+
+        return $rules;
+    }
+
     public static function defaultsFor(string $kind): array
     {
         return $kind === LetterheadTemplate::KIND_STAMP
@@ -78,10 +114,17 @@ class PlacementConfig
     /**
      * Fill missing keys from the kind defaults and drop anything unknown, so the
      * merge job can read every key without null checks.
+     *
+     * @param  array|null  $defaults  layer over these instead of the kind defaults.
+     *                                Used when a project overrides its stamp template's
+     *                                position: the drag only ever sets x/y, and falling
+     *                                back to the kind default would silently resize a
+     *                                174.5mm seal to 45mm. Pass the template's own
+     *                                normalized placement and only what moved changes.
      */
-    public static function normalize(?array $placement, string $kind): array
+    public static function normalize(?array $placement, string $kind, ?array $defaults = null): array
     {
-        $defaults = self::defaultsFor($kind);
+        $defaults ??= self::defaultsFor($kind);
         $input = $placement ?? [];
 
         $anchor = self::pick($input, 'anchor', self::ANCHORS, $defaults['anchor']);
@@ -105,6 +148,56 @@ class PlacementConfig
         }
 
         return $normalized;
+    }
+
+    /**
+     * Keep only recognised geometry keys and coerce their types, WITHOUT filling in
+     * defaults for the ones that are absent.
+     *
+     * This is what a per-document stamp position is stored as. It is captured at
+     * delivery, and nobody has chosen a stamp template yet — the PM does that at
+     * approval — so defaulting the gaps here would bake in the 45mm kind default and
+     * silently shrink the office's real 174.5mm seal. What is stored is only what the
+     * translator actually decided (where they dragged it, and which pages), and the
+     * merge layers it over the chosen template's own placement via normalize()'s
+     * $defaults. Returns [] when nothing usable is present, which reads as "no opinion".
+     *
+     * @return array<string, mixed>
+     */
+    public static function sanitize(?array $placement): array
+    {
+        $input = $placement ?? [];
+        $clean = [];
+
+        foreach (['pages' => self::PAGES, 'anchor' => self::ANCHORS, 'layer' => self::LAYERS] as $key => $allowed) {
+            if (isset($input[$key]) && is_string($input[$key]) && in_array($input[$key], $allowed, true)) {
+                $clean[$key] = $input[$key];
+            }
+        }
+
+        foreach (['offset_x_mm', 'offset_y_mm'] as $key) {
+            if (isset($input[$key]) && is_numeric($input[$key])) {
+                $clean[$key] = round((float) $input[$key], 2);
+            }
+        }
+
+        if (isset($input['opacity']) && is_numeric($input['opacity'])) {
+            $clean['opacity'] = round(min(1.0, max(0.0, (float) $input['opacity'])), 2);
+        }
+
+        // A null width is meaningful — "full bleed" — so presence is what counts here,
+        // not truthiness.
+        if (array_key_exists('width_mm', $input)) {
+            $width = $input['width_mm'];
+
+            if ($width === null || $width === '') {
+                $clean['width_mm'] = null;
+            } elseif (is_numeric($width)) {
+                $clean['width_mm'] = round((float) $width, 2);
+            }
+        }
+
+        return $clean;
     }
 
     /**

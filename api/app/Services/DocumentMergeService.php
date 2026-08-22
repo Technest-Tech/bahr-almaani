@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\LetterheadTemplate;
 use App\Support\AssetOptimizer;
 use App\Support\DocxPageMargins;
+use App\Support\Ghostscript;
 use App\Support\PlacementConfig;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -164,6 +165,12 @@ class DocumentMergeService
      *                                      already reserved in its own page margins, so
      *                                      its pages must be drawn at full size — see
      *                                      convert() and App\Support\DocxPageMargins
+     * @param  array|null  $stampPlacement  this document's own stamp position, overriding
+     *                                      the template's. Null keeps the template's, so
+     *                                      a file that never placed one is unchanged.
+     *                                      The letterhead has no equivalent on purpose:
+     *                                      it is the office's fixed stationery, and a
+     *                                      per-document one would be a different template.
      * @return string binary PDF
      */
     public function merge(
@@ -172,6 +179,7 @@ class DocumentMergeService
         ?LetterheadTemplate $stamp,
         ?string $watermark = null,
         bool $bandReservedInLayout = false,
+        ?array $stampPlacement = null,
     ): string {
         $pdf = new Fpdi('P', 'mm');
         $pdf->setPrintHeader(false);
@@ -183,8 +191,15 @@ class DocumentMergeService
         $letterheadPlacement = $letterhead
             ? PlacementConfig::normalize($letterhead->placement, $letterhead->kind)
             : null;
+        // The project's own placement wins when it has one; normalize() fills whatever
+        // the translator's drag did not set from the template's value, so a position
+        // carrying only x/y still keeps the stamp's true physical width.
         $stampPlacement = $stamp
-            ? PlacementConfig::normalize($stamp->placement, $stamp->kind)
+            ? PlacementConfig::normalize(
+                $stampPlacement ?? $stamp->placement,
+                $stamp->kind,
+                $stampPlacement !== null ? PlacementConfig::normalize($stamp->placement, $stamp->kind) : null,
+            )
             : null;
 
         // Imported templates stay valid after the source file switches, so the
@@ -277,6 +292,7 @@ class DocumentMergeService
         ?LetterheadTemplate $letterhead,
         ?LetterheadTemplate $stamp,
         ?string $watermark = null,
+        ?array $stampPlacement = null,
     ): string {
         $placement = $letterhead
             ? PlacementConfig::normalize($letterhead->placement, $letterhead->kind)
@@ -292,9 +308,83 @@ class DocumentMergeService
         $converted = $this->convert($diskPath, $originalName, $band);
 
         try {
-            return $this->merge($converted['path'], $letterhead, $stamp, $watermark, $converted['reserved']);
+            return $this->merge(
+                $converted['path'],
+                $letterhead,
+                $stamp,
+                $watermark,
+                $converted['reserved'],
+                $stampPlacement,
+            );
         } finally {
             @unlink($converted['path']);
+        }
+    }
+
+    /**
+     * The page a stamp is dragged onto, as a PNG plus its true physical size.
+     *
+     * It is deliberately the *converted, letterheaded* page rather than the file the
+     * translator uploaded. A position is only meaningful against the geometry the merge
+     * will actually produce, and two things move that geometry before the merge sees
+     * it: LibreOffice repaginates a .docx, and (since the content band landed) the page
+     * margins are widened first, which can push the last line onto a new page. Dragging
+     * on the Word file would place the seal against a page that never exists.
+     *
+     * The stamp itself is NOT drawn — the browser overlays it as a draggable element, so
+     * what comes back is the blank space the translator is choosing between.
+     *
+     * @param  int|null  $page  1-based; null means the last page, where a stamp goes
+     * @return array{image: string, width_mm: float, height_mm: float, page: int, pages: int}
+     *
+     * @throws RuntimeException when ghostscript cannot render the page
+     */
+    public function stampSurface(
+        string $diskPath,
+        string $originalName,
+        ?LetterheadTemplate $letterhead,
+        ?int $page = null,
+    ): array {
+        $placement = $letterhead
+            ? PlacementConfig::normalize($letterhead->placement, $letterhead->kind)
+            : null;
+
+        $band = $placement !== null && $placement['pages'] === 'all'
+            ? PlacementConfig::band($placement)
+            : null;
+
+        $converted = $this->convert($diskPath, $originalName, $band);
+
+        try {
+            $merged = $this->writeTemp(
+                $this->merge($converted['path'], $letterhead, null, null, $converted['reserved']),
+                'pdf',
+            );
+        } finally {
+            @unlink($converted['path']);
+        }
+
+        try {
+            $pdf = new Fpdi;
+            $pageCount = $pdf->setSourceFile($merged);
+            $target = max(1, min($page ?? $pageCount, $pageCount));
+            $size = $pdf->getTemplateSize($pdf->importPage($target));
+
+            $image = Ghostscript::renderPage($merged, $target);
+
+            if ($image === null) {
+                throw new RuntimeException('Could not render the page the stamp is placed on.');
+            }
+
+            return [
+                'image' => $image,
+                'width_mm' => round($size['width'], 2),
+                'height_mm' => round($size['height'], 2),
+                'page' => $target,
+                'pages' => $pageCount,
+            ];
+        } finally {
+            @unlink($merged);
         }
     }
 

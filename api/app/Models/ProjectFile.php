@@ -49,7 +49,17 @@ class ProjectFile extends Model
         'count_status',
         'count_source',
         'version',
+        'stamp_placement',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            // Deliverables only: where this document's stamp goes, normalized by
+            // App\Support\PlacementConfig. Null = the stamp template's own position.
+            'stamp_placement' => 'array',
+        ];
+    }
 
     public function project(): BelongsTo
     {

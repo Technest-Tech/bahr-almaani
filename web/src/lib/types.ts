@@ -157,8 +157,26 @@ export interface ProjectFile {
   count_status: "pending" | "processing" | "done" | "failed" | "not_applicable";
   count_source: "auto" | "manual" | "ocr";
   version: number;
+  /** Deliverables only: where the seal sits on THIS document (null = the template's). */
+  stamp_placement: StampPosition | null;
   uploaded_by?: { id: number; name: string };
   created_at: string;
+}
+
+/**
+ * A per-document stamp position, always measured from the page's top-left corner in
+ * millimetres — physical paper geometry, matching App\Support\PlacementConfig.
+ *
+ * Deliberately partial: it carries only what the translator decided by dragging. The
+ * merge layers it over whichever stamp template the PM picks at approval, so the seal
+ * keeps its true physical size instead of being reset to a default.
+ */
+export interface StampPosition {
+  anchor: "top-left";
+  offset_x_mm: number;
+  offset_y_mm: number;
+  /** Which pages carry the seal; omitted means the stamp template decides. */
+  pages?: PlacementPages;
 }
 
 export interface Transition {

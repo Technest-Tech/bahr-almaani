@@ -129,6 +129,11 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/projects/{project}/review/request-revision', [ReviewController::class, 'requestRevision']);
             Route::post('/projects/{project}/review/approve', [ReviewController::class, 'approve']);
             Route::post('/projects/{project}/merge/retry', [ReviewController::class, 'retryMerge']);
+
+            // The page image the PM drags the seal on, for a delivered file. Costs a
+            // conversion and a render, so it is throttled like the portal's.
+            Route::get('/projects/{project}/files/{file}/stamp-surface', [ReviewController::class, 'stampSurface'])
+                ->middleware('throttle:portal-previews');
         });
 
         // Translator portal (M4)
@@ -146,6 +151,11 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/templates', [PortalController::class, 'templates']);
             Route::get('/templates/{letterhead}/asset', [PortalController::class, 'templateAsset']);
             Route::post('/preview', [PortalController::class, 'previewMerge'])
+                ->middleware('throttle:portal-previews');
+
+            // The page image the stamp is dragged onto. Same cost as a preview (a
+            // Gotenberg conversion plus a ghostscript render), so the same limiter.
+            Route::post('/stamp-surface', [PortalController::class, 'stampSurface'])
                 ->middleware('throttle:portal-previews');
 
             // The translator's own daily word log — personal, no extra permission.

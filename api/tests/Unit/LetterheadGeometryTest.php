@@ -75,4 +75,53 @@ class LetterheadGeometryTest extends TestCase
             PlacementConfig::band($this->letterhead(['content_top_mm' => 33])),
         );
     }
+
+    /**
+     * A dragged stamp position stays partial.
+     *
+     * This is the whole point of sanitize(): the translator places the seal before
+     * anyone has chosen which stamp template will be used, so filling the gaps here
+     * would bake in the 45mm kind default and shrink the office's real 174.5mm seal.
+     */
+    public function test_a_dragged_position_keeps_only_what_was_actually_set(): void
+    {
+        $clean = PlacementConfig::sanitize([
+            'anchor' => 'top-left',
+            'offset_x_mm' => 120.4,
+            'offset_y_mm' => 210.75,
+        ]);
+
+        $this->assertSame(['anchor' => 'top-left', 'offset_x_mm' => 120.4, 'offset_y_mm' => 210.75], $clean);
+        $this->assertArrayNotHasKey('width_mm', $clean, 'The seal must keep the template size.');
+        $this->assertArrayNotHasKey('pages', $clean);
+    }
+
+    public function test_sanitize_drops_junk_and_keeps_a_deliberate_null_width(): void
+    {
+        $this->assertSame([], PlacementConfig::sanitize(['anchor' => 'sideways', 'offset_x_mm' => 'left a bit']));
+        $this->assertSame([], PlacementConfig::sanitize(null));
+        // null width is "full bleed", not "unset" — presence is what counts.
+        $this->assertSame(['width_mm' => null], PlacementConfig::sanitize(['width_mm' => null]));
+        $this->assertSame(['opacity' => 1.0], PlacementConfig::sanitize(['opacity' => 4]), 'Clamped, not dropped.');
+    }
+
+    /**
+     * The merge layers the document's position over the chosen template's, so a drag
+     * that only moved the seal cannot silently resize it.
+     */
+    public function test_a_partial_position_layers_over_the_template_it_is_merged_with(): void
+    {
+        $template = PlacementConfig::normalize(['width_mm' => 174.5, 'anchor' => 'bottom-left'], 'stamp');
+
+        $merged = PlacementConfig::normalize(
+            ['anchor' => 'top-left', 'offset_x_mm' => 120.4, 'offset_y_mm' => 210.75],
+            'stamp',
+            $template,
+        );
+
+        $this->assertSame(174.5, $merged['width_mm'], 'The office\'s real seal size survives the drag.');
+        $this->assertSame('top-left', $merged['anchor'], 'What was dragged wins.');
+        $this->assertSame(120.4, $merged['offset_x_mm']);
+        $this->assertSame($template['pages'], $merged['pages'], 'Untouched keys come from the template.');
+    }
 }

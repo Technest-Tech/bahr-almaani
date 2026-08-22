@@ -70,6 +70,12 @@ class MergeFinalFileJob implements ShouldQueue
                     $deliverable->original_name,
                     $project->letterhead,
                     $project->stamp,
+                    null,
+                    // Where the translator put the seal on THIS document and the PM
+                    // confirmed at approval. Per file, because one delivery round can
+                    // be three separately certified documents with their blank space
+                    // in three different places. Null falls back to the template's.
+                    $deliverable->stamp_placement,
                 ),
             ]);
 

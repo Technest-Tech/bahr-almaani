@@ -138,6 +138,36 @@ class Ghostscript
     }
 
     /**
+     * Render ONE page to a colour JPEG — the surface the stamp is dragged onto.
+     *
+     * Colour, unlike rasterize(): a person is looking at this to decide where the seal
+     * fits, and the letterhead is gold and navy. 110 DPI puts A4 at roughly 910 × 1287
+     * px, sharper than any screen shows it at dialog size.
+     *
+     * JPEG rather than PNG because it travels: the same page came out at 972 KB as a
+     * PNG and 113 KB at quality 78, and the office works over a 5 Mbit/s line, so that
+     * is the difference between a surface appearing at once and one the translator
+     * waits two seconds for. Nothing is judged from this image except where the blank
+     * space is, and the letterhead's photographic globe is exactly what PNG is bad at.
+     *
+     * @return string|null JPEG bytes, or null when ghostscript is absent or fails
+     */
+    public static function renderPage(string $path, int $page, int $dpi = 110): ?string
+    {
+        return self::run($path, [
+            '-sDEVICE=jpeg',
+            '-dJPEGQ=78',
+            "-r{$dpi}",
+            "-dFirstPage={$page}",
+            "-dLastPage={$page}",
+            // Text and the letterhead's fine rules stay legible when the browser
+            // scales the image down to the drag surface.
+            '-dTextAlphaBits=4',
+            '-dGraphicsAlphaBits=4',
+        ], 'jpg', "page {$page} render");
+    }
+
+    /**
      * @param  list<string>  $flags
      */
     private static function run(string $path, array $flags, string $extension, string $what): ?string

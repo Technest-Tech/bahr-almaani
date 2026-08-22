@@ -15,6 +15,7 @@ use App\Models\Project;
 use App\Notifications\ProjectDeliveredNotification;
 use App\Services\DocumentMergeService;
 use App\Services\PortalService;
+use App\Support\PlacementConfig;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -106,7 +107,11 @@ class PortalController extends Controller
             'files.*' => ['file', 'max:51200'],
         ])->validate();
 
-        $assignment = $this->portal->deliver($request->user(), $validated['files']);
+        $assignment = $this->portal->deliver(
+            $request->user(),
+            $validated['files'],
+            $this->stampPlacements($request, count($validated['files'])),
+        );
 
         $assignment->project->creator->notify(new ProjectDeliveredNotification($assignment->project, $request->user()));
         $this->broadcastLive(new ProjectDelivered($assignment->project, $request->user()));
@@ -188,6 +193,10 @@ class PortalController extends Controller
             'stamp_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
         ]);
 
+        // So the draft shows the seal where the translator just dragged it, not where
+        // the template would have put it. Index 0: the preview takes one file.
+        $placement = $this->stampPlacements($request, 1)[0] ?? null;
+
         $letterhead = $this->activeTemplate($validated['letterhead_id'] ?? null, LetterheadTemplate::KIND_LETTERHEAD);
         $stamp = $this->activeTemplate($validated['stamp_id'] ?? null, LetterheadTemplate::KIND_STAMP);
 
@@ -208,6 +217,7 @@ class PortalController extends Controller
                 $letterhead,
                 $stamp,
                 __('portal.draft_watermark'),
+                $placement,
             );
         } finally {
             Storage::disk('local')->delete($path);
@@ -218,6 +228,109 @@ class PortalController extends Controller
             'Content-Disposition' => 'attachment; filename="draft-'.$assignment->project->code.'.pdf"',
             'Cache-Control' => 'private, no-store',
         ]);
+    }
+
+    /**
+     * The page the stamp will be dragged onto, as an image, plus its real size in mm.
+     *
+     * The translator uploads the file they are about to deliver, and gets back the page
+     * the merge would actually produce — converted, letterheaded, repaginated — with no
+     * stamp on it. The browser overlays the seal as a draggable element and hands the
+     * resulting millimetre position back with the delivery.
+     *
+     * It has to be this page and not the uploaded Word file: LibreOffice repaginates,
+     * and the content band widens the margins first, so a position measured against the
+     * .docx would be a position on a page that never exists.
+     *
+     * Costs a Gotenberg conversion and a ghostscript render, so it sits behind the same
+     * throttle as the draft preview and requires holding the project.
+     */
+    public function stampSurface(Request $request, DocumentMergeService $merger): JsonResponse
+    {
+        $assignment = $this->portal->currentAssignment($request->user());
+        abort_if($assignment === null, 404, __('portal.no_active_assignment'));
+
+        $validated = $request->validate([
+            'file' => ['required', 'file', 'max:51200'],
+            'letterhead_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
+            'page' => ['nullable', 'integer', 'min:1', 'max:500'],
+        ]);
+
+        $letterhead = $this->activeTemplate($validated['letterhead_id'] ?? null, LetterheadTemplate::KIND_LETTERHEAD);
+
+        // Under the holder's own id, never the project's — a surface render is not a
+        // delivery and must not be mistaken for one.
+        $path = $request->file('file')->store("previews/{$request->user()->id}", 'local');
+
+        try {
+            $surface = $merger->stampSurface(
+                $path,
+                $request->file('file')->getClientOriginalName(),
+                $letterhead,
+                $validated['page'] ?? null,
+            );
+        } finally {
+            Storage::disk('local')->delete($path);
+        }
+
+        return response()->json([
+            'data' => [
+                // Inlined rather than served from a URL: the surface belongs to one
+                // drag on one unsaved upload, so there is nothing to cache and nothing
+                // that should outlive the request.
+                'image' => 'data:image/jpeg;base64,'.base64_encode($surface['image']),
+                'width_mm' => $surface['width_mm'],
+                'height_mm' => $surface['height_mm'],
+                'page' => $surface['page'],
+                'pages' => $surface['pages'],
+            ],
+        ]);
+    }
+
+    /**
+     * Normalized stamp placements from a multipart delivery, keyed by file index.
+     *
+     * Multipart can only carry strings, so each entry arrives JSON-encoded — the same
+     * accommodation StoreLetterheadTemplateRequest makes. Anything unparseable is
+     * dropped rather than rejected: a delivery must never fail because the optional
+     * position that rides along with it was malformed.
+     *
+     * @return array<int, array>
+     */
+    private function stampPlacements(Request $request, int $fileCount): array
+    {
+        $raw = $request->input('stamp_placements');
+
+        if (is_string($raw)) {
+            $raw = json_decode($raw, true);
+        }
+
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $placements = [];
+
+        foreach ($raw as $index => $placement) {
+            if (is_string($placement)) {
+                $placement = json_decode($placement, true);
+            }
+
+            if (! is_array($placement) || ! is_numeric($index) || $index < 0 || $index >= $fileCount) {
+                continue;
+            }
+
+            // sanitize(), not normalize(): no stamp template has been chosen yet, so
+            // the gaps must stay gaps for the merge to fill from whichever seal the PM
+            // picks at approval. See PlacementConfig::sanitize().
+            $clean = PlacementConfig::sanitize($placement);
+
+            if ($clean !== []) {
+                $placements[(int) $index] = $clean;
+            }
+        }
+
+        return $placements;
     }
 
     /** An active template of the expected kind, or null. */

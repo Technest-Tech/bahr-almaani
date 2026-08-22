@@ -119,10 +119,16 @@ class PortalService
     /**
      * @param  list<UploadedFile>  $uploads  one delivery round; a visa application can
      *                                       carry a passport, a licence and a contract
+     * @param  array<int, array|null>  $stampPlacements  where the translator dragged the
+     *                                                   seal on each upload, keyed by the
+     *                                                   same index. Already normalized by
+     *                                                   the controller; a missing entry
+     *                                                   leaves the stamp template's own
+     *                                                   position in charge.
      */
-    public function deliver(User $translator, array $uploads): Assignment
+    public function deliver(User $translator, array $uploads, array $stampPlacements = []): Assignment
     {
-        return DB::transaction(function () use ($translator, $uploads): Assignment {
+        return DB::transaction(function () use ($translator, $uploads, $stampPlacements): Assignment {
             $assignment = $this->currentAssignment($translator);
 
             abort_if($assignment === null, 404, __('portal.no_active_assignment'));
@@ -142,7 +148,7 @@ class PortalService
             // it replaces.
             $version = ($project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->max('version') ?? 0) + 1;
 
-            foreach ($uploads as $upload) {
+            foreach ($uploads as $index => $upload) {
                 $deliverable = $project->files()->create([
                     'category' => ProjectFile::CATEGORY_DELIVERABLE,
                     'uploaded_by' => $translator->id,
@@ -151,6 +157,9 @@ class PortalService
                     'mime_type' => $upload->getClientMimeType(),
                     'size_bytes' => $upload->getSize(),
                     'version' => $version,
+                    // Where this document's seal goes. Per file, because the blank
+                    // space on a passport is nowhere near the blank space on a lease.
+                    'stamp_placement' => $stampPlacements[$index] ?? null,
                 ]);
 
                 // The delivered file is counted like any other upload. It used to be

@@ -23,6 +23,10 @@ class ProjectFileResource extends JsonResource
             'count_status' => $this->count_status,
             'count_source' => $this->count_source,
             'version' => $this->version,
+            // Deliverables only: where the translator put the seal on this document.
+            // Null means the stamp template's own position still applies, and the
+            // approval dialog shows that rather than an empty box.
+            'stamp_placement' => $this->stamp_placement,
             'uploaded_by' => $this->whenLoaded('uploader', fn () => [
                 'id' => $this->uploader->id,
                 'name' => $this->uploader->name,
