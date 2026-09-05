@@ -15,7 +15,6 @@ use App\Services\ProjectTransitionService;
 use App\Support\PlacementConfig;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -106,8 +105,11 @@ class ReviewController extends Controller
     /**
      * in_review → approved, then the finalize job completes it.
      *
-     * The letterhead + stamp are chosen here and persisted on the project, so the
-     * merge job (M9b) reads its overlay configuration straight off the record.
+     * The letterhead (and optionally a stamp) are chosen here and persisted on the
+     * project, so the merge job (M9b) reads its overlay configuration straight off
+     * the record. The stamp became optional on the office's request (2026-09-05):
+     * "عايز أعمل إنهاء وعندي القدرة أختم أو لا" — not every finished document
+     * carries the seal, and the merge has always handled a null stamp.
      */
     public function approve(Request $request, Project $project): ProjectResource
     {
@@ -119,7 +121,7 @@ class ReviewController extends Controller
                     ->where('is_active', true),
             ],
             'stamp_id' => [
-                'required', 'integer',
+                'nullable', 'integer',
                 Rule::exists('letterhead_templates', 'id')
                     ->where('kind', LetterheadTemplate::KIND_STAMP)
                     ->where('is_active', true),
@@ -136,7 +138,13 @@ class ReviewController extends Controller
         // One transaction: an invalid transition must not leave a selection behind
         // on a project that was never approved.
         $project = DB::transaction(function () use ($project, $request, $validated, $placements): Project {
-            $project->fill(Arr::except($validated, 'stamp_placements'))->save();
+            $project->fill([
+                'letterhead_id' => $validated['letterhead_id'],
+                // Omitted means unsealed, explicitly: approval decides the whole
+                // certification package, so a stamp preset earlier on the record
+                // must not sneak into a final the PM chose to leave unstamped.
+                'stamp_id' => $validated['stamp_id'] ?? null,
+            ])->save();
 
             // Loaded and saved rather than mass-updated: a query-builder update
             // skips the model's array cast and would hand the driver a PHP array.

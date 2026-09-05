@@ -40,8 +40,10 @@ interface Props {
 const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
 
 /**
- * Approval carries the letterhead + stamp selection (M9): the API rejects an
- * approval without both, and the merge job reads them off the project.
+ * Approval carries the letterhead selection (M9) and, optionally, a stamp: the
+ * office asked (2026-09-05) to be able to finish a file without sealing it —
+ * "عندي القدرة أختم أو لا" — so only the letterhead is required and «بدون ختم»
+ * is a first-class choice, not a validation error.
  *
  * It also carries the last word on **where each seal sits**. The translator placed it
  * while they had the document in front of them, and that placement arrives here
@@ -71,7 +73,9 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
   const letterheads = data?.filter((t) => t.kind === "letterhead") ?? [];
   const stamps = data?.filter((t) => t.kind === "stamp") ?? [];
   const stamp = stamps.find((t) => t.id === stampId) ?? null;
-  const ready = letterheadId !== null && stampId !== null;
+  // The stamp is deliberately NOT part of readiness — approving unsealed is a
+  // choice the office asked for, not a half-filled form.
+  const ready = letterheadId !== null;
 
   /** The newest round's deliverables — exactly the files the merge will letterhead. */
   const deliverables = useMemo(() => {
@@ -135,7 +139,7 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
           <DialogHeader>
             <DialogTitle>اعتماد الترجمة وإنهاء الملف</DialogTitle>
             <DialogDescription>
-              اختر الترويسة والختم اللذين سيُدمجان في الملف النهائي — لا يمكن الاعتماد بدونهما.
+              اختر الترويسة التي ستُدمج في الملف النهائي. الختم اختياري — يمكنك الاعتماد بدونه.
             </DialogDescription>
           </DialogHeader>
 
@@ -148,14 +152,27 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
               selectedId={letterheadId}
               onSelect={setLetterheadId}
             />
-            <TemplatePicker
-              kind="stamp"
-              title="الختم"
-              templates={stamps}
-              loading={isLoading}
-              selectedId={stampId}
-              onSelect={setStampId}
-            />
+            <div className="space-y-2">
+              <TemplatePicker
+                kind="stamp"
+                title="الختم (اختياري)"
+                templates={stamps}
+                loading={isLoading}
+                selectedId={stampId}
+                onSelect={setStampId}
+              />
+              <button
+                type="button"
+                onClick={() => setStampId(null)}
+                className={`rounded-md border px-3 py-1 text-[13px] transition-colors ${
+                  stampId === null
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "hover:bg-muted"
+                }`}
+              >
+                بدون ختم
+              </button>
+            </div>
 
             <section className="space-y-2">
               <div className="flex items-baseline gap-2">
@@ -195,8 +212,9 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
               )}
 
               {stampId === null && deliverables.length > 0 && (
-                <p className="text-[13px] text-amber-600 dark:text-amber-400">
-                  اختر الختم أولاً حتى يظهر بحجمه الحقيقي على الصفحة.
+                <p className="text-[13px] text-muted-foreground">
+                  بدون ختم: سيصدر الملف النهائي بالترويسة فقط. اختر ختماً أعلاه إذا أردت وضعه
+                  وضبط موضعه.
                 </p>
               )}
             </section>
@@ -210,7 +228,7 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
               onClick={handleApprove}
               loading={submitting}
               disabled={!ready}
-              title={ready ? undefined : "اختر ترويسة وختماً أولاً"}
+              title={ready ? undefined : "اختر ترويسة أولاً"}
             >
               <BadgeCheck className="size-4" />
               اعتماد وإنهاء

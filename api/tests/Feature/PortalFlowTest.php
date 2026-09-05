@@ -588,16 +588,19 @@ class PortalFlowTest extends TestCase
         $this->assertSame(2, $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->count());
     }
 
-    public function test_approval_requires_an_active_letterhead_and_stamp(): void
+    public function test_approval_requires_an_active_letterhead_and_validates_any_stamp(): void
     {
         Notification::fake();
         $project = $this->projectAwaitingApproval();
 
-        // No selection at all.
+        // No selection at all: only the letterhead is required — approving
+        // without a stamp is a legitimate choice (office request 2026-09-05),
+        // so its absence must not be a validation error.
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve")
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['letterhead_id', 'stamp_id']);
+            ->assertJsonValidationErrors(['letterhead_id'])
+            ->assertJsonMissingValidationErrors(['stamp_id']);
 
         // Kinds swapped — a stamp is not a letterhead.
         $letterhead = LetterheadTemplate::factory()->create(['created_by' => $this->pm->id]);

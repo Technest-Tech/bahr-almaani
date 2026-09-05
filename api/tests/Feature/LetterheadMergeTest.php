@@ -75,6 +75,34 @@ class LetterheadMergeTest extends TestCase
     }
 
     /**
+     * The office asked (2026-09-05) to finish a file without sealing it: the
+     * stamp is optional at approval, and omitting it means unsealed even when a
+     * stamp was preset on the record earlier — approval decides the whole
+     * certification package.
+     */
+    public function test_approval_without_a_stamp_produces_a_letterhead_only_final(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject();
+
+        $preset = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]);
+        $project->forceFill(['stamp_id' => $preset->id])->save();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->admin->id])->id,
+            ])
+            ->assertOk();
+
+        $project = $project->fresh();
+        $this->assertSame(Project::STATUS_COMPLETED, $project->status);
+        $this->assertNull($project->stamp_id);
+
+        $final = $project->files()->where('category', ProjectFile::CATEGORY_FINAL)->firstOrFail();
+        $this->assertStringStartsWith('%PDF-', Storage::disk('local')->get($final->disk_path));
+    }
+
+    /**
      * The client identifies a job by the filename they sent, so that is the name
      * that has to come back — not the internal project code.
      */
