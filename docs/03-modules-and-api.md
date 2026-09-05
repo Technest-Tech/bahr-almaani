@@ -22,11 +22,20 @@ Modules map 1:1 to the client's priced contract items (total 85,000 EGP), so sco
 | # | Module | Contract item (Arabic) | EGP | Sprint |
 |---|---|---|---|---|
 | M13 | Public website & quote requests | الموقع العام وطلبات التسعير | change request | post-S4 |
+| M14 | Invoices — client billing | الفواتير | change request (agreed 2026-09-05) | post-S4 |
 
 > M13 is **not** one of the twelve priced items. It is the "client-facing portal"
 > change request from `HANDOFF.md` §7b, and it carries the manual half of the
 > quotation engine (a manager types the price; there is still no rate card). Keep it
 > in its own line on any invoice — the twelve modules above are already sold.
+
+> **M14** is the "invoicing & payments" change request from the same list, agreed
+> with the client on 2026-09-05, in its minimal shape: pick the client, the system
+> sums the **delivered** page counts of finished un-invoiced projects, type a
+> per-page rate or a lump sum, and a numbered PDF invoice (`INV-YYYY-NNNNN`) comes
+> out and is stored. Line items are a snapshot; `projects.invoice_id` guards double
+> billing. Permissions: `invoices.view` / `invoices.manage` (PM, accountant, admin).
+> Payments, VAT, voiding and ETA e-invoicing are explicitly NOT included.
 
 ## API conventions
 

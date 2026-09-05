@@ -179,6 +179,40 @@ export interface StampPosition {
   pages?: PlacementPages;
 }
 
+/** One billed project as it stood at issue — a snapshot, never live data. */
+export interface InvoiceLineItem {
+  project_id: number;
+  code: string;
+  title: string;
+  pages: number | null;
+  words: number | null;
+}
+
+export interface Invoice {
+  id: number;
+  number: string;
+  client?: Client;
+  total_pages: number;
+  total_words: number | null;
+  unit_price: string | null;
+  amount: string;
+  currency: string;
+  notes: string | null;
+  line_items: InvoiceLineItem[];
+  issued_at: string;
+  created_at: string;
+}
+
+/** A finished, not-yet-invoiced project — what a new invoice can bill. */
+export interface BillableProject {
+  id: number;
+  code: string;
+  title: string;
+  pages: number | null;
+  words: number | null;
+  completed_at: string | null;
+}
+
 export interface Transition {
   id: number;
   from_status: ProjectStatus;

@@ -40,6 +40,9 @@ class RolesAndPermissionsSeeder extends Seeder
         'quotes.view',
         'quotes.manage',     // price it, send the quote, triage, delete
         'quotes.convert',    // turn an accepted request into a project
+        // Invoices — client billing (change request agreed 2026-09-05)
+        'invoices.view',
+        'invoices.manage',   // issue an invoice
     ];
 
     private const ROLES = [
@@ -50,6 +53,7 @@ class RolesAndPermissionsSeeder extends Seeder
             'dashboard.view', 'reports.view', 'reports.export',
             'letterheads.view',
             'quotes.view', 'quotes.manage', 'quotes.convert',
+            'invoices.view', 'invoices.manage',
         ],
         'translator' => [
             'portal.access',
@@ -60,6 +64,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'accountant' => [
             'dashboard.view', 'reports.view', 'reports.export',
             'quotes.view', 'quotes.manage',
+            'invoices.view', 'invoices.manage',
         ],
     ];
 

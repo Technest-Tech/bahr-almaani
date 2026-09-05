@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\DailyWordLogController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\LetterheadController;
 use App\Http\Controllers\Api\V1\NotificationController;
@@ -121,6 +122,19 @@ Route::prefix('v1')->group(function (): void {
         // Separate gate: this one creates a project and schedules translators.
         Route::middleware('permission:quotes.convert')->group(function (): void {
             Route::post('/quote-requests/{quoteRequest}/convert', [QuoteRequestController::class, 'convert']);
+        });
+
+        // Invoices — client billing (change request agreed 2026-09-05)
+        Route::middleware('permission:invoices.view|invoices.manage')->group(function (): void {
+            Route::get('/invoices', [InvoiceController::class, 'index']);
+            // Before {invoice}: "billable" must not be captured as an id.
+            Route::get('/invoices/billable', [InvoiceController::class, 'billable']);
+            Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
+            Route::get('/invoices/{invoice}/download', [InvoiceController::class, 'download']);
+        });
+
+        Route::middleware('permission:invoices.manage')->group(function (): void {
+            Route::post('/invoices', [InvoiceController::class, 'store']);
         });
 
         // Review flow (M5)
