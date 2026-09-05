@@ -7,6 +7,7 @@ use App\Models\DailyWordLog;
 use App\Models\Language;
 use App\Models\Project;
 use App\Models\User;
+use App\Services\ProductionService;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -167,9 +168,14 @@ class DailyWordLogTest extends TestCase
             ->assertOk()
             ->json('data');
 
+        // "Today" in the work timezone, exactly as the endpoint computes it —
+        // comparing against UTC failed nightly between 21:00 UTC and midnight,
+        // once Cairo had already crossed into the next day.
+        $today = now()->setTimezone(app(ProductionService::class)->workTimezone());
+
         $lastDay = end($data['days'])['date'];
-        $this->assertSame(now()->toDateString(), $lastDay);
-        $this->assertLessThanOrEqual((int) now()->format('j'), count($data['days']));
+        $this->assertSame($today->toDateString(), $lastDay);
+        $this->assertLessThanOrEqual((int) $today->format('j'), count($data['days']));
     }
 
     public function test_a_past_month_still_renders_every_one_of_its_days(): void

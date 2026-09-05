@@ -150,7 +150,10 @@ class DashboardTest extends TestCase
             'translator_id' => $this->translator->id,
             'status' => Assignment::STATUS_DELIVERED,
             'claimed_at' => now()->subDays(2),
-            'delivered_at' => now()->subDay(),
+            // Hours, not subDay(): the ar locale starts weeks on Saturday, so a
+            // delivery "yesterday" left the current week every Saturday and this
+            // test failed one day in seven. Two hours ago is always this week.
+            'delivered_at' => now()->subHours(2),
             'work_seconds' => 7200,
         ]);
 
