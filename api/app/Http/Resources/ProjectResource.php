@@ -29,6 +29,11 @@ class ProjectResource extends JsonResource
             'total_words' => $this->total_words,
             'total_pages' => $this->total_pages,
             'total_chars' => $this->total_chars,
+            // Counted from the translator's delivered files (latest round); pages
+            // from the certified final PDFs once they exist. Null until a delivery.
+            'delivered_words' => $this->delivered_words,
+            'delivered_pages' => $this->delivered_pages,
+            'delivered_chars' => $this->delivered_chars,
             'deadline_at' => $this->deadline_at?->toIso8601String(),
             'is_late' => $this->isLate(),
             'instructions' => $this->instructions,

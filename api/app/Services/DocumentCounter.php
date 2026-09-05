@@ -76,6 +76,35 @@ class DocumentCounter
         }
     }
 
+    /**
+     * Page count of a PDF already in memory — the merge job's final files.
+     * Words are meaningless there (letterheaded, often rasterised), pages are
+     * the number the office bills certified work by.
+     *
+     * Deliberately NOT smalot: parsing an image-heavy final holds every
+     * decompressed stream in memory on top of TCPDF's own buffers, which blew
+     * the 128M limit mid-merge. Finals come from our own TCPDF/FPDI pipeline,
+     * whose page-tree dictionaries are plain text — a bounded regex reads them
+     * without allocating anything. Null for a PDF that matches neither shape;
+     * refreshTotals() then falls back to the deliverables' own pages.
+     */
+    public function pdfPageCount(string $binary): ?int
+    {
+        // The root /Pages node carries the authoritative /Count. Key order is not
+        // fixed, so try both; a nested tree's root count is >= any child's.
+        preg_match_all('#/Type\s*/Pages\b[^>]*?/Count\s+(\d+)#', $binary, $after);
+        preg_match_all('#/Count\s+(\d+)[^>]*?/Type\s*/Pages\b#', $binary, $before);
+
+        $counts = array_map('intval', [...$after[1], ...$before[1]]);
+
+        if ($counts !== []) {
+            return max($counts) ?: null;
+        }
+
+        // No readable page tree: count the page objects themselves.
+        return preg_match_all('#/Type\s*/Page[^s]#', $binary) ?: null;
+    }
+
     private function countPdf(string $path): array
     {
         try {

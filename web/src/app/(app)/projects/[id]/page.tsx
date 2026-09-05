@@ -367,12 +367,9 @@ export default function ProjectDetailPage() {
             </span>
           }
         />
-        <InfoTile label="الكلمات" value={project.total_words?.toLocaleString("ar-EG") ?? "—"} />
-        <InfoTile label="الصفحات" value={project.total_pages?.toLocaleString("ar-EG") ?? "—"} />
-        <InfoTile
-          label="الأحرف"
-          value={project.total_chars?.toLocaleString("ar-EG") ?? "—"}
-        />
+        <CountTile label="الصفحات" delivered={project.delivered_pages} source={project.total_pages} />
+        <CountTile label="الكلمات" delivered={project.delivered_words} source={project.total_words} />
+        <CountTile label="الأحرف" delivered={project.delivered_chars} source={project.total_chars} />
       </div>
 
       {project.instructions && (
@@ -646,6 +643,38 @@ function InfoTile({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="rounded-xl border bg-card p-3 shadow-xs">
       <p className="mb-1 text-[11px] text-muted-foreground">{label}</p>
       <div className="text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+/**
+ * A word/page/character tile with two bases: the translated (delivered) figure
+ * leads once it exists — that is the number the office reports and bills — and
+ * the source figure, which priced the quote, drops to the sub-line.
+ */
+function CountTile({
+  label,
+  delivered,
+  source,
+}: {
+  label: string;
+  delivered: number | null;
+  source: number | null;
+}) {
+  const fmt = (n: number) => n.toLocaleString("ar-EG");
+  return (
+    <div className="rounded-xl border bg-card p-3 shadow-xs">
+      <p className="mb-1 text-[11px] text-muted-foreground">{label}</p>
+      <div className="text-sm font-medium">
+        {delivered !== null ? fmt(delivered) : source !== null ? fmt(source) : "—"}
+      </div>
+      {delivered !== null ? (
+        <p className="text-[10px] text-muted-foreground">
+          مُترجم · المصدر: {source !== null ? fmt(source) : "—"}
+        </p>
+      ) : source !== null ? (
+        <p className="text-[10px] text-muted-foreground">من ملفات المصدر</p>
+      ) : null}
     </div>
   );
 }

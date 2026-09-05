@@ -166,20 +166,52 @@ class Project extends Model
         return $query->with('client:id,name');
     }
 
-    /** Recompute cached totals from counted source files. */
+    /**
+     * The translated figure for reports: the delivered count, or the source
+     * count standing in until a deliverable has been counted (and for history
+     * that predates delivered totals). Interpolates only column names.
+     */
+    public static function deliveredSql(string $unit): string
+    {
+        return "COALESCE(projects.delivered_{$unit}, projects.total_{$unit})";
+    }
+
+    /** Recompute cached totals: source files (quoting) and delivered files (reporting). */
     public function refreshTotals(): void
     {
-        // Source only, deliberately: these totals drive the quote, and the quote is
-        // priced off what the client sent, not off what the translator produced.
+        // total_*: source only, deliberately — these totals drive the quote, and the
+        // quote is priced off what the client sent, not off what the translator produced.
         $totals = $this->files()
             ->where('category', ProjectFile::CATEGORY_SOURCE)
             ->selectRaw('COALESCE(SUM(word_count), 0) AS words, COALESCE(SUM(page_count), 0) AS pages, COALESCE(SUM(char_count), 0) AS chars')
             ->first();
 
+        // delivered_*: the newest delivery round only. A re-delivery after a revision
+        // replaces its round; summing every round would bill the same document twice.
+        $round = $this->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->max('version');
+
+        $delivered = $this->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->where('version', $round ?? 0)
+            ->selectRaw('COALESCE(SUM(word_count), 0) AS words, COALESCE(SUM(page_count), 0) AS pages, COALESCE(SUM(char_count), 0) AS chars')
+            ->first();
+
+        // Delivered pages prefer the certified final PDFs: they are what the client
+        // receives, and the letterhead band repaginates, so the translator's .docx
+        // can honestly disagree with the document that actually leaves the office.
+        $finalPages = $this->files()
+            ->where('category', ProjectFile::CATEGORY_FINAL)
+            ->sum('page_count');
+
         $this->forceFill([
             'total_words' => (int) $totals->words ?: null,
             'total_pages' => (int) $totals->pages ?: null,
             'total_chars' => (int) $totals->chars ?: null,
+            'delivered_words' => (int) $delivered->words ?: null,
+            'delivered_pages' => ((int) $finalPages ?: (int) $delivered->pages) ?: null,
+            'delivered_chars' => (int) $delivered->chars ?: null,
         ])->saveQuietly();
     }
 

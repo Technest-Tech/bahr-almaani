@@ -127,13 +127,15 @@ export default function ProjectsPage() {
       ),
     },
     {
-      accessorKey: "total_words",
-      meta: { label: "كلمات / صفحات" },
-      header: ({ column }) => <SortableHeader column={column}>كلمات / صفحات</SortableHeader>,
+      // Delivered once counted, source until then — same rule as the reports.
+      // Pages lead: certified work is priced per page.
+      accessorKey: "total_pages",
+      meta: { label: "صفحات / كلمات" },
+      header: ({ column }) => <SortableHeader column={column}>صفحات / كلمات</SortableHeader>,
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
-          {row.original.total_words?.toLocaleString("ar-EG") ?? "—"} /{" "}
-          {row.original.total_pages?.toLocaleString("ar-EG") ?? "—"}
+          {(row.original.delivered_pages ?? row.original.total_pages)?.toLocaleString("ar-EG") ?? "—"} /{" "}
+          {(row.original.delivered_words ?? row.original.total_words)?.toLocaleString("ar-EG") ?? "—"}
         </span>
       ),
     },

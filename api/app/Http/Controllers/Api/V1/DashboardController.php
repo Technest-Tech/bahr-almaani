@@ -35,10 +35,12 @@ class DashboardController extends Controller
 
             $monthStart = now()->startOfMonth();
 
+            // Delivered-file figures (client request 2026-09-05), matching the
+            // reports — the dashboard must not disagree with the monthly report.
             $completedThisMonth = Project::query()
                 ->where('status', Project::STATUS_COMPLETED)
                 ->where('completed_at', '>=', $monthStart)
-                ->selectRaw('COUNT(*) AS projects, COALESCE(SUM(total_words), 0) AS words, COALESCE(SUM(total_pages), 0) AS pages')
+                ->selectRaw('COUNT(*) AS projects, COALESCE(SUM('.Project::deliveredSql('words').'), 0) AS words, COALESCE(SUM('.Project::deliveredSql('pages').'), 0) AS pages')
                 ->first();
 
             return [
@@ -78,7 +80,7 @@ class DashboardController extends Controller
         $weekly = Project::query()
             ->where('status', Project::STATUS_COMPLETED)
             ->where('completed_at', '>=', now()->subWeeks(11)->startOfWeek(Carbon::MONDAY))
-            ->selectRaw("date_trunc('week', completed_at)::date AS week, COUNT(*) AS completed, COALESCE(SUM(total_words), 0) AS words")
+            ->selectRaw("date_trunc('week', completed_at)::date AS week, COUNT(*) AS completed, COALESCE(SUM(".Project::deliveredSql('words').'), 0) AS words')
             ->groupBy('week')
             ->get()
             ->keyBy(fn ($row) => (string) $row->week);

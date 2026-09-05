@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Language;
 use App\Models\Project;
+use App\Models\ProjectFile;
 use App\Models\User;
 use App\Services\DocumentCounter;
 use App\Services\OcrCounter;
@@ -435,5 +436,66 @@ class WordCountingTest extends TestCase
         $this->project->refresh();
         $this->assertSame(320, $this->project->total_words);
         $this->assertSame(2, $this->project->total_pages);
+    }
+
+    /**
+     * The delivered totals (client request 2026-09-05): reports state what the
+     * translator produced, next to the source totals that priced the quote.
+     * Only the newest round counts — a re-delivery after a revision replaces
+     * its round, it does not add to it.
+     */
+    public function test_delivered_totals_come_from_the_latest_round_only(): void
+    {
+        $file = fn (array $attrs) => $this->project->files()->create($attrs + [
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'f.docx',
+            'disk_path' => 'projects/x/f.docx',
+            'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'size_bytes' => 10,
+            'count_status' => ProjectFile::COUNT_DONE,
+        ]);
+
+        $file(['category' => 'source', 'word_count' => 400, 'page_count' => 3, 'char_count' => 2000]);
+        // Round 1, replaced by the revision round below.
+        $file(['category' => 'deliverable', 'version' => 1, 'word_count' => 1000, 'page_count' => 2, 'char_count' => 5000]);
+        // Round 2 — one delivery, two certified documents.
+        $file(['category' => 'deliverable', 'version' => 2, 'word_count' => 600, 'page_count' => 1, 'char_count' => 3000]);
+        $file(['category' => 'deliverable', 'version' => 2, 'word_count' => 500, 'page_count' => 2, 'char_count' => 2500]);
+
+        $this->project->refreshTotals();
+        $this->project->refresh();
+
+        // Source totals untouched — they still price the quote.
+        $this->assertSame(400, $this->project->total_words);
+        $this->assertSame(3, $this->project->total_pages);
+
+        $this->assertSame(1100, $this->project->delivered_words);
+        $this->assertSame(3, $this->project->delivered_pages);
+        $this->assertSame(5500, $this->project->delivered_chars);
+    }
+
+    /**
+     * Delivered pages prefer the certified final PDF: the letterhead band
+     * repaginates, and the final is the document the client actually receives.
+     */
+    public function test_delivered_pages_prefer_the_certified_final_pdf(): void
+    {
+        $file = fn (array $attrs) => $this->project->files()->create($attrs + [
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'f.pdf',
+            'disk_path' => 'projects/x/f.pdf',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 10,
+            'count_status' => ProjectFile::COUNT_DONE,
+        ]);
+
+        $file(['category' => 'deliverable', 'version' => 1, 'word_count' => 900, 'page_count' => 2, 'char_count' => 4500]);
+        $file(['category' => 'final', 'page_count' => 4, 'count_status' => ProjectFile::COUNT_NOT_APPLICABLE]);
+
+        $this->project->refreshTotals();
+        $this->project->refresh();
+
+        $this->assertSame(4, $this->project->delivered_pages);
+        $this->assertSame(900, $this->project->delivered_words);
     }
 }

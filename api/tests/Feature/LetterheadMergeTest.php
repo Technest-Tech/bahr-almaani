@@ -65,6 +65,11 @@ class LetterheadMergeTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $bytes);
         $this->assertGreaterThan(1000, strlen($bytes));
 
+        // The final's pages are the project's delivered page count: this PDF is
+        // the document the client receives, repagination included (2026-09-05).
+        $this->assertGreaterThanOrEqual(1, $final->page_count);
+        $this->assertSame($final->page_count, $project->fresh()->delivered_pages);
+
         Notification::assertSentTo($this->pm, ProjectCompletedNotification::class);
         Notification::assertSentTo($this->admin, ProjectCompletedNotification::class);
     }

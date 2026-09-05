@@ -180,16 +180,20 @@ class ReportService
                     ->where('assignments.status', Assignment::STATUS_DELIVERED)
                     ->whereBetween('assignments.delivered_at', [$from, $to]);
 
+                // Delivered-file figures (client request 2026-09-05): what the
+                // translator produced, with source totals standing in until the
+                // deliverable's count lands. Pages lead — certified work is
+                // priced per page, which makes them the office's first number.
                 $totals = (clone $delivered)
                     ->join('projects', 'projects.id', '=', 'assignments.project_id')
-                    ->selectRaw('COUNT(*) AS files, COALESCE(SUM(projects.total_words), 0) AS words, COALESCE(SUM(projects.total_pages), 0) AS pages, COALESCE(SUM(assignments.work_seconds), 0) AS seconds')
+                    ->selectRaw('COUNT(*) AS files, COALESCE(SUM('.Project::deliveredSql('words').'), 0) AS words, COALESCE(SUM('.Project::deliveredSql('pages').'), 0) AS pages, COALESCE(SUM(assignments.work_seconds), 0) AS seconds')
                     ->first();
 
                 return [
                     'translator' => $translator->name,
                     'files' => (int) $totals->files,
-                    'words' => (int) $totals->words,
                     'pages' => (int) $totals->pages,
+                    'words' => (int) $totals->words,
                     'hours' => round(((int) $totals->seconds) / 3600, 1),
                 ];
             })
@@ -200,8 +204,8 @@ class ReportService
             'columns' => [
                 'translator' => 'المترجم',
                 'files' => 'الملفات المسلّمة',
-                'words' => 'الكلمات',
-                'pages' => 'الصفحات',
+                'pages' => 'الصفحات المُترجمة',
+                'words' => 'الكلمات المُترجمة',
                 'hours' => 'ساعات العمل',
             ],
             'rows' => $rows,
@@ -224,9 +228,18 @@ class ReportService
                 $completedCount = (clone $completed)->count();
                 $onTime = (clone $completed)->whereColumn('completed_at', '<=', 'deadline_at')->count();
 
-                $delivered = (clone $created)
-                    ->whereHas('transitions', fn ($q) => $q->where('to_status', Project::STATUS_DELIVERED))
-                    ->count();
+                $deliveredProjects = (clone $created)
+                    ->whereHas('transitions', fn ($q) => $q->where('to_status', Project::STATUS_DELIVERED));
+
+                $delivered = (clone $deliveredProjects)->count();
+
+                // Pages translated across this PM's portfolio (client request
+                // 2026-09-05). Only projects that actually reached a delivery —
+                // the source-pages fallback must not credit untranslated work.
+                $translatedPages = (int) (clone $deliveredProjects)
+                    ->selectRaw('COALESCE(SUM('.Project::deliveredSql('pages').'), 0) AS pages')
+                    ->value('pages');
+
                 $revised = StatusTransition::query()
                     ->where('to_status', Project::STATUS_REVISION_REQUESTED)
                     ->whereIn('project_id', (clone $created)->select('id'))
@@ -237,6 +250,7 @@ class ReportService
                     'pm' => $pm->name,
                     'projects' => $total,
                     'completed' => $completedCount,
+                    'translated_pages' => $translatedPages,
                     'on_time_pct' => $completedCount > 0 ? round($onTime * 100 / $completedCount) : null,
                     'revision_pct' => $delivered > 0 ? round($revised * 100 / $delivered) : null,
                 ];
@@ -249,6 +263,7 @@ class ReportService
                 'pm' => 'مدير المشروع',
                 'projects' => 'مشاريع منشأة',
                 'completed' => 'مكتملة',
+                'translated_pages' => 'الصفحات المُترجمة',
                 'on_time_pct' => 'الالتزام بالموعد ٪',
                 'revision_pct' => 'نسبة التعديلات ٪',
             ],
@@ -268,16 +283,19 @@ class ReportService
                 ->where('status', Project::STATUS_COMPLETED)
                 ->whereBetween('completed_at', [$start, $end]);
 
+            // Delivered-file figures (client request 2026-09-05), pages first:
+            // completed projects always carry deliverables, so the source
+            // fallback only covers history from before delivered totals existed.
             $totals = (clone $completed)
-                ->selectRaw('COUNT(*) AS completed, COALESCE(SUM(total_words), 0) AS words, COALESCE(SUM(total_pages), 0) AS pages, COALESCE(SUM(quoted_amount), 0) AS amount')
+                ->selectRaw('COUNT(*) AS completed, COALESCE(SUM('.Project::deliveredSql('words').'), 0) AS words, COALESCE(SUM('.Project::deliveredSql('pages').'), 0) AS pages, COALESCE(SUM(quoted_amount), 0) AS amount')
                 ->first();
 
             $months->push([
                 'month' => $start->isoFormat('YYYY/MM'),
                 'created' => Project::whereBetween('created_at', [$start, $end])->count(),
                 'completed' => (int) $totals->completed,
-                'words' => (int) $totals->words,
                 'pages' => (int) $totals->pages,
+                'words' => (int) $totals->words,
                 'amount' => (float) $totals->amount,
             ]);
         }
@@ -287,8 +305,8 @@ class ReportService
                 'month' => 'الشهر',
                 'created' => 'مشاريع جديدة',
                 'completed' => 'مكتملة',
-                'words' => 'الكلمات',
-                'pages' => 'الصفحات',
+                'pages' => 'الصفحات المُترجمة',
+                'words' => 'الكلمات المُترجمة',
                 'amount' => 'قيمة الأعمال المكتملة',
             ],
             'rows' => $months,
@@ -312,7 +330,10 @@ class ReportService
                 'client' => $project->client?->name,
                 'pair' => "{$project->sourceLanguage->name_ar} ← {$project->targetLanguage->name_ar}",
                 'status' => __("projects.status.{$project->status}"),
-                'words' => $project->total_words,
+                // Delivered once counted, source until then — the registry lists
+                // drafts too, and before any delivery the source is the number.
+                'pages' => $project->delivered_pages ?? $project->total_pages,
+                'words' => $project->delivered_words ?? $project->total_words,
                 'deadline' => $project->deadline_at->isoFormat('YYYY/MM/DD'),
                 'amount' => $project->quoted_amount !== null ? (float) $project->quoted_amount : null,
             ]);
@@ -324,6 +345,7 @@ class ReportService
                 'client' => 'العميل',
                 'pair' => 'اللغات',
                 'status' => 'الحالة',
+                'pages' => 'الصفحات',
                 'words' => 'الكلمات',
                 'deadline' => 'الموعد',
                 'amount' => 'المبلغ',

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Assignment;
 use App\Models\DailyWordLog;
+use App\Models\Project;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -55,7 +56,10 @@ class ProductionService
             ->whereBetween('assignments.delivered_at', [$from, $to])
             ->when($translatorIds !== null, fn ($q) => $q->whereIn('assignments.translator_id', $translatorIds))
             ->selectRaw("assignments.translator_id, {$day} AS work_date")
-            ->selectRaw('COUNT(*) AS files, COALESCE(SUM(projects.total_words), 0) AS words, COALESCE(SUM(assignments.work_seconds), 0) AS seconds')
+            // Delivered-file words (client request 2026-09-05): the translator is
+            // credited with what they produced, not what the client sent. Source
+            // words stand in until the deliverable's own count lands.
+            ->selectRaw('COUNT(*) AS files, COALESCE(SUM('.Project::deliveredSql('words').'), 0) AS words, COALESCE(SUM(assignments.work_seconds), 0) AS seconds')
             ->groupByRaw("assignments.translator_id, {$day}")
             ->get()
             ->mapWithKeys(fn ($row) => [

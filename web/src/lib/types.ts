@@ -227,6 +227,11 @@ export interface Project {
   total_words: number | null;
   total_pages: number | null;
   total_chars: number | null;
+  /** Counted from the translator's delivered files (latest round); pages from
+   *  the certified final PDFs once they exist. Null until a delivery. */
+  delivered_words: number | null;
+  delivered_pages: number | null;
+  delivered_chars: number | null;
   deadline_at: string;
   is_late: boolean;
   instructions: string | null;

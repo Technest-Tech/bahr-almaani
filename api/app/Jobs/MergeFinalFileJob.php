@@ -7,6 +7,7 @@ use App\Models\ProjectFile;
 use App\Models\User;
 use App\Notifications\MergeFailedNotification;
 use App\Notifications\ProjectCompletedNotification;
+use App\Services\DocumentCounter;
 use App\Services\DocumentMergeService;
 use App\Services\ProjectTransitionService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -36,7 +37,7 @@ class MergeFinalFileJob implements ShouldQueue
 
     public function __construct(public Project $project) {}
 
-    public function handle(ProjectTransitionService $transitions, DocumentMergeService $merger): void
+    public function handle(ProjectTransitionService $transitions, DocumentMergeService $merger, DocumentCounter $counter): void
     {
         $project = $this->project->fresh();
 
@@ -102,11 +103,16 @@ class MergeFinalFileJob implements ShouldQueue
                     'disk_path' => $finalPath,
                     'mime_type' => 'application/pdf',
                     'size_bytes' => strlen($pdf),
+                    // Words are never counted on a final (letterheaded, often raster),
+                    // but its pages are the project's delivered page count: this PDF is
+                    // the document the client receives, repagination included.
+                    'page_count' => $counter->pdfPageCount($pdf),
                     'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
                 ]);
             }
 
             $project->forceFill(['merge_error' => null])->saveQuietly();
+            $project->refreshTotals();
 
             $transitions->transition($project, Project::STATUS_COMPLETED, null);
 

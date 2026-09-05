@@ -96,6 +96,53 @@ class ReportsTest extends TestCase
         $this->assertEquals(3.0, $row['hours']);
     }
 
+    /**
+     * The delivered figures win once they exist (client request 2026-09-05):
+     * the translator is credited with what they produced, not what the client
+     * sent — a certified delivery is bilingual and runs roughly double.
+     */
+    public function test_translators_report_prefers_delivered_counts(): void
+    {
+        $project = $this->makeProject(['total_words' => 1000, 'total_pages' => 2]);
+        $project->forceFill(['delivered_words' => 2100, 'delivered_pages' => 5])->save();
+
+        Assignment::create([
+            'project_id' => $project->id,
+            'translator_id' => $this->translator->id,
+            'status' => Assignment::STATUS_DELIVERED,
+            'claimed_at' => now()->subDays(2),
+            'delivered_at' => now()->subDay(),
+            'work_seconds' => 3600,
+        ]);
+
+        $data = $this->actingAs($this->pm, 'sanctum')
+            ->getJson('/api/v1/reports/translators?from='.now()->subWeek()->toDateString().'&to='.now()->toDateString())
+            ->assertOk()
+            ->json('data');
+
+        $row = collect($data['rows'])->firstWhere('translator', 'سارة المترجمة');
+        $this->assertSame(2100, $row['words']);
+        $this->assertSame(5, $row['pages']);
+    }
+
+    public function test_pms_report_sums_translated_pages_of_delivered_projects_only(): void
+    {
+        $translated = $this->makeProject(['total_pages' => 2]);
+        $translated->forceFill(['delivered_pages' => 7])->save();
+        $translated->transitions()->create(['from_status' => 'claimed', 'to_status' => 'delivered', 'actor_id' => $this->translator->id]);
+
+        // Never delivered: its source pages must not be credited as translated.
+        $this->makeProject(['status' => Project::STATUS_AVAILABLE, 'total_pages' => 3]);
+
+        $data = $this->actingAs($this->pm, 'sanctum')
+            ->getJson('/api/v1/reports/pms')
+            ->assertOk()
+            ->json('data');
+
+        $row = collect($data['rows'])->firstWhere('pm', 'منى المديرة');
+        $this->assertSame(7, $row['translated_pages']);
+    }
+
     public function test_pms_report_computes_on_time_and_revision_rates(): void
     {
         // On-time completion (completed before deadline), no revisions.
