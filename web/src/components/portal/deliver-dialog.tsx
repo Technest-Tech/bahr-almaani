@@ -44,17 +44,26 @@ const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
 export function DeliverDialog({
   open,
   files,
+  initialPlacements,
   onCancel,
   onConfirm,
   submitting,
 }: {
   open: boolean;
   files: File[];
+  /**
+   * Seal positions already decided — the draft preview hands its file over with
+   * the position the translator dragged there, so it never has to be re-dragged.
+   * Read once on mount: the parent remounts this dialog per staging (via key).
+   */
+  initialPlacements?: Record<number, StampPosition>;
   onCancel: () => void;
   onConfirm: (placements: Record<number, StampPosition>) => void;
   submitting: boolean;
 }) {
-  const [placements, setPlacements] = useState<Record<number, StampPosition>>({});
+  const [placements, setPlacements] = useState<Record<number, StampPosition>>(
+    initialPlacements ?? {},
+  );
   const [positioning, setPositioning] = useState<number | null>(null);
   const [stampId, setStampId] = useState<number | null>(null);
 

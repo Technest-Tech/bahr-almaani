@@ -226,12 +226,12 @@ function saveBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * POST that returns a document, opened in a new tab (M9b letterhead preview).
+ * POST that returns a document, as an object URL the caller can display.
  *
- * The object URL is kept alive deliberately — revoking it immediately would blank
- * the tab that just opened it. The browser reclaims it when the tab closes.
+ * The caller owns the URL's lifetime: revoke it when replacing or discarding it,
+ * or leave it for the browser to reclaim with the page.
  */
-export async function openRendered(path: string, form?: FormData): Promise<void> {
+export async function renderedPdfUrl(path: string, form?: FormData): Promise<string> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
     headers: {
@@ -247,5 +247,26 @@ export async function openRendered(path: string, form?: FormData): Promise<void>
     throw new ApiError(response.status, body?.message ?? "تعذر إنشاء المعاينة", body?.errors);
   }
 
-  window.open(URL.createObjectURL(await response.blob()), "_blank", "noopener");
+  return URL.createObjectURL(await response.blob());
+}
+
+/**
+ * POST that returns a document, opened in a new tab (M9b letterhead preview).
+ *
+ * The object URL is kept alive deliberately — revoking it immediately would blank
+ * the tab that just opened it. The browser reclaims it when the tab closes.
+ *
+ * Throws when the popup is blocked instead of silently doing nothing: the render
+ * takes long enough that the click's transient activation can expire, and the
+ * translator was left with a success toast and no tab — then went looking for the
+ * "downloaded" file. Callers show the error and the user clicks again, which is a
+ * fresh gesture the blocker allows.
+ */
+export async function openRendered(path: string, form?: FormData): Promise<void> {
+  const url = await renderedPdfUrl(path, form);
+
+  if (window.open(url, "_blank", "noopener") === null) {
+    URL.revokeObjectURL(url);
+    throw new ApiError(0, "منع المتصفح فتح التبويب — اضغط الزر مرة أخرى وسيُفتح مباشرة.");
+  }
 }

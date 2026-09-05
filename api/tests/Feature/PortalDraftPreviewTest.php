@@ -120,6 +120,43 @@ class PortalDraftPreviewTest extends TestCase
     }
 
     /**
+     * The draft must show the seal where the translator just dragged it — including
+     * a negative offset, which is a legitimate bleed off the page edge (the office's
+     * real stamp asset is a near-page-wide strip, so reaching the sheet's edge with
+     * the visible seal means the box's transparent padding hangs off it).
+     */
+    public function test_preview_honours_the_dragged_seal_position_including_bleed(): void
+    {
+        $this->heldProject();
+
+        $this->mock(DocumentMergeService::class, function ($mock) {
+            $mock->shouldReceive('mergeStoredFile')
+                ->once()
+                ->withArgs(fn ($path, $name, $letterhead, $stamp, $watermark, $placement) => $placement == [
+                    'pages' => 'last',
+                    'anchor' => 'top-left',
+                    'offset_x_mm' => -60.0,
+                    'offset_y_mm' => 240.5,
+                ])
+                ->andReturn('%PDF-fake');
+        });
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/preview', [
+                'file' => $this->upload(),
+                'stamp_id' => $this->stamp->id,
+                'stamp_placements' => [
+                    0 => json_encode([
+                        'anchor' => 'top-left',
+                        'offset_x_mm' => -60,
+                        'offset_y_mm' => 240.5,
+                        'pages' => 'last',
+                    ]),
+                ],
+            ])->assertOk();
+    }
+
+    /**
      * The watermark is the only thing stopping a draft being passed off as the
      * real document, so prove it is actually drawn rather than trusting the flag.
      * TCPDF compresses content streams, so compare against the same merge without

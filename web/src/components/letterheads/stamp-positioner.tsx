@@ -9,6 +9,9 @@ const NUDGE_MM = 1;
 /** …and with shift held, for crossing the page rather than tuning a corner. */
 const NUDGE_COARSE_MM = 10;
 
+/** How much of the stamp's box must stay on the page, per axis. */
+const KEEP_ON_PAGE_MM = 10;
+
 export interface StampSurface {
   /** data: URI of the converted, letterheaded page the seal is placed on. */
   image: string;
@@ -65,12 +68,26 @@ export function StampPositioner({
     offset_y_mm: Math.max(0, surface.height_mm - stampHeightMm - 20),
   };
 
+  /**
+   * The box may bleed off the page — PlacementConfig calls a negative offset "a
+   * legitimate bleed" and the merge crops it cleanly — as long as KEEP_ON_PAGE_MM
+   * of it stays on the sheet, so it cannot be lost off-surface entirely.
+   *
+   * Boxing it inside the page was the office's "the seal won't move" complaint:
+   * their real stamp asset is a near-page-wide strip (seal + signature + padding),
+   * and edge-to-edge clamping left it ~35mm of horizontal travel on an A4 sheet.
+   */
   const clamp = useCallback(
-    (x: number, y: number): StampPosition => ({
-      anchor: "top-left",
-      offset_x_mm: Number(Math.min(Math.max(x, 0), Math.max(surface.width_mm - stampWidthMm, 0)).toFixed(2)),
-      offset_y_mm: Number(Math.min(Math.max(y, 0), Math.max(surface.height_mm - stampHeightMm, 0)).toFixed(2)),
-    }),
+    (x: number, y: number): StampPosition => {
+      const keepX = Math.min(KEEP_ON_PAGE_MM, stampWidthMm);
+      const keepY = Math.min(KEEP_ON_PAGE_MM, stampHeightMm);
+
+      return {
+        anchor: "top-left",
+        offset_x_mm: Number(Math.min(Math.max(x, keepX - stampWidthMm), surface.width_mm - keepX).toFixed(2)),
+        offset_y_mm: Number(Math.min(Math.max(y, keepY - stampHeightMm), surface.height_mm - keepY).toFixed(2)),
+      };
+    },
     [surface.width_mm, surface.height_mm, stampWidthMm, stampHeightMm],
   );
 

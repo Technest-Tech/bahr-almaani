@@ -370,10 +370,20 @@ function CurrentAssignmentCard({
   const [previewOpen, setPreviewOpen] = useState(false);
   /** Files chosen but not yet handed over — the seal is positioned on these. */
   const [staged, setStaged] = useState<File[]>([]);
+  /** Seal positions arriving WITH the staging — from the draft preview's bridge. */
+  const [stagedPlacements, setStagedPlacements] = useState<Record<number, StampPosition>>({});
+  /** Remounts the deliver dialog per staging, so stale placements never leak across. */
+  const [deliverRound, setDeliverRound] = useState(0);
   const { confirm } = useConfirm();
   const { download, upload } = useFileTransfer();
   const [uploading, setUploading] = useState(false);
   const project = assignment.project!;
+
+  function stage(files: File[], placements: Record<number, StampPosition> = {}) {
+    setStaged(files);
+    setStagedPlacements(placements);
+    setDeliverRound((round) => round + 1);
+  }
 
   /**
    * Picking files opens the delivery dialog rather than delivering outright: the
@@ -384,11 +394,12 @@ function CurrentAssignmentCard({
     const picked = Array.from(event.target.files ?? []);
     if (picked.length === 0) return;
 
-    setStaged(picked);
+    stage(picked);
   }
 
   function cancelDelivery() {
     setStaged([]);
+    setStagedPlacements({});
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -557,11 +568,22 @@ function CurrentAssignmentCard({
           </Button>
         </div>
 
-        <DraftPreviewDialog open={previewOpen} onClose={() => setPreviewOpen(false)} />
+        <DraftPreviewDialog
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          onDeliver={(file, placement) => {
+            setPreviewOpen(false);
+            // The previewed file becomes the delivery, seal position included —
+            // no re-picking, no re-dragging, no way to loop back to the draft.
+            stage([file], placement ? { 0: placement } : {});
+          }}
+        />
 
         <DeliverDialog
+          key={deliverRound}
           open={staged.length > 0}
           files={staged}
+          initialPlacements={stagedPlacements}
           onCancel={cancelDelivery}
           onConfirm={submitDelivery}
           submitting={uploading}
