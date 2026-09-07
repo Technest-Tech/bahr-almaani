@@ -54,8 +54,122 @@ export interface Client {
   phone: string | null;
   email: string | null;
   notes: string | null;
+  /** M15 — whether this client can sign in on the website. */
+  has_account: boolean;
+  status: "active" | "suspended";
+  self_registered: boolean;
+  last_login_at: string | null;
   projects_count?: number;
+  invoices_count?: number;
   created_at: string;
+}
+
+/** The signed-in client's own profile — no internal office fields. */
+export interface ClientAccount {
+  id: number;
+  name: string;
+  type: "individual" | "company";
+  phone: string | null;
+  email: string;
+  status: "active" | "suspended";
+  last_login_at: string | null;
+  member_since: string;
+}
+
+/**
+ * What a client is told about a project. The internal pipeline (claimed,
+ * delivered, in_review, approved …) never leaves the API — see
+ * Project::CLIENT_STAGES.
+ */
+export type ClientStage = "in_progress" | "in_review" | "ready" | "completed" | "cancelled";
+
+export const CLIENT_STAGE_TONES: Record<ClientStage, "green" | "red" | "slate" | "violet" | "amber" | "blue"> = {
+  in_progress: "blue",
+  in_review: "amber",
+  ready: "violet",
+  completed: "green",
+  cancelled: "slate",
+};
+
+export const CLIENT_STAGE_LABELS: Record<ClientStage, string> = {
+  in_progress: "قيد التنفيذ",
+  in_review: "قيد المراجعة",
+  ready: "جاهز للاستلام",
+  completed: "مكتمل",
+  cancelled: "ملغي",
+};
+
+export interface ClientProjectFile {
+  id: number;
+  category: "source" | "final";
+  original_name: string;
+  size_bytes: number;
+  page_count: number | null;
+  word_count: number | null;
+  created_at: string;
+}
+
+export interface ClientProject {
+  id: number;
+  code: string;
+  title: string;
+  stage: ClientStage;
+  stage_label: string;
+  stage_hint: string;
+  service_type: "certified" | "regular";
+  priority: Priority;
+  country_code: string | null;
+  /** Pages first: the delivered basis once it exists, the source count until then. */
+  pages: number | null;
+  words: number | null;
+  is_delivered_basis: boolean;
+  deadline_at: string | null;
+  quoted_amount: string | null;
+  currency: string | null;
+  published_at: string | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  source_language?: Language;
+  target_language?: Language;
+  invoice_number?: string | null;
+  has_final_file?: boolean;
+  files?: ClientProjectFile[];
+}
+
+export interface BillingTotal {
+  currency: string;
+  invoices: number;
+  amount: string;
+}
+
+export interface ClientOverview {
+  client: ClientAccount;
+  stats: {
+    projects_total: number;
+    by_stage: Record<ClientStage, number>;
+    total_pages: number;
+    total_words: number;
+    billing: BillingTotal[];
+    last_delivery_at: string | null;
+  };
+  recent_projects: ClientProject[];
+}
+
+/** The admin's client file — the same history plus what only the office sees. */
+export interface AdminClientOverview {
+  client: Client;
+  stats: {
+    by_status: Partial<Record<ProjectStatus, number>>;
+    total_pages: number;
+    total_words: number;
+    uninvoiced_projects: number;
+    billing: BillingTotal[];
+    last_delivery_at: string | null;
+  };
+  projects: ClientProject[];
+  invoices: Invoice[];
+  quote_requests: QuoteRequest[];
 }
 
 export type TemplateKind = "letterhead" | "stamp";

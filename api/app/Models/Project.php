@@ -42,6 +42,26 @@ class Project extends Model
 
     public const PRIORITY_CRITICAL = 'critical';
 
+    /*
+     * What a client is told, per internal status (M15).
+     *
+     * The production pipeline is the office's business: a client has no use for
+     * "claimed" vs "delivered" vs "approved", and publishing it would expose who
+     * is working on what and how often a file bounced back for revision. Four
+     * stages carry everything they actually need to know.
+     */
+    public const CLIENT_STAGES = [
+        self::STATUS_AVAILABLE => 'in_progress',
+        self::STATUS_CLAIMED => 'in_progress',
+        self::STATUS_DELIVERED => 'in_review',
+        self::STATUS_IN_REVIEW => 'in_review',
+        self::STATUS_REVISION_REQUESTED => 'in_review',
+        self::STATUS_APPROVED => 'ready',
+        self::STATUS_COMPLETED => 'completed',
+        self::STATUS_ARCHIVED => 'completed',
+        self::STATUS_CANCELLED => 'cancelled',
+    ];
+
     /** Statuses where "late" no longer applies. */
     public const SETTLED_STATUSES = [
         self::STATUS_COMPLETED,
@@ -87,6 +107,18 @@ class Project extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /** The invoice this project was billed on, once it has been billed (M14). */
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
+    /** @see self::CLIENT_STAGES — a draft never reaches the client area at all. */
+    public function clientStage(): string
+    {
+        return self::CLIENT_STAGES[$this->status] ?? 'in_progress';
     }
 
     public function sourceLanguage(): BelongsTo

@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\ClientAuthController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\DailyWordLogController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\InvoiceController;
@@ -42,6 +44,33 @@ Route::prefix('v1')->group(function (): void {
             ->middleware('throttle:quote-lookups');
     });
 
+    /*
+     * M15 — the client's own area on the website. A separate guard on a separate
+     * table (see config/auth.php): a client token can never reach the operations
+     * app above, and a staff token can never reach anything below.
+     */
+    Route::prefix('client')->group(function (): void {
+        Route::post('/auth/register', [ClientAuthController::class, 'register'])
+            ->middleware('throttle:5,1');
+        Route::post('/auth/login', [ClientAuthController::class, 'login'])
+            ->middleware('throttle:5,1');
+
+        Route::middleware(['auth:client', 'active'])->group(function (): void {
+            Route::post('/auth/logout', [ClientAuthController::class, 'logout']);
+            Route::get('/auth/me', [ClientAuthController::class, 'me']);
+            Route::put('/auth/me', [ClientAuthController::class, 'updateProfile']);
+            Route::put('/auth/me/password', [ClientAuthController::class, 'updatePassword']);
+
+            Route::get('/overview', [ClientPortalController::class, 'overview']);
+            Route::get('/projects', [ClientPortalController::class, 'projects']);
+            Route::get('/projects/{project}', [ClientPortalController::class, 'project']);
+            Route::get('/projects/{project}/files/{file}/download', [ClientPortalController::class, 'downloadFile']);
+            Route::get('/projects/{project}/final-files', [ClientPortalController::class, 'finalArchive']);
+            Route::get('/invoices', [ClientPortalController::class, 'invoices']);
+            Route::get('/invoices/{invoice}/download', [ClientPortalController::class, 'downloadInvoice']);
+        });
+    });
+
     Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         // Auth
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -76,12 +105,15 @@ Route::prefix('v1')->group(function (): void {
         Route::middleware('permission:clients.view|clients.manage')->group(function (): void {
             Route::get('/clients', [ClientController::class, 'index']);
             Route::get('/clients/{client}', [ClientController::class, 'show']);
+            // The client file: history, page counts, invoices and quote requests.
+            Route::get('/clients/{client}/overview', [ClientController::class, 'overview']);
         });
 
         Route::middleware('permission:clients.manage')->group(function (): void {
             Route::post('/clients', [ClientController::class, 'store']);
             Route::put('/clients/{client}', [ClientController::class, 'update']);
             Route::delete('/clients/{client}', [ClientController::class, 'destroy']);
+            Route::delete('/clients/{client}/account', [ClientController::class, 'revokeAccount']);
         });
 
         // Projects (M3 + M5)

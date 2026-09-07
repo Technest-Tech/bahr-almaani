@@ -1,15 +1,33 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
-const TOKEN_KEY = "bahr_token";
+/**
+ * Two sign-ins live in this app and they are not the same session: staff hold a
+ * token on the users table, clients hold one on the clients table (M15). The API
+ * refuses each token on the other's routes, so the two are kept in separate
+ * storage keys — otherwise a client signing in on the office machine would log
+ * the PM out, and a stale staff token would 401 the whole client area.
+ */
+export type Realm = "staff" | "client";
 
-export function getToken(): string | null {
+const TOKEN_KEYS: Record<Realm, string> = {
+  staff: "bahr_token",
+  client: "bahr_client_token",
+};
+
+/** Where a dead token sends the visitor back to. */
+const LOGIN_PATHS: Record<Realm, string> = {
+  staff: "/login",
+  client: "/account/login",
+};
+
+export function getToken(realm: Realm = "staff"): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEYS[realm]);
 }
 
-export function setToken(token: string | null): void {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+export function setToken(token: string | null, realm: Realm = "staff"): void {
+  if (token) localStorage.setItem(TOKEN_KEYS[realm], token);
+  else localStorage.removeItem(TOKEN_KEYS[realm]);
 }
 
 export class ApiError extends Error {
@@ -23,19 +41,35 @@ export class ApiError extends Error {
 }
 
 /** A dead token means the session is over — drop it and send the user to login. */
-function unauthenticated(): void {
+function unauthenticated(realm: Realm): void {
   if (typeof window === "undefined") return;
-  setToken(null);
-  if (!window.location.pathname.startsWith("/login")) {
-    window.location.href = "/login";
+  setToken(null, realm);
+  const login = LOGIN_PATHS[realm];
+  if (!window.location.pathname.startsWith(login)) {
+    window.location.href = login;
   }
 }
 
-export async function api<T = unknown>(
-  path: string,
-  options: RequestInit & { json?: unknown } = {},
-): Promise<T> {
-  const { json, headers, ...rest } = options;
+/** Every request carries the token of its own realm, and only that one. */
+function authHeader(realm: Realm): Record<string, string> {
+  const token = getToken(realm);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface ApiOptions extends RequestInit {
+  json?: unknown;
+  realm?: Realm;
+  /**
+   * Set false when the caller handles a dead token itself — the session probes
+   * both providers run on boot do. Without it, a stale staff token sitting in the
+   * same browser (the office machine, where the PM signed in yesterday) would send
+   * a client browsing their own area off to the staff login screen.
+   */
+  redirectOn401?: boolean;
+}
+
+export async function api<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
+  const { json, headers, realm = "staff", redirectOn401 = true, ...rest } = options;
 
   const response = await fetch(`${API_URL}${path}`, {
     ...rest,
@@ -43,13 +77,13 @@ export async function api<T = unknown>(
       Accept: "application/json",
       "Accept-Language": "ar",
       ...(json !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...authHeader(realm),
       ...headers,
     },
     body: json !== undefined ? JSON.stringify(json) : rest.body,
   });
 
-  if (response.status === 401) unauthenticated();
+  if (response.status === 401 && redirectOn401) unauthenticated(realm);
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({ message: response.statusText }));
@@ -66,6 +100,7 @@ export type ProgressFn = (loaded: number, total: number | null) => void;
 export interface TransferOptions {
   onProgress?: ProgressFn;
   signal?: AbortSignal;
+  realm?: Realm;
 }
 
 /**
@@ -81,14 +116,14 @@ export interface TransferOptions {
 export function apiForm<T = unknown>(
   path: string,
   form: FormData,
-  { onProgress, signal }: TransferOptions = {},
+  { onProgress, signal, realm = "staff" }: TransferOptions = {},
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", `${API_URL}${path}`);
     request.setRequestHeader("Accept", "application/json");
     request.setRequestHeader("Accept-Language", "ar");
-    const token = getToken();
+    const token = getToken(realm);
     if (token) request.setRequestHeader("Authorization", `Bearer ${token}`);
 
     if (onProgress) {
@@ -110,7 +145,7 @@ export function apiForm<T = unknown>(
         body = { message: request.statusText };
       }
 
-      if (request.status === 401) unauthenticated();
+      if (request.status === 401) unauthenticated(realm);
 
       if (request.status >= 200 && request.status < 300) {
         resolve(body as T);
@@ -134,11 +169,11 @@ export function apiForm<T = unknown>(
 }
 
 /** Authenticated binary fetch for previews — `<img src>` cannot carry a bearer token. */
-export async function fetchBlob(path: string): Promise<Blob> {
+export async function fetchBlob(path: string, realm: Realm = "staff"): Promise<Blob> {
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
       Accept: "*/*",
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...authHeader(realm),
     },
   });
   if (!response.ok) throw new ApiError(response.status, "تعذر تحميل المعاينة");
@@ -157,17 +192,17 @@ export async function fetchBlob(path: string): Promise<Blob> {
 export async function downloadFile(
   path: string,
   filename: string,
-  { onProgress, signal }: TransferOptions = {},
+  { onProgress, signal, realm = "staff" }: TransferOptions = {},
 ): Promise<void> {
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
       Accept: "application/octet-stream",
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...authHeader(realm),
     },
     signal,
   });
 
-  if (response.status === 401) unauthenticated();
+  if (response.status === 401) unauthenticated(realm);
   if (!response.ok) throw new ApiError(response.status, "تعذر تحميل الملف");
 
   // Laravel sends Content-Length on every download, so the percentage is real.
@@ -236,7 +271,7 @@ export async function renderedPdfUrl(path: string, form?: FormData): Promise<str
     method: "POST",
     headers: {
       Accept: "application/pdf",
-      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      ...authHeader("staff"),
     },
     // Deliberately no Content-Type: the browser must set the multipart boundary.
     ...(form ? { body: form } : {}),

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Menu, Moon, Sun, X } from "lucide-react";
+import { LayoutDashboard, Menu, Moon, Sun, UserRound, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { BrandGlyph } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
+import { useClientAuth } from "@/lib/client-auth";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -18,6 +19,7 @@ const LINKS = [
 
 export function SiteHeader() {
   const { setTheme, resolvedTheme } = useTheme();
+  const { client, loading } = useClientAuth();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -68,12 +70,32 @@ export function SiteHeader() {
             <Moon className="hidden size-4 dark:block" />
           </Button>
 
-          {/* No panel link here — this site is for clients. Staff reach the app via
-              /login (also linked discreetly in the footer), which forwards an already
-              signed-in user straight to the dashboard. */}
-          <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
-            <Link href="/login">تسجيل الدخول</Link>
-          </Button>
+          {/* This site is for clients, so its login is the client one. Staff reach
+              the operations app via /login, linked from the client sign-in screen
+              and discreetly in the footer — a PM typing their password into the
+              client form is the confusion this ordering avoids. A signed-in client
+              gets their area instead of a second invitation to sign in. */}
+          {!loading &&
+            (client ? (
+              <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
+                <Link href="/account">
+                  <LayoutDashboard className="size-4" />
+                  حسابي
+                </Link>
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" asChild className="hidden sm:inline-flex">
+                  <Link href="/account/login">تسجيل الدخول</Link>
+                </Button>
+                <Button variant="outline" size="sm" asChild className="hidden md:inline-flex">
+                  <Link href="/account/register">
+                    <UserRound className="size-4" />
+                    حساب جديد
+                  </Link>
+                </Button>
+              </>
+            ))}
 
           <Button size="sm" asChild>
             <Link href="/request">اطلب عرض سعر</Link>
@@ -105,12 +127,29 @@ export function SiteHeader() {
               {link.label}
             </Link>
           ))}
-          <Link
-            href="/login"
-            className="block rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:hidden"
-          >
-            تسجيل الدخول
-          </Link>
+          {client ? (
+            <Link
+              href="/account"
+              className="block rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:hidden"
+            >
+              حسابي
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/account/login"
+                className="block rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:hidden"
+              >
+                تسجيل الدخول
+              </Link>
+              <Link
+                href="/account/register"
+                className="block rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
+              >
+                حساب جديد
+              </Link>
+            </>
+          )}
         </nav>
       )}
     </header>

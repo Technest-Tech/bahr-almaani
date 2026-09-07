@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Client;
 use App\Models\User;
 
 return [
@@ -42,6 +43,29 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        /*
+         * The operations app. Declared explicitly — and this matters: Sanctum
+         * registers `auth.guards.sanctum` with `provider => null` when the app
+         * does not define it, and a null provider makes Guard::hasValidProvider()
+         * accept *any* tokenable. With clients now holding Sanctum tokens too,
+         * that would let a client's token authenticate against `auth:sanctum` and
+         * reach every staff route that is not behind a permission gate.
+         */
+        'sanctum' => [
+            'driver' => 'sanctum',
+            'provider' => 'users',
+        ],
+
+        /*
+         * The website's client area (M15). The provider is what keeps the two
+         * apart in both directions: Sanctum rejects a token whose tokenable is not
+         * this provider's model.
+         */
+        'client' => [
+            'driver' => 'sanctum',
+            'provider' => 'clients',
+        ],
     ],
 
     /*
@@ -67,10 +91,10 @@ return [
             'model' => env('AUTH_MODEL', User::class),
         ],
 
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
+        'clients' => [
+            'driver' => 'eloquent',
+            'model' => Client::class,
+        ],
     ],
 
     /*

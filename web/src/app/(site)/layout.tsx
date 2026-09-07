@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ClientAuthProvider } from "@/lib/client-auth";
 import { SiteFooter } from "@/components/site/site-footer";
 import { SiteHeader } from "@/components/site/site-header";
 import { COMPANY } from "@/lib/company";
@@ -15,10 +16,14 @@ export const metadata: Metadata = {
  */
 export default function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col">
-      <SiteHeader />
-      <main className="flex-1">{children}</main>
-      <SiteFooter />
-    </div>
+    // The client session (M15) is scoped to the website: the operations app has
+    // its own provider and its own token, and neither can see the other's.
+    <ClientAuthProvider>
+      <div className="flex min-h-screen flex-col">
+        <SiteHeader />
+        <main className="flex-1">{children}</main>
+        <SiteFooter />
+      </div>
+    </ClientAuthProvider>
   );
 }

@@ -37,10 +37,13 @@ must sign off), API contract mapped to priced modules, sprint plan mapped to inv
 - Design quality is a first-class requirement. He escalated twice ("90% basic", "why do you
   lay to me") until the UI reached enterprise level. He screenshots pages back at you.
 - **Never claim UI work is done without looking at it yourself**: `playwright-core` is a
-  devDependency; launch headless Chromium from the cache:
-  `~/Library/Caches/ms-playwright/chromium_headless_shell-1148/chrome-mac/headless_shell`
-  (see the `ui-*.mjs` patterns in git history: login → navigate → screenshot → READ the
-  screenshot → check console errors). Scripts must run from `web/` for module resolution.
+  devDependency; launch headless Chromium from
+  `~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell`.
+  **Glob it, don't hard-code it** — the revision *and* the directory layout move with
+  playwright-core (the older `ui-*.mjs` scripts pin `…-1148/chrome-mac/headless_shell`,
+  which no longer exists here; `ui-client-portal.mjs` discovers it instead). Then:
+  login → navigate → screenshot → READ the screenshot → check console errors. Scripts
+  must run from `web/` for module resolution.
 - Be honest about what's done vs pending. He responds well to "you're right, here's the gap".
 - Commit per completed slice with descriptive messages ending in
   `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`. He approves the general flow;
@@ -209,6 +212,41 @@ The first unauthenticated surface in the system. Read §7b before quoting it.
   auto-created company client and both attachments copied in. 20 screenshots across
   light/dark/mobile via `web/ui-quotes.mjs`; the flow walk is `web/ui-quote-flow.mjs`.
 
+## 6d. M15 — client accounts & the client area (SHIPPED 2026-09-07, billable — see §7b)
+
+The first place a **non-staff** person signs in. Two things carry the whole design:
+
+- **A second guard on a second table.** `config/auth.php` gains `client` (provider
+  `clients`) — and, load-bearing, an explicit `sanctum` guard pinned to `users`.
+  Sanctum registers `auth.guards.sanctum` with `provider => null` when the app leaves
+  it undefined, and `Guard::hasValidProvider()` short-circuits to `true` on a null
+  provider: any tokenable passes. The moment clients hold Sanctum tokens, that null
+  would let a client's token authenticate against `auth:sanctum` and reach every staff
+  route not behind a permission gate (`/notifications`, `/languages`, `/auth/me`).
+  Pinning it is the fix; `ClientPortalTest` asserts both crossovers stay 401.
+- **The client sees a narrower system than the office does.** `Project::CLIENT_STAGES`
+  collapses nine internal statuses into four, `ClientProjectResource` omits `status`
+  and `assignment` entirely, drafts never appear, and `ClientAccountResource` exists so
+  the client's own profile cannot serve `clients.notes` — the notes kept *about* them.
+
+No client-area endpoint takes a client id; the session is the scope, and someone
+else's row answers **404**, not 403. Suspending a client or resetting their password
+deletes their tokens, and `EnsureUserIsActive` (the same middleware staff run through)
+cuts off anything already issued.
+
+**Self-registration deliberately will not claim an existing row.** A visitor whose
+email the office already has on file is refused and told to contact the office. With
+no verification mail possible (§5, SMTP), letting them claim it would hand one
+stranger another client's entire project history. The office activates that row itself
+by setting a password on it — which is why the client file page offers "فتح حساب
+للعميل" directly. Revisit once SMTP is real: verification would allow auto-linking.
+
+**Verified by driving it, not by reading it**: `web/ui-client-portal.mjs` (light, dark,
+mobile, plus the office screens) and an end-to-end pass through the real forms —
+register → land in the area, duplicate email refused, sign in, wrong password
+rejected, anonymous `/account` bounced to `/account/login`, and an office-issued
+password actually signing in on the site.
+
 ## 7. What's next, in order
 
 1. ~~**M9a — letterheads & stamps, everything except the merge**~~ **SHIPPED**:
@@ -294,6 +332,19 @@ activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app
 > twelve priced modules. What remains genuinely unbuilt from the pricing engine is the
 > rate card itself: rates per language pair / service type / priority, applied to the
 > `total_words` M3 already computes, to propose `quoted_amount` instead of asking for it.
+
+> **M15 shipped 2026-09-07 and closes the same change request** — the *client login*
+> M13 deliberately did without. Client accounts (a password on the `clients` row, a
+> second Sanctum guard), sign-in and self-registration on the site, the client's own
+> area (profile, project history, page counts, certified-file downloads, invoices),
+> and on the office side a password field on the client form plus a client file page.
+> **Bill it as its own line beside M13 and M14** — the "client-facing portal" entry in
+> the list above was a single change request, and this is the half that has a login in
+> it; none of the twelve priced modules covers client authentication. Note when
+> quoting: password reset by email is *not* in it, and cannot be until production SMTP
+> is real (see §5 — `MAIL_HOST` is still `smtp.example.com`, which is an in-scope fix,
+> not a billable one). Until then the office resets a client's password from the admin
+> screen.
 
 **NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
 

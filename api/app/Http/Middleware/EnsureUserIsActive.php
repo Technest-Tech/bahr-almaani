@@ -11,6 +11,10 @@ class EnsureUserIsActive
     /**
      * Suspension takes effect immediately: any request from a suspended
      * user revokes all their tokens and is rejected.
+     *
+     * Guard-agnostic on purpose — the client area runs on `auth:client`, and a
+     * suspended client (App\Models\Client) is cut off by exactly the same rule
+     * as a suspended staff member. Both models carry isSuspended() and tokens().
      */
     public function handle(Request $request, Closure $next): Response
     {

@@ -89,9 +89,15 @@ export function SiteFooter() {
 
         <div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t pt-6 text-xs text-muted-foreground">
           <p>© {new Date().getFullYear()} {COMPANY.name} — جميع الحقوق محفوظة</p>
-          <Link href="/login" className="transition-colors hover:text-primary">
-            دخول فريق العمل
-          </Link>
+          <span className="flex items-center gap-3">
+            <Link href="/account" className="transition-colors hover:text-primary">
+              حساب العميل
+            </Link>
+            <span aria-hidden className="opacity-40">·</span>
+            <Link href="/login" className="transition-colors hover:text-primary">
+              دخول فريق العمل
+            </Link>
+          </span>
         </div>
       </div>
     </footer>

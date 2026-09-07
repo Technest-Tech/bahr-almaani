@@ -95,10 +95,20 @@ Unique: `(user_id, source_language_id, target_language_id)`.
 |---|---|---|
 | name | varchar(190) | |
 | type | varchar(20) | `individual` / `company` |
-| phone / email | varchar | nullable |
-| notes | text | nullable |
-| created_by | FK users | |
+| phone / email | varchar | nullable; `email` is folded to lowercase on write |
+| notes | text | nullable — **internal**, never served to the client |
+| password | varchar | nullable — set means the client has a website account (M15) |
+| status | varchar(20) | `active` / `suspended` — gates the client's own sign-in |
+| last_login_at | timestamptz | nullable |
+| self_registered | boolean | signed up on the site vs. opened by the office |
+| created_by | FK users | **nullable** — a self-registered client has no staff creator |
 | deleted_at | timestamptz | soft delete |
+
+Partial unique index `clients_account_email_unique` on `lower(email)` where
+`password IS NOT NULL AND deleted_at IS NULL`. Scoped to accounts deliberately: the
+office keeps walk-in rows that legitimately share or omit an address, and a blanket
+unique index would both fail on existing data and block editing those rows. It is
+what makes the login lookup unambiguous.
 
 ### projects — central entity
 | Column | Type | Notes |

@@ -26,7 +26,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         if (getToken()) {
-          const data = await api<{ user: User; permissions: string[] }>("/auth/me");
+          // redirectOn401: false — a dead staff token is handled right here by
+          // dropping it. Left to redirect, it would drag a client browsing the
+          // public site off to the staff login screen.
+          const data = await api<{ user: User; permissions: string[] }>("/auth/me", {
+            redirectOn401: false,
+          });
           if (!cancelled) {
             setUser(data.user);
             setPermissions(data.permissions);

@@ -23,6 +23,7 @@ Modules map 1:1 to the client's priced contract items (total 85,000 EGP), so sco
 |---|---|---|---|---|
 | M13 | Public website & quote requests | الموقع العام وطلبات التسعير | change request | post-S4 |
 | M14 | Invoices — client billing | الفواتير | change request (agreed 2026-09-05) | post-S4 |
+| M15 | Client accounts & client area | حسابات العملاء ومنطقة العميل | change request (2026-09-07) | post-S4 |
 
 > M13 is **not** one of the twelve priced items. It is the "client-facing portal"
 > change request from `HANDOFF.md` §7b, and it carries the manual half of the
@@ -36,6 +37,19 @@ Modules map 1:1 to the client's priced contract items (total 85,000 EGP), so sco
 > out and is stored. Line items are a snapshot; `projects.invoice_id` guards double
 > billing. Permissions: `invoices.view` / `invoices.manage` (PM, accountant, admin).
 > Payments, VAT, voiding and ETA e-invoicing are explicitly NOT included.
+
+> **M15** turns the M13 website from a brochure with a tracking box into a place a
+> client signs in. It is the second half of the same "client-facing portal" change
+> request and is not covered by the twelve priced modules — bill it on its own line
+> beside M13 and M14. What it adds: a client account (a password on the existing
+> `clients` row), sign-in and self-registration on the website, the client's own
+> area (profile, project history, page counts, certified-file downloads, invoices),
+> and on the office side a password field on the client form plus a full client file
+> page. Password **reset by email** is deliberately not in it: production SMTP is
+> still `smtp.example.com`, so no mail this system sends arrives. Until that is
+> fixed the office resets a client's password from the admin screen, and a returning
+> client whose email the office already holds is told to contact the office rather
+> than being allowed to claim that row unverified.
 
 ## API conventions
 
@@ -272,6 +286,60 @@ pins this down; it fails the moment someone inlines the throttle again.
 the visitor's uploads into `projects/{id}/source/`. The originals stay under
 `quote-requests/{id}/` so the request remains auditable evidence of what was actually
 priced, even after the project's own files are revised.
+
+
+### M15 — Client accounts & the client area
+
+A **second guard on a second table**, not a role on `users`. `config/auth.php`
+declares `client` (provider `clients`) and — critically — pins `sanctum` to the
+`users` provider: Sanctum registers `auth.guards.sanctum` with `provider => null`
+when the app leaves it undefined, and a null provider makes its guard accept *any*
+tokenable. Once clients hold Sanctum tokens, that null would let a client's token
+authenticate against `auth:sanctum` and reach every staff route not behind a
+permission gate. `ClientPortalTest` pins both directions of the crossover.
+
+```
+                                          -- public --
+POST /client/auth/register                (throttle:5/min — self-registration)
+POST /client/auth/login                   (throttle:5/min)
+
+                                          -- auth:client + active --
+POST /client/auth/logout · GET /client/auth/me
+PUT  /client/auth/me                      (own name / type / phone; NOT the email)
+PUT  /client/auth/me/password             (revokes every other session)
+GET  /client/overview                     (profile + history in numbers + recent projects)
+GET  /client/projects                     (filter: stage; drafts never appear)
+GET  /client/projects/{id}
+GET  /client/projects/{id}/files/{fileId}/download   (source + final only)
+GET  /client/projects/{id}/final-files    (all certified files as one zip)
+GET  /client/invoices · GET /client/invoices/{id}/download
+```
+
+Office side (`clients.view` / `clients.manage`):
+```
+GET    /clients/{id}/overview             (the client file: stats, projects, invoices, quotes)
+POST   /clients · PUT /clients/{id}       (now accept `password` + `status`)
+DELETE /clients/{id}/account              (revoke the login, keep the client and their history)
+```
+
+**What the client is never shown.** Three narrowings, all deliberate:
+
+- **Statuses collapse.** `Project::CLIENT_STAGES` maps the nine internal statuses onto
+  four (`in_progress` / `in_review` / `ready` / `completed`, plus `cancelled`). A client
+  has no use for "claimed" vs "delivered" vs "approved", and publishing it would expose
+  who is working on what and how often a file bounced back for revision.
+  `ClientProjectResource` carries no `status` and no `assignment` at all.
+- **Drafts stay internal.** A draft is the office still assembling the record — no
+  deadline committed, often no files — so it is excluded from every client query.
+- **`clients.notes` is office-only.** `ClientAccountResource` exists precisely so the
+  client's own profile cannot serve the notes kept *about* them; `ClientResource`, which
+  does carry them, is never returned on a `/client/*` route.
+
+**Scope comes from the session, never the request.** No client-area endpoint takes a
+client id. Rows belonging to someone else answer **404**, not 403, so ids cannot be
+probed. Suspending a client (or resetting their password) deletes their tokens, and
+`EnsureUserIsActive` — the same middleware staff run through — cuts off any request that
+arrives on an already-issued one.
 
 ## Document-processing pipeline (queue jobs)
 
