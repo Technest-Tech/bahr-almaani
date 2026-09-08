@@ -57,7 +57,10 @@ class Invoice extends Model
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['number', 'client_id', 'amount', 'currency'])
+            // total_pages and unit_price joined the list when invoices became
+            // editable (2026-09-07): a corrected rate or a changed billed set has
+            // to leave a trail, not just a new amount.
+            ->logOnly(['number', 'client_id', 'total_pages', 'unit_price', 'amount', 'currency'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs()
             ->useLogName('invoices');

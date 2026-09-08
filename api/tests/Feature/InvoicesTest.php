@@ -236,4 +236,137 @@ class InvoicesTest extends TestCase
 
         return Invoice::findOrFail($response->json('data.id'));
     }
+
+    public function test_an_issued_invoice_can_be_corrected_without_changing_its_number(): void
+    {
+        $first = $this->makeProject([], 10);
+        $second = $this->makeProject([], 4);
+
+        $invoice = $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/invoices', [
+            'client_id' => $this->client->id,
+            'project_ids' => [$first->id],
+            'unit_price' => 100,
+        ])->assertCreated()->json('data');
+
+        $this->assertSame(10, $invoice['total_pages']);
+        $this->assertSame('1000.00', $invoice['amount']);
+
+        // The rate was wrong and a second project belonged on the same invoice.
+        $edited = $this->actingAs($this->accountant, 'sanctum')
+            ->putJson("/api/v1/invoices/{$invoice['id']}", [
+                'project_ids' => [$first->id, $second->id],
+                'unit_price' => 150,
+                'notes' => 'صُحّحت التعرفة',
+            ])
+            ->assertOk()
+            ->json('data');
+
+        $this->assertSame($invoice['number'], $edited['number'], 'the number must never move');
+        $this->assertSame($invoice['issued_at'], $edited['issued_at']);
+        $this->assertSame(14, $edited['total_pages']);
+        $this->assertSame('2100.00', $edited['amount']);
+        $this->assertCount(2, $edited['line_items']);
+
+        $this->assertSame($invoice['id'], $second->fresh()->invoice_id);
+    }
+
+    public function test_a_project_dropped_from_an_invoice_becomes_billable_again(): void
+    {
+        $kept = $this->makeProject([], 6);
+        $dropped = $this->makeProject([], 6);
+
+        $invoice = $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/invoices', [
+            'client_id' => $this->client->id,
+            'project_ids' => [$kept->id, $dropped->id],
+            'unit_price' => 50,
+        ])->assertCreated()->json('data');
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->putJson("/api/v1/invoices/{$invoice['id']}", [
+                'project_ids' => [$kept->id],
+                'unit_price' => 50,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.total_pages', 6);
+
+        $this->assertNull($dropped->fresh()->invoice_id);
+        $this->assertSame($invoice['id'], $kept->fresh()->invoice_id);
+
+        // Released means genuinely billable again, not merely detached.
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/invoices/billable?client_id={$this->client->id}")
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $dropped->id);
+    }
+
+    public function test_editing_cannot_steal_a_project_billed_on_another_invoice(): void
+    {
+        $mine = $this->makeProject([], 5);
+        $theirs = $this->makeProject([], 5);
+
+        $first = $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/invoices', [
+            'client_id' => $this->client->id,
+            'project_ids' => [$mine->id],
+            'unit_price' => 10,
+        ])->assertCreated()->json('data');
+
+        $second = $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/invoices', [
+            'client_id' => $this->client->id,
+            'project_ids' => [$theirs->id],
+            'unit_price' => 10,
+        ])->assertCreated()->json('data');
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->putJson("/api/v1/invoices/{$first['id']}", [
+                'project_ids' => [$mine->id, $theirs->id],
+                'unit_price' => 10,
+            ])
+            ->assertStatus(422);
+
+        // The rejected edit changed nothing on either invoice.
+        $this->assertSame($second['id'], $theirs->fresh()->invoice_id);
+        $this->assertSame($first['id'], $mine->fresh()->invoice_id);
+    }
+
+    public function test_the_billable_list_includes_the_rows_of_the_invoice_being_edited(): void
+    {
+        $billed = $this->makeProject([], 3);
+        $free = $this->makeProject([], 3);
+
+        $invoice = $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/invoices', [
+            'client_id' => $this->client->id,
+            'project_ids' => [$billed->id],
+            'unit_price' => 10,
+        ])->assertCreated()->json('data');
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/invoices/billable?client_id={$this->client->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+
+        $ids = $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/invoices/billable?client_id={$this->client->id}&invoice_id={$invoice['id']}")
+            ->assertOk()
+            ->json('data.*.id');
+
+        $this->assertEqualsCanonicalizing([$billed->id, $free->id], $ids);
+    }
+
+    public function test_a_translator_cannot_edit_an_invoice(): void
+    {
+        $project = $this->makeProject([], 5);
+
+        $invoice = $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/invoices', [
+            'client_id' => $this->client->id,
+            'project_ids' => [$project->id],
+            'unit_price' => 10,
+        ])->assertCreated()->json('data');
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->putJson("/api/v1/invoices/{$invoice['id']}", [
+                'project_ids' => [$project->id],
+                'amount' => 1,
+            ])
+            ->assertForbidden();
+    }
 }

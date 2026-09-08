@@ -588,19 +588,10 @@ class PortalFlowTest extends TestCase
         $this->assertSame(2, $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->count());
     }
 
-    public function test_approval_requires_an_active_letterhead_and_validates_any_stamp(): void
+    public function test_approval_validates_whatever_templates_are_chosen(): void
     {
         Notification::fake();
         $project = $this->projectAwaitingApproval();
-
-        // No selection at all: only the letterhead is required — approving
-        // without a stamp is a legitimate choice (office request 2026-09-05),
-        // so its absence must not be a validation error.
-        $this->actingAs($this->pm, 'sanctum')
-            ->postJson("/api/v1/projects/{$project->id}/review/approve")
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['letterhead_id'])
-            ->assertJsonMissingValidationErrors(['stamp_id']);
 
         // Kinds swapped — a stamp is not a letterhead.
         $letterhead = LetterheadTemplate::factory()->create(['created_by' => $this->pm->id]);
@@ -630,6 +621,46 @@ class PortalFlowTest extends TestCase
         $this->assertSame(Project::STATUS_IN_REVIEW, $project->status);
         $this->assertNull($project->letterhead_id);
         $this->assertNull($project->stamp_id);
+    }
+
+    /**
+     * Office request 2026-09-07: finish a file with no letterhead at all — work
+     * delivered on the client's own paper, or a plain translation that was never
+     * meant to be certified. Both overlays are optional; neither is defaulted.
+     */
+    public function test_a_project_can_be_approved_with_no_letterhead_and_no_stamp(): void
+    {
+        Notification::fake();
+        $project = $this->projectAwaitingApproval();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve")
+            ->assertOk()
+            ->assertJsonPath('data.letterhead', null)
+            ->assertJsonPath('data.stamp', null);
+
+        $project->refresh();
+        $this->assertNull($project->letterhead_id);
+        $this->assertNull($project->stamp_id);
+        // The merge still runs: it normalises the deliverable to PDF, which is
+        // what makes the delivered page count trustworthy.
+        $this->assertSame(Project::STATUS_COMPLETED, $project->status);
+    }
+
+    /** A letterhead preset earlier must not sneak into a final approved without one. */
+    public function test_approving_without_a_letterhead_clears_an_earlier_selection(): void
+    {
+        Notification::fake();
+        $project = $this->projectAwaitingApproval();
+        $letterhead = LetterheadTemplate::factory()->create(['created_by' => $this->pm->id]);
+        $project->forceFill(['letterhead_id' => $letterhead->id])->save();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve")
+            ->assertOk()
+            ->assertJsonPath('data.letterhead', null);
+
+        $this->assertNull($project->fresh()->letterhead_id);
     }
 
     public function test_approval_stores_the_selection_for_the_merge_job(): void

@@ -37,6 +37,15 @@ Modules map 1:1 to the client's priced contract items (total 85,000 EGP), so sco
 > out and is stored. Line items are a snapshot; `projects.invoice_id` guards double
 > billing. Permissions: `invoices.view` / `invoices.manage` (PM, accountant, admin).
 > Payments, VAT, voiding and ETA e-invoicing are explicitly NOT included.
+> **Editable since 2026-09-07** (`PUT /invoices/{id}`): the office asked to correct
+> an invoice rather than re-issue it. The number, the issue date and the client are
+> fixed — those are the invoice's identity, and re-issuing to fix a mistyped rate
+> would burn a number and leave a gap in the sequence. Everything else (billed set,
+> rate or lump sum, currency, notes) is rebuilt from scratch and the stored PDF is
+> re-rendered over the same path, so a link already handed out keeps working and can
+> never disagree with the row. Dropped projects are released back to billable in the
+> same transaction that claims added ones; `total_pages` and `unit_price` joined the
+> activity log so a correction leaves a trail.
 
 > **M15** turns the M13 website from a brochure with a tracking box into a place a
 > client signs in. It is the second half of the same "client-facing portal" change
@@ -114,7 +123,7 @@ private-App.Models.User.{id}             owner only
 ```
 POST   /projects/{id}/review/open        (delivered → in_review)
 POST   /projects/{id}/review/request-revision   (note required)
-POST   /projects/{id}/review/approve     (requires letterhead_id + stamp_id selection)
+POST   /projects/{id}/review/approve     (letterhead_id and stamp_id both optional)
 POST   /projects/{id}/merge/retry        (after merge failure)
 GET    /projects/{id}/final-file         (signed download URL)
 ```

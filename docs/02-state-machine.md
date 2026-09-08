@@ -17,7 +17,7 @@ stateDiagram-v2
     in_review --> revision_requested : PM requests changes (note required)
     revision_requested --> delivered : Translator re-delivers
     in_review --> approved : PM approves quality
-    approved --> completed : System merges letterhead + stamp (async job)
+    approved --> completed : System merges letterhead + stamp, either or both optional (async job)
     completed --> archived : Auto after N days / manual
     draft --> cancelled : PM/Admin
     available --> cancelled : PM/Admin (reason required)
@@ -37,7 +37,7 @@ stateDiagram-v2
 | `delivered` | تم التسليم | Deliverable uploaded, awaiting review | **⏱ stops at delivery** |
 | `in_review` | قيد المراجعة | PM reviewing quality | — |
 | `revision_requested` | مطلوب تعديل | Returned to the **same** translator (stays assigned; portal lock stays) | ⏱ revision time tracked separately on the assignment |
-| `approved` | معتمد | Quality approved; PM selects letterhead + stamp | — |
+| `approved` | معتمد | Quality approved; PM chooses letterhead + stamp — **both optional** since 2026-09-07, so a plain PDF delivery is a valid finish | — |
 | `completed` | مكتمل | Final merged file ready; client can be served | — |
 | `archived` | مؤرشف | Read-only, out of active dashboards | — |
 | `cancelled` | ملغي | Terminated; reason mandatory | — |

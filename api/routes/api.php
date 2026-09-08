@@ -167,6 +167,8 @@ Route::prefix('v1')->group(function (): void {
 
         Route::middleware('permission:invoices.manage')->group(function (): void {
             Route::post('/invoices', [InvoiceController::class, 'store']);
+            // Correct an issued invoice. The number and issue date never change.
+            Route::put('/invoices/{invoice}', [InvoiceController::class, 'update']);
         });
 
         // Review flow (M5)

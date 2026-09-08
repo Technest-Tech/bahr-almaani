@@ -49,12 +49,22 @@ class InvoiceController extends Controller
     {
         $validated = $request->validate([
             'client_id' => ['required', 'integer', 'exists:clients,id'],
+            // Editing an existing invoice: its own rows are billable *to it*, and
+            // must appear alongside the unbilled ones or the edit dialog would
+            // open with everything the invoice already bills unchecked.
+            'invoice_id' => ['nullable', 'integer', 'exists:invoices,id'],
         ]);
 
         $projects = Project::query()
             ->where('client_id', $validated['client_id'])
             ->whereIn('status', self::BILLABLE_STATUSES)
-            ->whereNull('invoice_id')
+            ->where(function ($query) use ($validated): void {
+                $query->whereNull('invoice_id');
+
+                if (isset($validated['invoice_id'])) {
+                    $query->orWhere('invoice_id', $validated['invoice_id']);
+                }
+            })
             ->orderByDesc('completed_at')
             ->get();
 
@@ -145,6 +155,96 @@ class InvoiceController extends Controller
         });
 
         return InvoiceResource::make($invoice->load('client'));
+    }
+
+    /**
+     * Correct an invoice after it was issued (office request 2026-09-07).
+     *
+     * The number and the issue date never move: the sequence is the office's
+     * audit trail, and re-issuing under a fresh number to fix a mistyped rate
+     * would burn one and leave a gap. The client is fixed too — billing a
+     * different client is a different invoice, not an edit.
+     *
+     * Everything that *is* editable is rebuilt from scratch rather than patched:
+     * the billed set decides the pages, the pages decide the amount, and the
+     * stored PDF is re-rendered over the same path so the download can never
+     * disagree with the row. Projects dropped from the invoice are released back
+     * to billable in the same transaction that claims the added ones.
+     */
+    public function update(Request $request, Invoice $invoice): InvoiceResource
+    {
+        $validated = $request->validate([
+            'project_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'project_ids.*' => ['integer', 'distinct'],
+            'unit_price' => ['nullable', 'numeric', 'min:0', 'max:1000000', 'required_without:amount'],
+            'amount' => ['nullable', 'numeric', 'min:0', 'max:100000000', 'required_without:unit_price'],
+            'currency' => ['nullable', 'string', 'size:3', 'alpha'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $invoice = DB::transaction(function () use ($validated, $invoice): Invoice {
+            // Billable, unbilled, OR already on this invoice — the last clause is
+            // what lets an edit keep the rows it already had without them looking
+            // like a double-billing attempt.
+            $projects = Project::query()
+                ->whereKey($validated['project_ids'])
+                ->where('client_id', $invoice->client_id)
+                ->whereIn('status', self::BILLABLE_STATUSES)
+                ->where(fn ($query) => $query
+                    ->whereNull('invoice_id')
+                    ->orWhere('invoice_id', $invoice->id))
+                ->lockForUpdate()
+                ->get();
+
+            abort_unless(
+                $projects->count() === count($validated['project_ids']),
+                422,
+                'بعض المشاريع المحددة لم تعد قابلة للفوترة — ربما فُوترت من نافذة أخرى. حدّث القائمة وحاول مجدداً.',
+            );
+
+            $pages = (int) $projects->sum(fn (Project $p) => $p->delivered_pages ?? $p->total_pages ?? 0);
+            $words = (int) $projects->sum(fn (Project $p) => $p->delivered_words ?? $p->total_words ?? 0);
+
+            abort_unless($pages > 0, 422, 'لا يوجد عدد صفحات لهذه المشاريع — أدخل العدد يدوياً على ملفاتها أولاً.');
+
+            $unitPrice = isset($validated['unit_price']) ? round((float) $validated['unit_price'], 2) : null;
+            $amount = isset($validated['amount'])
+                ? round((float) $validated['amount'], 2)
+                : round($pages * $unitPrice, 2);
+
+            // Released first, then re-claimed: a project the edit removed must go
+            // back to billable, and doing it in this order keeps the invoice's own
+            // rows correct even when the set is unchanged.
+            Project::where('invoice_id', $invoice->id)->update(['invoice_id' => null]);
+            Project::whereKey($projects->pluck('id'))->update(['invoice_id' => $invoice->id]);
+
+            $invoice->update([
+                'total_pages' => $pages,
+                'total_words' => $words ?: null,
+                'unit_price' => $unitPrice,
+                'amount' => $amount,
+                'currency' => strtoupper($validated['currency'] ?? $invoice->currency),
+                'notes' => $validated['notes'] ?? null,
+                'line_items' => $projects->map(fn (Project $p): array => [
+                    'project_id' => $p->id,
+                    'code' => $p->code,
+                    'title' => $p->title,
+                    'pages' => $p->delivered_pages ?? $p->total_pages,
+                    'words' => $p->delivered_words ?? $p->total_words,
+                ])->values()->all(),
+            ]);
+
+            // Same path, so every link already handed out keeps working. Inside the
+            // transaction for the same reason as issuing: a Gotenberg failure must
+            // not leave the row edited and the PDF stale.
+            $path = $invoice->disk_path ?: "invoices/{$invoice->id}.pdf";
+            Storage::disk('local')->put($path, $this->renderPdf($invoice->fresh(['client', 'creator'])));
+            $invoice->update(['disk_path' => $path]);
+
+            return $invoice;
+        });
+
+        return InvoiceResource::make($invoice->fresh()->load('client'));
     }
 
     public function show(Invoice $invoice): InvoiceResource

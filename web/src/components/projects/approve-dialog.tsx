@@ -40,10 +40,15 @@ interface Props {
 const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
 
 /**
- * Approval carries the letterhead selection (M9) and, optionally, a stamp: the
- * office asked (2026-09-05) to be able to finish a file without sealing it —
- * "عندي القدرة أختم أو لا" — so only the letterhead is required and «بدون ختم»
- * is a first-class choice, not a validation error.
+ * Approval carries the letterhead selection (M9) and a stamp, and since
+ * 2026-09-07 both are optional: the office asked first to finish a file without
+ * sealing it — "عندي القدرة أختم أو لا" — and then to deliver without a
+ * letterhead at all, for work that goes out on the client's own paper.
+ *
+ * Neither is *defaulted* to «بدون», though. An empty dialog still cannot be
+ * submitted: the PM clicks «بدون ترويسة» deliberately, so a stray click on a
+ * dialog whose selection was simply left blank can never produce an
+ * uncertified final.
  *
  * It also carries the last word on **where each seal sits**. The translator placed it
  * while they had the document in front of them, and that placement arrives here
@@ -53,6 +58,8 @@ const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
  */
 export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
   const [letterheadId, setLetterheadId] = useState<number | null>(null);
+  // Distinct from `letterheadId === null`, which is merely "not chosen yet".
+  const [omitLetterhead, setOmitLetterhead] = useState(false);
   const [stampId, setStampId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [placements, setPlacements] = useState<Record<number, StampPosition | null>>({});
@@ -75,7 +82,7 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
   const stamp = stamps.find((t) => t.id === stampId) ?? null;
   // The stamp is deliberately NOT part of readiness — approving unsealed is a
   // choice the office asked for, not a half-filled form.
-  const ready = letterheadId !== null;
+  const ready = letterheadId !== null || omitLetterhead;
 
   /** The newest round's deliverables — exactly the files the merge will letterhead. */
   const deliverables = useMemo(() => {
@@ -139,19 +146,39 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
           <DialogHeader>
             <DialogTitle>اعتماد الترجمة وإنهاء الملف</DialogTitle>
             <DialogDescription>
-              اختر الترويسة التي ستُدمج في الملف النهائي. الختم اختياري — يمكنك الاعتماد بدونه.
+              اختر الترويسة والختم اللذين سيُدمجان في الملف النهائي. كلاهما اختياري — يمكنك
+              الاعتماد بدون ترويسة أو بدون ختم أو بدونهما معاً.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-5">
-            <TemplatePicker
-              kind="letterhead"
-              title="الترويسة"
-              templates={letterheads}
-              loading={isLoading}
-              selectedId={letterheadId}
-              onSelect={setLetterheadId}
-            />
+            <div className="space-y-2">
+              <TemplatePicker
+                kind="letterhead"
+                title="الترويسة"
+                templates={letterheads}
+                loading={isLoading}
+                selectedId={letterheadId}
+                onSelect={(id) => {
+                  setLetterheadId(id);
+                  setOmitLetterhead(false);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setOmitLetterhead(true);
+                  setLetterheadId(null);
+                }}
+                className={`rounded-md border px-3 py-1 text-[13px] transition-colors ${
+                  omitLetterhead
+                    ? "border-primary bg-primary/10 font-medium text-primary"
+                    : "hover:bg-muted"
+                }`}
+              >
+                بدون ترويسة
+              </button>
+            </div>
             <div className="space-y-2">
               <TemplatePicker
                 kind="stamp"
@@ -213,8 +240,9 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
 
               {stampId === null && deliverables.length > 0 && (
                 <p className="text-[13px] text-muted-foreground">
-                  بدون ختم: سيصدر الملف النهائي بالترويسة فقط. اختر ختماً أعلاه إذا أردت وضعه
-                  وضبط موضعه.
+                  {omitLetterhead
+                    ? "بدون ترويسة وبدون ختم: سيصدر الملف النهائي كترجمة عادية بصيغة PDF دون أي اعتماد."
+                    : "بدون ختم: سيصدر الملف النهائي بالترويسة فقط. اختر ختماً أعلاه إذا أردت وضعه وضبط موضعه."}
                 </p>
               )}
             </section>
@@ -228,7 +256,7 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
               onClick={handleApprove}
               loading={submitting}
               disabled={!ready}
-              title={ready ? undefined : "اختر ترويسة أولاً"}
+              title={ready ? undefined : "اختر ترويسة، أو «بدون ترويسة»"}
             >
               <BadgeCheck className="size-4" />
               اعتماد وإنهاء

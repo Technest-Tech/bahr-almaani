@@ -3,7 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Download, FileText, Plus, ReceiptText } from "lucide-react";
+import { Download, FileText, Pencil, Plus, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useFileTransfer } from "@/lib/use-transfer";
@@ -41,6 +41,7 @@ export default function InvoicesPage() {
   const { download } = useFileTransfer();
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Invoice | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["invoices", page],
@@ -97,18 +98,28 @@ export default function InvoicesPage() {
       enableHiding: false,
       header: "",
       cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title="تحميل الفاتورة"
-          onClick={() =>
-            download(`/invoices/${row.original.id}/download`, `${row.original.number}.pdf`).catch(
-              () => toast.error("تعذر تحميل الفاتورة"),
-            )
-          }
-        >
-          <Download className="size-4" />
-        </Button>
+        <div className="flex items-center justify-end gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="تعديل الفاتورة"
+            onClick={() => setEditing(row.original)}
+          >
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="تحميل الفاتورة"
+            onClick={() =>
+              download(`/invoices/${row.original.id}/download`, `${row.original.number}.pdf`).catch(
+                () => toast.error("تعذر تحميل الفاتورة"),
+              )
+            }
+          >
+            <Download className="size-4" />
+          </Button>
+        </div>
       ),
     },
   ];
@@ -136,16 +147,26 @@ export default function InvoicesPage() {
         totalLabel={(total) => `${total} فاتورة`}
       />
 
-      {creating && (
-        <NewInvoiceDialog
+      {(creating || editing) && (
+        <InvoiceDialog
           open
-          onClose={() => setCreating(false)}
-          onIssued={(invoice) => {
+          key={editing ? `edit-${editing.id}` : "new"}
+          invoice={editing}
+          onClose={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
+          onSaved={(invoice, wasEdit) => {
             queryClient.invalidateQueries({ queryKey: ["invoices"] });
-            // Hand the office the document immediately — printing it is the
-            // whole point of the window.
+            // A corrected invoice has a new PDF at the same URL, so both paths
+            // hand the office the document — printing it is the whole point of
+            // the window.
             download(`/invoices/${invoice.id}/download`, `${invoice.number}.pdf`).catch(() =>
-              toast.error("صدرت الفاتورة لكن تعذر تحميلها — حمّلها من القائمة"),
+              toast.error(
+                wasEdit
+                  ? "حُفظت التعديلات لكن تعذر تحميل الفاتورة — حمّلها من القائمة"
+                  : "صدرت الفاتورة لكن تعذر تحميلها — حمّلها من القائمة",
+              ),
             );
           }}
         />
@@ -154,22 +175,42 @@ export default function InvoicesPage() {
   );
 }
 
-function NewInvoiceDialog({
+/**
+ * Issue a new invoice, or correct one already issued (office request 2026-09-07).
+ *
+ * One form for both: an edit changes exactly the same fields an issue sets, so a
+ * second dialog would be the same 150 lines with a different verb. What an edit
+ * cannot touch is the invoice's identity — the number, the issue date and the
+ * client — so the client picker is locked rather than hidden, which keeps the
+ * dialog readable as "this invoice, corrected" instead of "a new one".
+ */
+function InvoiceDialog({
   open,
+  invoice,
   onClose,
-  onIssued,
+  onSaved,
 }: {
   open: boolean;
+  invoice: Invoice | null;
   onClose: () => void;
-  onIssued: (invoice: Invoice) => void;
+  onSaved: (invoice: Invoice, wasEdit: boolean) => void;
 }) {
-  const [clientId, setClientId] = useState<string>("");
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [mode, setMode] = useState<"unit" | "total">("unit");
-  const [unitPrice, setUnitPrice] = useState("");
-  const [total, setTotal] = useState("");
-  const [currency, setCurrency] = useState("EGP");
-  const [notes, setNotes] = useState("");
+  const isEdit = invoice !== null;
+  const [clientId, setClientId] = useState<string>(
+    invoice?.client ? String(invoice.client.id) : "",
+  );
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(invoice?.line_items.map((item) => item.project_id) ?? []),
+  );
+  // A stored unit_price means the office priced per page; its absence means a
+  // lump sum was typed, and reopening must land the PM back on that same tab.
+  const [mode, setMode] = useState<"unit" | "total">(
+    invoice && invoice.unit_price === null ? "total" : "unit",
+  );
+  const [unitPrice, setUnitPrice] = useState(invoice?.unit_price ?? "");
+  const [total, setTotal] = useState(invoice?.amount ?? "");
+  const [currency, setCurrency] = useState(invoice?.currency ?? "EGP");
+  const [notes, setNotes] = useState(invoice?.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
 
   const { data: clients } = useQuery({
@@ -178,13 +219,38 @@ function NewInvoiceDialog({
   });
 
   const { data: billable, isLoading: loadingBillable } = useQuery({
-    queryKey: ["billable-projects", clientId],
-    queryFn: () =>
-      api<{ data: BillableProject[] }>(`/invoices/billable?client_id=${clientId}`).then(
-        (r) => r.data,
-      ),
+    queryKey: ["billable-projects", clientId, invoice?.id ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams({ client_id: clientId });
+      // Without this the edit dialog would open with every project the invoice
+      // already bills missing from the list, and therefore unchecked.
+      if (invoice) params.set("invoice_id", String(invoice.id));
+      return api<{ data: BillableProject[] }>(`/invoices/billable?${params}`).then((r) => r.data);
+    },
     enabled: clientId !== "",
   });
+
+  /**
+   * The rows this invoice already bills, floated to the top of the list.
+   *
+   * Keyed off the invoice's own line items rather than live `selected`, so the
+   * order is stable while the PM ticks boxes — sorting by the live selection
+   * would make rows jump under the cursor. Without this an edit opens with its
+   * own projects checked but scrolled out of sight below everything else the
+   * client has waiting to be billed.
+   */
+  const billedIds = useMemo(
+    () => new Set(invoice?.line_items.map((item) => item.project_id) ?? []),
+    [invoice],
+  );
+
+  const listed = useMemo(() => {
+    const rows = billable ?? [];
+    if (billedIds.size === 0) return rows;
+    return [...rows].sort(
+      (a, b) => Number(billedIds.has(b.id)) - Number(billedIds.has(a.id)),
+    );
+  }, [billable, billedIds]);
 
   const chosen = useMemo(
     () => (billable ?? []).filter((project) => selected.has(project.id)),
@@ -209,20 +275,32 @@ function NewInvoiceDialog({
       return;
     }
     setSubmitting(true);
+
+    const pricing = {
+      project_ids: chosen.map((project) => project.id),
+      unit_price: mode === "unit" ? Number(unitPrice) : null,
+      amount: mode === "total" ? Number(total) : null,
+      currency,
+      notes: notes || null,
+    };
+
     try {
-      const response = await api<{ data: Invoice }>("/invoices", {
-        method: "POST",
-        json: {
-          client_id: Number(clientId),
-          project_ids: chosen.map((project) => project.id),
-          unit_price: mode === "unit" ? Number(unitPrice) : null,
-          amount: mode === "total" ? Number(total) : null,
-          currency,
-          notes: notes || null,
-        },
-      });
-      toast.success(`صدرت الفاتورة ${response.data.number}`);
-      onIssued(response.data);
+      const response = invoice
+        ? await api<{ data: Invoice }>(`/invoices/${invoice.id}`, {
+            method: "PUT",
+            json: pricing,
+          })
+        : await api<{ data: Invoice }>("/invoices", {
+            method: "POST",
+            json: { client_id: Number(clientId), ...pricing },
+          });
+
+      toast.success(
+        invoice
+          ? `حُدّثت الفاتورة ${response.data.number}`
+          : `صدرت الفاتورة ${response.data.number}`,
+      );
+      onSaved(response.data, invoice !== null);
       onClose();
     } catch (err) {
       toast.error(
@@ -230,7 +308,9 @@ function NewInvoiceDialog({
           ? Object.values(err.errors)[0][0]
           : err instanceof Error
             ? err.message
-            : "تعذر إصدار الفاتورة",
+            : invoice
+              ? "تعذر حفظ التعديلات"
+              : "تعذر إصدار الفاتورة",
       );
       setSubmitting(false);
     }
@@ -240,17 +320,25 @@ function NewInvoiceDialog({
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>فاتورة جديدة</DialogTitle>
+          <DialogTitle>
+            {isEdit ? `تعديل الفاتورة ${invoice.number}` : "فاتورة جديدة"}
+          </DialogTitle>
           <DialogDescription>
-            اختر العميل ثم حدد الأعمال المكتملة التي تشملها الفاتورة — عدد الصفحات يُجمع من
-            الملفات المُسلَّمة تلقائياً.
+            {isEdit
+              ? "يمكنك تصحيح السعر أو الأعمال المشمولة. رقم الفاتورة وتاريخ إصدارها والعميل لا تتغير، ويُعاد إنشاء ملف PDF بالبيانات الجديدة."
+              : "اختر العميل ثم حدد الأعمال المكتملة التي تشملها الفاتورة — عدد الصفحات يُجمع من الملفات المُسلَّمة تلقائياً."}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Field label="العميل" htmlFor="inv-client">
+          <Field
+            label="العميل"
+            htmlFor="inv-client"
+            hint={isEdit ? "لا يمكن تغيير العميل على فاتورة صادرة." : undefined}
+          >
             <Select
               value={clientId}
+              disabled={isEdit}
               onValueChange={(value) => {
                 setClientId(value);
                 setSelected(new Set());
@@ -276,11 +364,11 @@ function NewInvoiceDialog({
                 <Skeleton className="h-24 rounded-lg" />
               ) : !billable?.length ? (
                 <p className="rounded-lg border border-dashed px-4 py-6 text-center text-[13px] text-muted-foreground">
-                  لا توجد أعمال مكتملة غير مفوترة لهذا العميل.
+                  لا توجد أعمال مكتملة قابلة للفوترة لهذا العميل.
                 </p>
               ) : (
-                <ul className="max-h-56 divide-y overflow-y-auto rounded-lg border">
-                  {billable.map((project) => (
+                <ul className="max-h-72 divide-y overflow-y-auto rounded-lg border">
+                  {listed.map((project) => (
                     <li key={project.id}>
                       <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/40">
                         <input
@@ -296,6 +384,11 @@ function NewInvoiceDialog({
                             {project.code}
                           </span>
                         </span>
+                        {billedIds.has(project.id) && (
+                          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                            على الفاتورة
+                          </span>
+                        )}
                         <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
                           {project.pages !== null
                             ? `${project.pages.toLocaleString("ar-EG")} صفحة`
@@ -407,7 +500,7 @@ function NewInvoiceDialog({
             </Button>
             <Button type="submit" loading={submitting} disabled={chosen.length === 0}>
               <ReceiptText className="size-4" />
-              إصدار الفاتورة
+              {isEdit ? "حفظ التعديلات" : "إصدار الفاتورة"}
             </Button>
           </DialogFooter>
         </form>

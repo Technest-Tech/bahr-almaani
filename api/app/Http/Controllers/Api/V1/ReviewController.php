@@ -105,17 +105,28 @@ class ReviewController extends Controller
     /**
      * in_review → approved, then the finalize job completes it.
      *
-     * The letterhead (and optionally a stamp) are chosen here and persisted on the
+     * The letterhead and the stamp are both chosen here and persisted on the
      * project, so the merge job (M9b) reads its overlay configuration straight off
      * the record. The stamp became optional on the office's request (2026-09-05):
      * "عايز أعمل إنهاء وعندي القدرة أختم أو لا" — not every finished document
      * carries the seal, and the merge has always handled a null stamp.
+     *
+     * The letterhead followed on 2026-09-07, for the same reason: some work is
+     * delivered on the client's own paper, or as a plain translation that was never
+     * meant to be certified. DocumentMergeService already took a nullable
+     * letterhead throughout, so only this validation stood in the way — with both
+     * omitted the merge still runs and still normalises the deliverable to PDF,
+     * which is what makes the delivered page count trustworthy.
+     *
+     * Nothing here defaults the choice: the UI makes the PM click «بدون ترويسة»
+     * deliberately, so an uncertified final can never be produced by a stray click
+     * on a dialog whose selection was simply left empty.
      */
     public function approve(Request $request, Project $project): ProjectResource
     {
         $validated = $request->validate([
             'letterhead_id' => [
-                'required', 'integer',
+                'nullable', 'integer',
                 Rule::exists('letterhead_templates', 'id')
                     ->where('kind', LetterheadTemplate::KIND_LETTERHEAD)
                     ->where('is_active', true),
@@ -139,7 +150,10 @@ class ReviewController extends Controller
         // on a project that was never approved.
         $project = DB::transaction(function () use ($project, $request, $validated, $placements): Project {
             $project->fill([
-                'letterhead_id' => $validated['letterhead_id'],
+                // Same rule as the stamp below: omitted means "without", not
+                // "keep whatever was on the record" — approval decides the whole
+                // certification package in one go.
+                'letterhead_id' => $validated['letterhead_id'] ?? null,
                 // Omitted means unsealed, explicitly: approval decides the whole
                 // certification package, so a stamp preset earlier on the record
                 // must not sneak into a final the PM chose to leave unstamped.

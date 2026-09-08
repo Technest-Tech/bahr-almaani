@@ -247,6 +247,30 @@ register → land in the area, duplicate email refused, sign in, wrong password
 rejected, anonymous `/account` bounced to `/account/login`, and an office-issued
 password actually signing in on the site.
 
+## 6e. Three office corrections (SHIPPED 2026-09-07)
+
+Small, and all three came from the office using the system rather than reading a spec.
+
+1. **Invoices are editable** — `PUT /invoices/{id}`. Number, issue date and client are
+   fixed; everything else is rebuilt and the PDF re-rendered over the same path. The
+   `billable` endpoint takes an optional `invoice_id` so an edit can see its own rows
+   alongside the unbilled ones — without it the dialog opened with everything the
+   invoice bills unchecked. Dropped projects are released back to billable in the same
+   transaction that claims added ones.
+2. **The letterhead is optional at approval**, exactly as the stamp became on
+   2026-09-05 — some work goes out on the client's own paper, some was never meant to
+   be certified. `DocumentMergeService` already took a nullable letterhead throughout,
+   so only the validation stood in the way. The merge still runs with neither overlay:
+   it normalises the deliverable to PDF, which is what makes the delivered page count
+   trustworthy. **Neither overlay is defaulted to «بدون»** — the PM clicks it, so an
+   empty dialog still cannot be submitted and a stray click can never produce an
+   uncertified final.
+3. **The date on the certified file is in the letterhead artwork**, not in any code
+   path. Searched the whole merge pipeline: `DocumentMergeService` draws only the
+   letterhead, the page and the stamp, and the only text it writes is the Arabic
+   specimen for the letterhead preview. Removing that date means uploading a
+   replacement letterhead image — there is nothing to change in the repo.
+
 ## 7. What's next, in order
 
 1. ~~**M9a — letterheads & stamps, everything except the merge**~~ **SHIPPED**:
