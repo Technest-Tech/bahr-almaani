@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, FileCheck2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, FileCheck2, IdCard } from "lucide-react";
 import { CLIENT_STAGE_TONES, type ClientProject } from "@/lib/types";
 import { ToneBadge } from "@/components/tone-badge";
 
@@ -20,7 +20,17 @@ export function ProjectCard({ project }: { project: ClientProject }) {
           </p>
           <p className="mt-0.5 truncate font-semibold">{project.title}</p>
         </div>
-        <ToneBadge tone={CLIENT_STAGE_TONES[project.stage]}>{project.stage_label}</ToneBadge>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {/* Ahead of the stage badge: this is the one card in the list the client
+              has to act on, and the stage says nothing about it. */}
+          {project.awaiting_documents && (
+            <ToneBadge tone="amber">
+              <IdCard />
+              مستند مطلوب منك
+            </ToneBadge>
+          )}
+          <ToneBadge tone={CLIENT_STAGE_TONES[project.stage]}>{project.stage_label}</ToneBadge>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-muted-foreground">

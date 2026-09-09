@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\DailyWordLogController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\DocumentRequestController;
 use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\LanguageController;
 use App\Http\Controllers\Api\V1\LetterheadController;
@@ -65,6 +66,12 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/projects', [ClientPortalController::class, 'projects']);
             Route::get('/projects/{project}', [ClientPortalController::class, 'project']);
             Route::get('/projects/{project}/files/{file}/download', [ClientPortalController::class, 'downloadFile']);
+            // The client area's only write: answering a document request. Throttled
+            // like every other route on the site that puts bytes on our disk.
+            Route::post('/projects/{project}/files', [ClientPortalController::class, 'uploadFile'])
+                ->middleware('throttle:client-uploads');
+            // Withdrawing their own upload — how "I sent the wrong photo" gets fixed.
+            Route::delete('/projects/{project}/files/{file}', [ClientPortalController::class, 'destroyFile']);
             Route::get('/projects/{project}/final-files', [ClientPortalController::class, 'finalArchive']);
             Route::get('/invoices', [ClientPortalController::class, 'invoices']);
             Route::get('/invoices/{invoice}/download', [ClientPortalController::class, 'downloadInvoice']);
@@ -136,6 +143,18 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/projects/{project}/files', [ProjectFileController::class, 'store']);
             Route::delete('/projects/{project}/files/{file}', [ProjectFileController::class, 'destroy']);
             Route::put('/projects/{project}/files/{file}/manual-count', [ProjectFileController::class, 'manualCount']);
+
+            // Asking the client for a missing document (identity papers and the like).
+            Route::post('/projects/{project}/document-requests', [DocumentRequestController::class, 'store']);
+            // Ask again — what arrived was the wrong document.
+            Route::post(
+                '/projects/{project}/document-requests/{documentRequest}/reopen',
+                [DocumentRequestController::class, 'reopen'],
+            );
+            Route::delete(
+                '/projects/{project}/document-requests/{documentRequest}',
+                [DocumentRequestController::class, 'cancel'],
+            );
         });
 
         // Quote requests from the public site (M13)

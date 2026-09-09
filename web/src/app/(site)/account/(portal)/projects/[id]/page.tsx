@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToneBadge } from "@/components/tone-badge";
+import { DocumentRequestsPanel } from "@/components/account/document-requests-panel";
 
 const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "long" });
 
@@ -37,6 +38,7 @@ function formatSize(bytes: number): string {
 
 export default function AccountProjectPage() {
   const id = useParams<{ id: string }>().id;
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
 
   const { data: project, isLoading } = useQuery({
@@ -67,6 +69,8 @@ export default function AccountProjectPage() {
   }
 
   const finals = (project.files ?? []).filter((file) => file.category === "final");
+  // Only the files they opened the job with: what they supplied against a
+  // document request is listed and downloadable inside that request's own card.
   const sources = (project.files ?? []).filter((file) => file.category === "source");
 
   return (
@@ -77,6 +81,11 @@ export default function AccountProjectPage() {
           كل المشاريع
         </Link>
       </Button>
+
+      <DocumentRequestsPanel
+        project={project}
+        onUploaded={() => queryClient.invalidateQueries({ queryKey: ["client-project", id] })}
+      />
 
       <Card className="overflow-hidden py-0">
         <CardContent className="p-0">
@@ -197,6 +206,7 @@ export default function AccountProjectPage() {
           )
         }
       />
+
     </div>
   );
 }

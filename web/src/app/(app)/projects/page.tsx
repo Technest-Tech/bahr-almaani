@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
-import { AlertTriangle, Plus, Search } from "lucide-react";
+import { AlertTriangle, IdCard, Plus, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   PRIORITY_LABELS,
@@ -121,9 +121,19 @@ export default function ProjectsPage() {
       meta: { label: "الحالة" },
       header: ({ column }) => <SortableHeader column={column}>الحالة</SortableHeader>,
       cell: ({ row }) => (
-        <ToneBadge tone={STATUS_TONES[row.original.status]}>
-          {row.original.status_label}
-        </ToneBadge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ToneBadge tone={STATUS_TONES[row.original.status]}>
+            {row.original.status_label}
+          </ToneBadge>
+          {/* Beside the status rather than inside it: the project is still
+              claimed, it is just blocked on something only the client can send. */}
+          {row.original.awaiting_documents && (
+            <ToneBadge tone="amber" title="بانتظار مستند من العميل">
+              <IdCard />
+              مستند مطلوب
+            </ToneBadge>
+          )}
+        </div>
       ),
     },
     {

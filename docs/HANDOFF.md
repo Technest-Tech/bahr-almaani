@@ -370,6 +370,20 @@ activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app
 > not a billable one). Until then the office resets a client's password from the admin
 > screen.
 
+> **M16 shipped 2026-09-09 — document requests, and it splits in two.** The office
+> asks the client for a document a file cannot be translated without (an ID, for the
+> official spelling of a name); the client uploads it from their own area and it lands
+> attached to the work file it belongs to. **The PM half is NOT billable**: attaching
+> supporting documents to a project is already inside the priced M3 (*رفع ملفات داعمة
+> متعددة مرتبطة بالمشروع*) and shipped long ago — what M16 adds there is the link from
+> an attachment to a *particular* file, a refinement of the same paid feature, folded
+> in rather than quoted. **The client half is billable**: uploading is the first write
+> the client area has ever had, so it belongs to the client-portal change request
+> above — bill it as an add-on line on M13 + M15, never inside the twelve modules.
+> Note when quoting: the "we need your ID" email shares the SMTP blocker below, so
+> today the client sees the ask only when they sign in. That banner is the channel
+> that works, and fixing the mail is in-scope, not billable.
+
 **NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
 
 Word counting itself (the client's "ثالثاً" requirement) is **delivered** inside M3:

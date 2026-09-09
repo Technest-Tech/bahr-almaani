@@ -62,6 +62,12 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         if (notification.type === "report_ready") {
           queryClient.invalidateQueries({ queryKey: ["report-exports"] });
         }
+        // The client answered a document request — the file is on the project now
+        // and the "waiting on the client" badge has to come off both views.
+        if (notification.type === "document_supplied") {
+          queryClient.invalidateQueries({ queryKey: ["project"] });
+          queryClient.invalidateQueries({ queryKey: ["projects"] });
+        }
       })
       .listen(".project.delivered", () => {
         queryClient.invalidateQueries({ queryKey: ["projects"] });

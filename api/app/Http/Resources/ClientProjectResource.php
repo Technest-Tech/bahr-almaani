@@ -11,19 +11,14 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * A project as its own client sees it in the website's client area (M15).
  *
  * Narrower than ProjectResource on purpose: no internal status, no assignment, no
- * creator, no merge state, and files limited to the two categories the client has
- * a claim on — what they handed in, and what they get back.
+ * creator, no merge state, and files limited to what the client has a claim on —
+ * what they handed in, what they get back, and the supporting documents they were
+ * asked for. See ProjectFile::isVisibleToClient().
  *
  * @mixin Project
  */
 class ClientProjectResource extends JsonResource
 {
-    /** What the client may see and download. */
-    public const VISIBLE_CATEGORIES = [
-        ProjectFile::CATEGORY_SOURCE,
-        ProjectFile::CATEGORY_FINAL,
-    ];
-
     public function toArray(Request $request): array
     {
         $stage = $this->clientStage();
@@ -53,12 +48,15 @@ class ClientProjectResource extends JsonResource
             'source_language' => LanguageResource::make($this->whenLoaded('sourceLanguage')),
             'target_language' => LanguageResource::make($this->whenLoaded('targetLanguage')),
             'invoice_number' => $this->whenLoaded('invoice', fn () => $this->invoice?->number),
+            // "You still owe us a document" — the one thing on the client's list
+            // that is waiting on THEM rather than on us.
+            'awaiting_documents' => $this->awaitsDocuments(),
             'has_final_file' => $this->whenLoaded(
                 'files',
                 fn (): bool => $this->files->contains('category', ProjectFile::CATEGORY_FINAL),
             ),
             'files' => $this->whenLoaded('files', fn () => $this->files
-                ->whereIn('category', self::VISIBLE_CATEGORIES)
+                ->filter(fn (ProjectFile $file): bool => $file->isVisibleToClient())
                 ->map(fn (ProjectFile $file): array => [
                     'id' => $file->id,
                     'category' => $file->category,
@@ -66,9 +64,15 @@ class ClientProjectResource extends JsonResource
                     'size_bytes' => $file->size_bytes,
                     'page_count' => $file->page_count,
                     'word_count' => $file->word_count,
+                    'document_request_id' => $file->document_request_id,
                     'created_at' => $file->created_at?->toIso8601String(),
                 ])
                 ->values()),
+            // What the office is still waiting for, and what has already been
+            // supplied — the client area turns the open ones into an upload box.
+            'document_requests' => DocumentRequestResource::collection(
+                $this->whenLoaded('documentRequests'),
+            ),
         ];
     }
 }

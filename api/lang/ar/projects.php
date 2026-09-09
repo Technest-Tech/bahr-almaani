@@ -13,6 +13,20 @@ return [
     'manual_count_not_applicable' => 'العد اليدوي متاح فقط للملفات التي تعذر عدّها تلقائياً.',
     'merge_retry_not_applicable' => 'إعادة الدمج متاحة فقط للمشاريع المعتمدة التي لم يكتمل إصدار ملفها النهائي.',
     'final_file_missing' => 'لم يصدر الملف النهائي لهذا المشروع بعد.',
+
+    // طلب مستند من العميل (هوية أو مستند داعم)
+    'document_request_settled' => 'لا يمكن طلب مستندات من العميل بعد إغلاق المشروع.',
+    'document_request_duplicate' => 'يوجد طلب مفتوح بالفعل لهذا المستند على نفس الملف.',
+    'document_request_closed' => 'هذا الطلب لم يعد مفتوحاً.',
+    'document_request_cancelled' => 'تم إلغاء طلب المستند.',
+    'document_supplied' => 'تم رفع المستند وإرساله إلى المكتب.',
+    'document_request_not_fulfilled' => 'لا يمكن طلب نسخة جديدة إلا بعد وصول المستند.',
+    'document_delete_settled' => 'لا يمكن حذف المستندات بعد إغلاق المشروع.',
+    'document_deleted' => 'تم حذف المستند، ويمكنك رفع نسخة أخرى.',
+    'document_kind' => [
+        'identity' => 'إثبات هوية',
+        'supporting' => 'مستند داعم',
+    ],
     'status' => [
         'draft' => 'مسودة',
         'available' => 'متاح',

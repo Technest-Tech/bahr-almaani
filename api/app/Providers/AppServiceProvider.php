@@ -48,5 +48,12 @@ class AppServiceProvider extends ServiceProvider
         // throttle here would share one bucket with every other authenticated
         // route (see HANDOFF §6c — that mistake locked people out of login).
         RateLimiter::for('portal-previews', fn (Request $request) => Limit::perMinute(6)->by($request->user()?->id ?: $request->ip()));
+
+        // The client answering a document request — the only write the client area
+        // has. Keyed by the signed-in client, not the IP: a company office behind
+        // one address must not throttle a second client on the same connection.
+        RateLimiter::for('client-uploads', fn (Request $request) => Limit::perHour(30)->by(
+            $request->user('client')?->id ?: $request->ip(),
+        ));
     }
 }

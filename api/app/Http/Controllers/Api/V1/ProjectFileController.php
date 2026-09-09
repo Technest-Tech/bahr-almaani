@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ProjectFileResource;
 use App\Jobs\CountWordsJob;
+use App\Models\DocumentRequest;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use Illuminate\Http\JsonResponse;
@@ -38,17 +39,49 @@ class ProjectFileController extends Controller
      */
     public function store(Request $request, Project $project): JsonResponse
     {
+        $isReference = $request->input('category') === ProjectFile::CATEGORY_REFERENCE;
+
         $validated = Validator::make([
             'files' => $this->uploadedFiles($request),
             'category' => $request->input('category'),
+            'parent_file_id' => $request->input('parent_file_id'),
+            'document_request_id' => $request->input('document_request_id'),
         ], [
             'files' => ['required', 'array', 'min:1', 'max:'.self::MAX_FILES],
             'files.*' => ['file', 'max:'.self::MAX_FILE_KB],
             'category' => ['required', Rule::in([ProjectFile::CATEGORY_SOURCE, ProjectFile::CATEGORY_REFERENCE])],
+            // Both links belong to supporting documents only — a source file is the
+            // job itself, never an annotation on another file. Scoped to this
+            // project so neither can be made to point across jobs.
+            'parent_file_id' => [
+                'nullable',
+                Rule::prohibitedIf(! $isReference),
+                Rule::exists('project_files', 'id')
+                    ->where('project_id', $project->id)
+                    ->where('category', ProjectFile::CATEGORY_SOURCE),
+            ],
+            'document_request_id' => [
+                'nullable',
+                Rule::prohibitedIf(! $isReference),
+                Rule::exists('document_requests', 'id')
+                    ->where('project_id', $project->id)
+                    ->where('status', DocumentRequest::STATUS_PENDING),
+            ],
         ])->validate();
 
         $category = $validated['category'];
         $uploads = $validated['files'];
+
+        // The office closing a request on the client's behalf — the scan arrived by
+        // WhatsApp, which is still how most of them arrive. Same row, same link, so
+        // the client's own area shows it as answered either way.
+        $documentRequest = isset($validated['document_request_id'])
+            ? $project->documentRequests()->find($validated['document_request_id'])
+            : null;
+
+        // A request already names the file it is about; repeating it in the form
+        // would only create a way for the two to disagree.
+        $parentFileId = $documentRequest?->project_file_id ?? ($validated['parent_file_id'] ?? null);
 
         // Work files only while drafting; reference docs any time before completion.
         if ($category === ProjectFile::CATEGORY_SOURCE) {
@@ -64,11 +97,13 @@ class ProjectFileController extends Controller
 
         // One transaction: a batch that fails halfway must not leave the project with
         // three of five pages attached and no sign that the rest went missing.
-        $files = DB::transaction(function () use ($request, $project, $category, $uploads): Collection {
-            return collect($uploads)->map(function (UploadedFile $upload) use ($request, $project, $category): ProjectFile {
+        $files = DB::transaction(function () use ($request, $project, $category, $uploads, $parentFileId, $documentRequest): Collection {
+            $files = collect($uploads)->map(function (UploadedFile $upload) use ($request, $project, $category, $parentFileId, $documentRequest): ProjectFile {
                 $file = $project->files()->create([
                     'category' => $category,
                     'uploaded_by' => $request->user()->id,
+                    'parent_file_id' => $parentFileId,
+                    'document_request_id' => $documentRequest?->id,
                     'original_name' => $upload->getClientOriginalName(),
                     'disk_path' => $upload->store("projects/{$project->id}/{$category}", 'local'),
                     'mime_type' => $upload->getClientMimeType(),
@@ -81,6 +116,10 @@ class ProjectFileController extends Controller
 
                 return $file;
             });
+
+            $documentRequest?->markFulfilled();
+
+            return $files;
         });
 
         // Queued after commit so the counter reads rows that exist.
@@ -148,14 +187,46 @@ class ProjectFileController extends Controller
         return array_values(array_filter($uploads));
     }
 
+    /**
+     * Remove a file from the project.
+     *
+     * Draft-only, with one exception: a supporting document that answers a document
+     * request. Those arrive after publication by definition — the office discovers
+     * mid-job that a certificate needs an ID beside it — and the client sometimes
+     * sends the wrong one. Without this, a stranger's passport scan would sit on a
+     * live project permanently with nobody able to remove it. Work files, deliveries
+     * and certified output keep the old rule: they are the job, and the translator
+     * is holding them.
+     */
     public function destroy(Project $project, ProjectFile $file): JsonResponse
     {
         abort_unless($file->project_id === $project->id, 404);
-        abort_unless($project->status === Project::STATUS_DRAFT, 422, __('projects.file_delete_draft_only'));
 
-        Storage::disk('local')->delete($file->disk_path);
+        $isRequestAttachment = $file->category === ProjectFile::CATEGORY_REFERENCE
+            && $file->document_request_id !== null;
+
+        abort_unless(
+            $project->status === Project::STATUS_DRAFT
+                || ($isRequestAttachment && ! in_array($project->status, Project::SETTLED_STATUSES, true)),
+            422,
+            __('projects.file_delete_draft_only'),
+        );
+
+        // Read before the row goes: the FK is nulled on delete, so afterwards there
+        // is nothing left to say which request this answered.
+        $documentRequest = $file->documentRequest;
+
+        // Supporting documents hang off the row by FK and go with it (cascade), so
+        // their blobs have to go too or the disk keeps orphans nothing can reach.
+        $paths = $file->attachments()->pluck('disk_path')->push($file->disk_path)->all();
+
+        Storage::disk('local')->delete($paths);
         $file->delete();
         $project->refreshTotals();
+
+        // Deleting the last answer leaves the request unanswered — say so, rather
+        // than showing the client a document as received that no longer exists.
+        $documentRequest?->reopenIfUnanswered();
 
         return response()->json(['message' => 'ok']);
     }

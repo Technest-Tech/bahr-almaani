@@ -34,6 +34,9 @@ class ProjectController extends Controller
         $projects = Project::query()
             ->with(['client:id,name,type', 'sourceLanguage', 'targetLanguage', 'creator:id,name'])
             ->withCount('files')
+            // One EXISTS per page rather than a query per row — the list shows a
+            // "waiting on the client" badge and never needs the rows themselves.
+            ->withExists(['documentRequests as awaiting_documents' => fn ($q) => $q->pending()])
             ->when($request->filled('q'), function ($query) use ($request): void {
                 // Scout (Meilisearch): typo-tolerant search over code/title/client/instructions.
                 $query->whereIn('projects.id', Project::search(
@@ -63,7 +66,10 @@ class ProjectController extends Controller
         return ProjectResource::make($project->load([
             'client', 'sourceLanguage', 'targetLanguage', 'creator:id,name',
             'assignments.translator:id,name', 'letterhead', 'stamp',
-            'files' => fn ($q) => $q->with('uploader:id,name')->orderBy('category')->orderByDesc('created_at'),
+            'files' => fn ($q) => $q->with(['uploader:id,name', 'clientUploader:id,name'])
+                ->orderBy('category')
+                ->orderByDesc('created_at'),
+            'documentRequests' => fn ($q) => $q->with('file:id,original_name'),
         ]));
     }
 

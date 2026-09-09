@@ -59,7 +59,11 @@ class PortalController extends Controller
         $this->broadcastLive(new ProjectClaimed($project->refresh()));
 
         return AssignmentResource::make(
-            $assignment->load(['project.sourceLanguage', 'project.targetLanguage', 'project.files']),
+            $assignment->load([
+                'project.sourceLanguage',
+                'project.targetLanguage',
+                'project.files' => fn ($query) => $query->current(),
+            ]),
         );
     }
 
@@ -137,7 +141,9 @@ class PortalController extends Controller
         $assignment = $this->portal->currentAssignment($request->user());
         abort_if($assignment === null, 404);
 
-        $file = $assignment->project->files()->whereKey($fileId)->firstOrFail();
+        // `current()` here too: a stale tab still holds the id of a file the office
+        // has since superseded, and handing it over would defeat the point.
+        $file = $assignment->project->files()->current()->whereKey($fileId)->firstOrFail();
 
         return Storage::disk('local')->download($file->disk_path, $file->original_name);
     }

@@ -89,7 +89,9 @@ GET|POST /projects · GET|PUT /projects/{id}
 POST   /projects/{id}/publish        (draft → available)
 POST   /projects/{id}/cancel         (reason required)
 POST   /projects/{id}/withdraw       (claimed → available, reason required)
-POST   /projects/{id}/files          (presigned upload init: category source|reference)
+POST   /projects/{id}/files          (presigned upload init: category source|reference;
+                                      a reference upload may carry parent_file_id
+                                      and/or document_request_id — see M16)
 DELETE /projects/{id}/files/{fileId} (draft only)
 PUT    /projects/{id}/files/{fileId}/manual-count   (scanned-doc fallback)
 GET    /projects/{id}/timeline       (status_transitions history)
@@ -349,6 +351,77 @@ client id. Rows belonging to someone else answer **404**, not 403, so ids cannot
 probed. Suspending a client (or resetting their password) deletes their tokens, and
 `EnsureUserIsActive` — the same middleware staff run through — cuts off any request that
 arrives on an already-issued one.
+
+### M16 — Document requests: "this file needs an ID attached" (2026-09-09)
+
+**Scope note.** A change request, and an extension of the client-portal line
+(M13 + M15), not a new module — see `docs/HANDOFF.md` §7b. The PM half is not:
+attaching supporting documents to a project is already inside the priced M3
+("رفع ملفات داعمة متعددة مرتبطة بالمشروع") and shipped long ago; what M16 adds
+there is only the link from an attachment to a *particular* work file, folded in
+as a refinement of the same feature. What is billable is the client uploading it
+themselves — the first write the client area has ever had.
+
+The loop: the PM asks → the client sees it at the top of their project page and
+uploads → the request closes and the file lands on the project, linked to the work
+file it belongs to → the translator, who already sees `reference` files on the
+project they hold, gets it with no portal change at all.
+
+```
+                                          -- projects.manage --
+POST   /projects/{id}/document-requests             (project_file_id?, kind, note?)
+POST   /projects/{id}/document-requests/{rid}/reopen  (note REQUIRED — ask again)
+DELETE /projects/{id}/document-requests/{rid}       (withdraw an ask)
+DELETE /projects/{id}/files/{fileId}                (request attachments: now allowed
+                                                     after the draft, see below)
+
+                                          -- auth:client --
+DELETE /client/projects/{id}/files/{fileId}         (withdraw their own upload)
+```
+
+- **A request names a file, not a project.** A visa batch is four certificates for
+  four people, and "we need the ID" is unanswerable unless the ask says whose.
+- **The client's upload is deliberately the narrowest one that does the job.** It
+  must name an OPEN request on the client's own project; there is no general
+  "attach a file to my project", which would turn the portal into an inbox nobody
+  watches. Everything lands as `reference`, never `source` — source files are the
+  quote basis, they are counted, and the first of them names the project.
+- **Mime allowlist**, narrower than the office's own uploader: PDF and photos only.
+  This endpoint takes identity papers off the open internet.
+- **Visibility.** `ProjectFile::isVisibleToClient()` adds `reference` files carrying
+  a `document_request_id` to the source+final the client already saw. The office's
+  own supporting material (an internal glossary, a previous translation) stays
+  internal because it carries no request.
+- **Notifications.** The client is mailed the ask (mail only — the preference
+  registry is a staff screen), and the PM who asked plus the project's creator get
+  the `document_supplied` family when it arrives or is withdrawn. ⚠️ The client mail
+  delivers nowhere until production `MAIL_HOST` stops being a placeholder; the
+  banner in the client area is the channel that works today.
+
+**The wrong document (2026-09-09, same batch).** The first thing that happened in
+the wild: a client uploads the wrong file, and — because the upload closed the
+request — neither side could undo it. Three ways out, one concept: *the answer to
+a request can be revised*.
+
+- **The office asks again** (`/reopen`, reason required). The reason is not
+  bureaucracy: it reaches the client as "the document you sent cannot be used", and
+  without it they send the same photo back. The rejected files are marked
+  `superseded_at` — kept on the record, dropped from the answer, and **removed from
+  the translator's file list and download route**, which is the part that matters:
+  a translator cannot tell two ID cards apart and would spell the name off
+  whichever came first.
+- **The client withdraws their own upload.** Only a file they uploaded, only while
+  it is not superseded, only on a live project. Deleting the last one reopens the
+  request, which is what makes their upload box reappear — the fix for "I sent the
+  wrong photo" without needing the office at all.
+- **Either side deletes outright.** `ProjectFileController::destroy` lifts its
+  draft-only rule for request attachments alone; work files, deliveries and
+  certified output keep it.
+
+`DocumentRequest::reopen()` and `reopenIfUnanswered()` both `refresh()` first, and
+that is load-bearing rather than defensive: a caller holding an instance from
+before the client's upload still has `status` = `pending` in memory, `forceFill`
+would leave the attribute clean, and the save would silently not reopen anything.
 
 ## Document-processing pipeline (queue jobs)
 

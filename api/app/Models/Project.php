@@ -146,6 +146,34 @@ class Project extends Model
         return $this->hasMany(Assignment::class);
     }
 
+    /** Documents the office has asked the client for — see App\Models\DocumentRequest. */
+    public function documentRequests(): HasMany
+    {
+        return $this->hasMany(DocumentRequest::class)->latest('id');
+    }
+
+    /**
+     * Is the office waiting on the client for a document?
+     *
+     * Answered from whatever the caller already has: the loaded relation on the
+     * detail page, the `withExists` alias on the list. The query at the end only
+     * runs for the single-project responses after a mutation, which load neither.
+     */
+    public function awaitsDocuments(): bool
+    {
+        if ($this->relationLoaded('documentRequests')) {
+            return $this->documentRequests->contains('status', DocumentRequest::STATUS_PENDING);
+        }
+
+        $attributes = $this->getAttributes();
+
+        if (array_key_exists('awaiting_documents', $attributes)) {
+            return (bool) $attributes['awaiting_documents'];
+        }
+
+        return $this->documentRequests()->pending()->exists();
+    }
+
     public function activeAssignment(): ?Assignment
     {
         return $this->assignments()->where('status', Assignment::STATUS_ACTIVE)->first();

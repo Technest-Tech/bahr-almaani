@@ -140,7 +140,11 @@ Indexes: `status`, `(status, priority, deadline_at)` (portal query), `deadline_a
 |---|---|---|
 | project_id | FK projects | |
 | category | varchar(20) | `source` (work file) / `reference` (passport, supporting docs) / `deliverable` (translator upload) / `final` (letterhead-merged output) |
-| uploaded_by | FK users | |
+| parent_file_id | FK project_files, null | Supporting documents only: the work file this one is attached to. `cascade` on delete — an ID card has no meaning without its certificate. |
+| document_request_id | FK document_requests, null | Set when the file answers a request; also what makes a `reference` file visible to the client. |
+| superseded_at | timestamptz, null | The office rejected this round — the wrong ID, a blurry scan. Still on the record, no longer the answer, and **never in the translator's file list** (`ProjectFile::current()`). |
+| uploaded_by | FK users, null | Null when the client uploaded it — clients live in `clients`, behind their own guard. |
+| uploaded_by_client_id | FK clients, null | The other half of the pair. Exactly one of the two is set. |
 | original_name | varchar(255) | |
 | disk_path | varchar(500) | S3 key; downloads only via signed temporary URLs |
 | mime_type | varchar(120) | |
@@ -151,6 +155,50 @@ Indexes: `status`, `(status, priority, deadline_at)` (portal query), `deadline_a
 | version | int | default 1; re-uploads increment |
 
 Index: `(project_id, category)`.
+
+### document_requests — "this file needs an ID attached" (2026-09-09)
+The office discovers, after the file is already in the system, that a document
+cannot be translated correctly without a second one beside it — most often the
+holder's ID, for the official spelling of a name.
+
+| Column | Type | Notes |
+|---|---|---|
+| project_id | FK projects | |
+| project_file_id | FK project_files, null | The source file it is about; null = the job as a whole. `nullOnDelete` so deleting a draft's file does not take the correspondence with it. |
+| kind | varchar(20) | `identity` / `supporting` |
+| status | varchar(20) | `pending` / `fulfilled` / `cancelled` |
+| note | text, null | Shown to the client verbatim |
+| requested_by | FK users | |
+| fulfilled_at / cancelled_at | timestamptz, null | |
+
+Index: `(project_id, status)` — the board's "waiting on the client" badge is an
+`EXISTS` on exactly this.
+
+What answers a request is one or more ordinary `project_files` rows under
+`reference`, carrying `document_request_id` (plural on purpose: a national ID is
+two sides). Either side can upload them — the client from their own area, or the
+PM on their behalf when the scan arrives by WhatsApp, which is still how most of
+them arrive.
+
+**The wrong document is the normal case, not the edge case.** A request is
+therefore re-openable rather than answered-once:
+
+- *The office rejects it* — `DocumentRequest::reopen($note)` stamps the current
+  attachments `superseded_at`, puts the row back to `pending` with the reason, and
+  mails the client. Superseded, not deleted: what a client handed in is part of the
+  record of the job, and the row keeps its bytes.
+- *The client withdraws it* — they may delete a file **they** uploaded that is not
+  yet superseded, on a project that is not settled. `reopenIfUnanswered()` then
+  flips the request back to `pending`, which is what puts their upload box back.
+- *Either side deletes it outright* — `project_files.destroy` is draft-only for
+  everything except a request attachment, because those arrive after publication by
+  definition; without the exception a stranger's passport scan could never be
+  removed from a live project.
+
+**Deliberately not a project status.** The state machine already carries ten, and
+every one of them is a transition the PM, the portal and the claim lock all reason
+about. "Waiting on the client" is a fact about a file, and it is derived — see
+*Derived data* below.
 
 ### assignments — the claim record
 | Column | Type | Notes |
@@ -279,4 +327,8 @@ UI failure path: loser gets a friendly "تم استلام الملف من متر
 
 - **Late** (`متأخر`): `deadline_at < now()` AND status not in (`completed`, `cancelled`, `archived`).
 - **Due soon**: `deadline_at` within threshold (setting, default 24h) AND not delivered.
+- **Awaiting a client document** (`بانتظار مستند من العميل`): any `document_requests`
+  row on the project still `pending`. `Project::awaitsDocuments()` answers it from
+  the loaded relation on the detail page and from a `withExists` alias on the list,
+  so neither view pays for the other's shape.
 - Both are computed in queries/scopes and flagged by a scheduled command (every 5 min) for notifications — a project must never be "stuck" in a `late` status after delivery.

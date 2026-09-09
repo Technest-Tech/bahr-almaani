@@ -61,6 +61,8 @@ class ProjectResource extends JsonResource
             'letterhead' => LetterheadTemplateResource::make($this->whenLoaded('letterhead')),
             'stamp' => LetterheadTemplateResource::make($this->whenLoaded('stamp')),
             'files' => ProjectFileResource::collection($this->whenLoaded('files')),
+            'document_requests' => DocumentRequestResource::collection($this->whenLoaded('documentRequests')),
+            'awaiting_documents' => $this->awaitsDocuments(),
             'files_count' => $this->whenCounted('files'),
             'assignment' => AssignmentResource::make($this->whenLoaded('assignments', function () {
                 return $this->assignments

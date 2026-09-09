@@ -26,6 +26,8 @@ final class NotificationPreferences
 
     public const QUOTE_RECEIVED = 'quote_received';
 
+    public const DOCUMENT_SUPPLIED = 'document_supplied';
+
     /**
      * Family key => [label, description, mail default]. Labels are Arabic because the
      * settings screen renders this list verbatim.
@@ -71,6 +73,11 @@ final class NotificationPreferences
         self::QUOTE_RECEIVED => [
             'label' => 'طلبات التسعير',
             'description' => 'عند وصول طلب تسعير جديد من الموقع الإلكتروني.',
+            'mail' => true,
+        ],
+        self::DOCUMENT_SUPPLIED => [
+            'label' => 'مستندات العملاء',
+            'description' => 'عندما يرفع العميل مستنداً طلبته منه (هوية أو مستند داعم) أو يسحبه.',
             'mail' => true,
         ],
     ];

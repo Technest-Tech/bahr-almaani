@@ -15,6 +15,7 @@ import {
   FileCheck2,
   FileText,
   History,
+  IdCard,
   Paperclip,
   RotateCcw,
   Send,
@@ -53,6 +54,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Field } from "@/components/field";
 import { ToneBadge } from "@/components/tone-badge";
+import { DocumentRequestDialog } from "@/components/projects/document-request-dialog";
+import { DocumentRequestsCard } from "@/components/projects/document-requests-card";
 import { useConfirm } from "@/components/confirm";
 import { TemplateAsset } from "@/components/letterheads/template-asset";
 import { ApproveDialog } from "@/components/projects/approve-dialog";
@@ -87,6 +90,9 @@ export default function ProjectDetailPage() {
   const { prompt, confirm } = useConfirm();
   const queryClient = useQueryClient();
   const [countFile, setCountFile] = useState<ProjectFile | null>(null);
+  // `undefined` = closed; `null` = open, about the project as a whole; a file =
+  // open, pre-pointed at the row the PM clicked.
+  const [askingAbout, setAskingAbout] = useState<ProjectFile | null | undefined>(undefined);
   const [approving, setApproving] = useState(false);
   const [requestingRevision, setRequestingRevision] = useState(false);
 
@@ -187,7 +193,13 @@ export default function ProjectDetailPage() {
   const canManage = can("projects.manage");
   const canReview = can("projects.review");
   const sourceFiles = project.files?.filter((f) => f.category === "source") ?? [];
-  const referenceFiles = project.files?.filter((f) => f.category === "reference") ?? [];
+  // Project-level supporting material only. Documents attached to a particular
+  // work file are shown under the request that produced them, and listing them
+  // twice would read as two copies of the same ID card.
+  const referenceFiles =
+    project.files?.filter(
+      (f) => f.category === "reference" && !f.parent_file_id && !f.document_request_id,
+    ) ?? [];
   const deliverableFiles = project.files?.filter((f) => f.category === "deliverable") ?? [];
   const finalFiles = project.files?.filter((f) => f.category === "final") ?? [];
   const assignment = project.assignment;
@@ -212,6 +224,14 @@ export default function ProjectDetailPage() {
               <ToneBadge tone="red">
                 <AlertTriangle />
                 متأخر
+              </ToneBadge>
+            )}
+            {/* Not a status: the state machine still says claimed. It is a fact
+                about a file, and the board reads it off the open requests. */}
+            {project.awaiting_documents && (
+              <ToneBadge tone="amber">
+                <IdCard />
+                بانتظار مستند من العميل
               </ToneBadge>
             )}
           </div>
@@ -459,6 +479,17 @@ export default function ProjectDetailPage() {
             canDelete={canManage && project.status === "draft"}
             onChanged={invalidate}
             onManualCount={setCountFile}
+            onRequestDocument={
+              canManage && !["completed", "archived", "cancelled"].includes(project.status)
+                ? setAskingAbout
+                : undefined
+            }
+          />
+          <DocumentRequestsCard
+            project={project}
+            canManage={canManage}
+            onAsk={() => setAskingAbout(null)}
+            onChanged={invalidate}
           />
           <FilesCard
             title="مستندات داعمة"
@@ -607,6 +638,16 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
+      <DocumentRequestDialog
+        key={askingAbout === undefined ? "ask-closed" : `ask-${askingAbout?.id ?? "project"}`}
+        open={askingAbout !== undefined}
+        projectId={project.id}
+        sourceFiles={sourceFiles}
+        defaultFileId={askingAbout?.id ?? null}
+        onClose={() => setAskingAbout(undefined)}
+        onRequested={invalidate}
+      />
+
       <ManualCountDialog
         key={countFile?.id ?? "closed"}
         file={countFile}
@@ -689,6 +730,7 @@ function FilesCard({
   canDelete,
   onChanged,
   onManualCount,
+  onRequestDocument,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -699,6 +741,8 @@ function FilesCard({
   canDelete: boolean;
   onChanged: () => void;
   onManualCount: (file: ProjectFile) => void;
+  /** Source files only: ask the client for a document about THIS one. */
+  onRequestDocument?: (file: ProjectFile) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { confirm } = useConfirm();
@@ -784,12 +828,34 @@ function FilesCard({
           <p className="py-8 text-center text-xs text-muted-foreground">لا توجد ملفات</p>
         )}
         <ul className="divide-y">
-          {files.map((file) => (
+          {files.map((file) => {
+            // What is hanging off this particular document, and whether the office
+            // is still waiting for it — read here rather than passed down, so the
+            // row stays truthful without the page threading two more props.
+            const pendingFor = (project.document_requests ?? []).find(
+              (request) => request.status === "pending" && request.project_file_id === file.id,
+            );
+            // Current only: a rejected round is on the record but is not a document
+            // attached to this file any more, and the translator never sees it.
+            const attached = (project.files ?? []).filter(
+              (f) => f.parent_file_id === file.id && !f.superseded_at,
+            );
+
+            return (
             <li key={file.id} className="flex items-center gap-3 px-5 py-3">
               <FileText className="size-4 shrink-0 text-muted-foreground/50" />
               <div className="min-w-0 flex-1">
-                <p dir="ltr" className="truncate text-start text-sm font-medium">
+                <p dir="ltr" className="flex items-center gap-2 truncate text-start text-sm font-medium">
                   {file.original_name}
+                  {pendingFor && (
+                    <ToneBadge tone="amber">بانتظار {pendingFor.kind_label}</ToneBadge>
+                  )}
+                  {attached.length > 0 && (
+                    <ToneBadge tone="slate">
+                      <Paperclip />
+                      {attached.length.toLocaleString("ar-EG")}
+                    </ToneBadge>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatBytes(file.size_bytes)}
@@ -830,6 +896,16 @@ function FilesCard({
                     <Calculator className="size-4" />
                   </Button>
                 )}
+              {onRequestDocument && !pendingFor && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="طلب مستند من العميل لهذا الملف"
+                  onClick={() => onRequestDocument(file)}
+                >
+                  <IdCard className="size-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -855,7 +931,8 @@ function FilesCard({
                 </Button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       </CardContent>
     </Card>

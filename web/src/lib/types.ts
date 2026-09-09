@@ -101,7 +101,9 @@ export const CLIENT_STAGE_LABELS: Record<ClientStage, string> = {
 
 export interface ClientProjectFile {
   id: number;
-  category: "source" | "final";
+  category: "source" | "reference" | "final";
+  /** Set on the supporting documents the client supplied themselves. */
+  document_request_id?: number | null;
   original_name: string;
   size_bytes: number;
   page_count: number | null;
@@ -134,7 +136,10 @@ export interface ClientProject {
   target_language?: Language;
   invoice_number?: string | null;
   has_final_file?: boolean;
+  /** The office is waiting on a document from this client — their action, not ours. */
+  awaiting_documents?: boolean;
   files?: ClientProjectFile[];
+  document_requests?: DocumentRequest[];
 }
 
 export interface BillingTotal {
@@ -262,6 +267,13 @@ export type Priority = "normal" | "urgent" | "critical";
 export interface ProjectFile {
   id: number;
   category: "source" | "reference" | "deliverable" | "final";
+  /** Supporting documents only: the file this one hangs off (an ID and its certificate). */
+  parent_file_id: number | null;
+  /** Set when the file answers a document request — what makes it visible to the client. */
+  document_request_id: number | null;
+  /** The office rejected this one: still on the record, no longer the answer, and
+   *  never shown to the translator. */
+  superseded_at: string | null;
   original_name: string;
   mime_type: string | null;
   size_bytes: number;
@@ -273,9 +285,36 @@ export interface ProjectFile {
   version: number;
   /** Deliverables only: where the seal sits on THIS document (null = the template's). */
   stamp_placement: StampPosition | null;
-  uploaded_by?: { id: number; name: string };
+  uploaded_by?: { id: number; name: string } | null;
+  /** Set instead of `uploaded_by` when the client supplied the file themselves. */
+  uploaded_by_client?: { id: number; name: string } | null;
+  attachments?: ProjectFile[];
   created_at: string;
 }
+
+export type DocumentKind = "identity" | "supporting";
+
+export type DocumentRequestStatus = "pending" | "fulfilled" | "cancelled";
+
+/** A document the office asked the client for — see App\Models\DocumentRequest. */
+export interface DocumentRequest {
+  id: number;
+  project_file_id: number | null;
+  /** The source file it is about, named the way the client named it. */
+  file_name?: string | null;
+  kind: DocumentKind;
+  kind_label: string;
+  status: DocumentRequestStatus;
+  note: string | null;
+  created_at: string;
+  fulfilled_at: string | null;
+  attachments?: ProjectFile[];
+}
+
+export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
+  identity: "إثبات هوية",
+  supporting: "مستند داعم",
+};
 
 /**
  * A per-document stamp position, always measured from the page's top-left corner in
@@ -403,6 +442,9 @@ export interface Project {
   files?: ProjectFile[];
   files_count?: number;
   source_files_count?: number;
+  document_requests?: DocumentRequest[];
+  /** True while any request is still open — the board's "waiting on the client" badge. */
+  awaiting_documents?: boolean;
   assignment?: Assignment | null;
 }
 

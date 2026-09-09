@@ -61,8 +61,11 @@ class PortalService
             ->with([
                 'sourceLanguage',
                 'targetLanguage',
+                // `current()`: a superseded supporting document is one the office
+                // rejected, and a translator has no way to tell two ID cards apart.
                 'files' => fn ($q) => $q
                     ->whereIn('category', [ProjectFile::CATEGORY_SOURCE, ProjectFile::CATEGORY_REFERENCE])
+                    ->current()
                     ->orderBy('category')
                     ->orderBy('id'),
             ])
@@ -201,7 +204,13 @@ class PortalService
                         ->where('status', Assignment::STATUS_DELIVERED)
                         ->whereHas('project', fn ($p) => $p->where('status', Project::STATUS_REVISION_REQUESTED)));
             })
-            ->with(['project.sourceLanguage', 'project.targetLanguage', 'project.files.uploader:id,name'])
+            ->with([
+                'project.sourceLanguage',
+                'project.targetLanguage',
+                // `current()`: the file the office rejected must not sit in the
+                // translator's list beside the one that replaced it.
+                'project.files' => fn ($query) => $query->current()->with('uploader:id,name'),
+            ])
             ->latest('claimed_at')
             ->first();
     }

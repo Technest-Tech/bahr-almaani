@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { ApiError, apiForm, downloadFile } from "@/lib/api";
+import { ApiError, apiForm, downloadFile, type Realm } from "@/lib/api";
 import { useTransfers } from "@/lib/transfers";
 
 /**
@@ -43,7 +43,15 @@ export function useFileTransfer() {
   );
 
   const upload = useCallback(
-    async <T,>(path: string, form: FormData, name: string): Promise<T> => {
+    async <T,>(
+      path: string,
+      form: FormData,
+      name: string,
+      // The client area signs in against its own table with its own token, and
+      // its one upload — answering a document request — needs the same panel:
+      // these are phone photos on a 5 Mbit/s line.
+      { realm }: { realm?: Realm } = {},
+    ): Promise<T> => {
       const controller = new AbortController();
       const handle = start({
         kind: "upload",
@@ -55,6 +63,7 @@ export function useFileTransfer() {
         const result = await apiForm<T>(path, form, {
           signal: controller.signal,
           onProgress: handle.progress,
+          realm,
         });
         handle.succeed();
         return result;
