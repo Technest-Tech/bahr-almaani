@@ -396,6 +396,14 @@ activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app
 > deletion once any translator has claimed the file — keeps it out of payroll and
 > productivity history, which is why widening it later needs a conversation first.
 
+> **Client uploads without a request — shipped 2026-09-13, billable.** The client may
+> now send files to their own live project unprompted, as often as they like. It is
+> the second write the client area has, and it widens the M16 client half — bill it
+> as another add-on line on the client-portal change request (M13 + M15), never inside
+> the twelve modules. Uploads stay `reference`, so they never touch the count or the
+> quote; if the office wants client uploads to become *work files* (counted, priced),
+> that is a further change request with pricing rules to agree first.
+
 
 **NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
 

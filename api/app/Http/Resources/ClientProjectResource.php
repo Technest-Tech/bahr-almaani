@@ -57,22 +57,31 @@ class ClientProjectResource extends JsonResource
             ),
             'files' => $this->whenLoaded('files', fn () => $this->files
                 ->filter(fn (ProjectFile $file): bool => $file->isVisibleToClient())
-                ->map(fn (ProjectFile $file): array => [
-                    'id' => $file->id,
-                    'category' => $file->category,
-                    'original_name' => $file->original_name,
-                    'size_bytes' => $file->size_bytes,
-                    'page_count' => $file->page_count,
-                    'word_count' => $file->word_count,
-                    'document_request_id' => $file->document_request_id,
-                    'created_at' => $file->created_at?->toIso8601String(),
-                ])
+                ->map(fn (ProjectFile $file): array => self::file($file))
                 ->values()),
             // What the office is still waiting for, and what has already been
             // supplied — the client area turns the open ones into an upload box.
             'document_requests' => DocumentRequestResource::collection(
                 $this->whenLoaded('documentRequests'),
             ),
+        ];
+    }
+
+    /** A file as the client sees it — also what an unprompted upload answers with. */
+    public static function file(ProjectFile $file): array
+    {
+        return [
+            'id' => $file->id,
+            'category' => $file->category,
+            'original_name' => $file->original_name,
+            'size_bytes' => $file->size_bytes,
+            'page_count' => $file->page_count,
+            'word_count' => $file->word_count,
+            'document_request_id' => $file->document_request_id,
+            // Only a client's own uploads are ever visible AND theirs to remove; the
+            // client area needs to tell those apart from the work files beside them.
+            'uploaded_by_client' => $file->isClientUpload(),
+            'created_at' => $file->created_at?->toIso8601String(),
         ];
     }
 }

@@ -24,6 +24,9 @@ return [
     'document_request_not_fulfilled' => 'A replacement can only be asked for once a document has arrived.',
     'document_delete_settled' => 'Documents cannot be deleted once the project is closed.',
     'document_deleted' => 'The document was deleted; you can upload another.',
+    // The client sending files without being asked (2026-09-13)
+    'client_files_uploaded' => 'Your files have reached the office.',
+    'client_upload_settled' => 'This project is completed or cancelled, so no more files can be added to it.',
     'document_kind' => [
         'identity' => 'Proof of identity',
         'supporting' => 'Supporting document',

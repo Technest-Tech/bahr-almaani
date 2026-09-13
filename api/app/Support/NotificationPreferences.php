@@ -77,7 +77,7 @@ final class NotificationPreferences
         ],
         self::DOCUMENT_SUPPLIED => [
             'label' => 'مستندات العملاء',
-            'description' => 'عندما يرفع العميل مستنداً طلبته منه (هوية أو مستند داعم) أو يسحبه.',
+            'description' => 'عندما يرفع العميل مستنداً — طلبته منه أو أرسله من تلقاء نفسه — أو يسحبه.',
             'mail' => true,
         ],
     ];

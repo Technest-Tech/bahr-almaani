@@ -195,6 +195,14 @@ therefore re-openable rather than answered-once:
   definition; without the exception a stranger's passport scan could never be
   removed from a live project.
 
+**Files the client sends unasked (2026-09-13).** A client may also upload to their
+own live project with no request at all: `reference`, `uploaded_by_client_id` set,
+`document_request_id` and `parent_file_id` both null, never counted. They are visible
+to the client (`isVisibleToClient()` accepts a `reference` file that either answers a
+request or is a client upload), reach the translator like any supporting document,
+and follow the same deletion rules as a request attachment — the client removes their
+own until the project settles, and the office can remove them from a live project.
+
 **Deliberately not a project status.** The state machine already carries ten, and
 every one of them is a transition the PM, the portal and the claim lock all reason
 about. "Waiting on the client" is a fact about a file, and it is derived — see

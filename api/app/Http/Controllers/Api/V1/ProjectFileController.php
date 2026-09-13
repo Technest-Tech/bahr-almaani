@@ -191,23 +191,24 @@ class ProjectFileController extends Controller
      * Remove a file from the project.
      *
      * Draft-only, with one exception: a supporting document that answers a document
-     * request. Those arrive after publication by definition — the office discovers
-     * mid-job that a certificate needs an ID beside it — and the client sometimes
-     * sends the wrong one. Without this, a stranger's passport scan would sit on a
-     * live project permanently with nobody able to remove it. Work files, deliveries
-     * and certified output keep the old rule: they are the job, and the translator
-     * is holding them.
+     * request, or that the client sent from their own area. Those arrive after
+     * publication by definition — the office discovers mid-job that a certificate
+     * needs an ID beside it, or the client sends something unasked — and sometimes it
+     * is the wrong file. Without this, a stranger's passport scan would sit on a live
+     * project permanently with nobody able to remove it. Work files, deliveries and
+     * certified output keep the old rule: they are the job, and the translator is
+     * holding them.
      */
     public function destroy(Project $project, ProjectFile $file): JsonResponse
     {
         abort_unless($file->project_id === $project->id, 404);
 
-        $isRequestAttachment = $file->category === ProjectFile::CATEGORY_REFERENCE
-            && $file->document_request_id !== null;
+        $isClientDocument = $file->category === ProjectFile::CATEGORY_REFERENCE
+            && ($file->document_request_id !== null || $file->isClientUpload());
 
         abort_unless(
             $project->status === Project::STATUS_DRAFT
-                || ($isRequestAttachment && ! in_array($project->status, Project::SETTLED_STATUSES, true)),
+                || ($isClientDocument && ! in_array($project->status, Project::SETTLED_STATUSES, true)),
             422,
             __('projects.file_delete_draft_only'),
         );

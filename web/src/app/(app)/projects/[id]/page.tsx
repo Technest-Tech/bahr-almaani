@@ -545,7 +545,14 @@ export default function ProjectDetailPage() {
             canUpload={
               canManage && !["completed", "archived", "cancelled"].includes(project.status)
             }
-            canDelete={canManage && project.status === "draft"}
+            // A file the client sent can go from a live project too — it may be
+            // someone else's passport. The office's own material keeps the draft rule.
+            canDelete={(file) =>
+              canManage &&
+              (project.status === "draft" ||
+                (!!file.uploaded_by_client &&
+                  !["completed", "archived", "cancelled"].includes(project.status)))
+            }
             onChanged={invalidate}
             onManualCount={setCountFile}
           />
@@ -783,7 +790,7 @@ function FilesCard({
   project: Project;
   category: ProjectFile["category"];
   canUpload: boolean;
-  canDelete: boolean;
+  canDelete: boolean | ((file: ProjectFile) => boolean);
   onChanged: () => void;
   onManualCount: (file: ProjectFile) => void;
   /** Source files only: ask the client for a document about THIS one. */
@@ -901,6 +908,7 @@ function FilesCard({
                       {attached.length.toLocaleString("ar-EG")}
                     </ToneBadge>
                   )}
+                  {file.uploaded_by_client && <ToneBadge tone="blue">من العميل</ToneBadge>}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatBytes(file.size_bytes)}
@@ -964,7 +972,7 @@ function FilesCard({
               >
                 <Download className="size-4" />
               </Button>
-              {canDelete && (
+              {(typeof canDelete === "function" ? canDelete(file) : canDelete) && (
                 <Button
                   variant="ghost"
                   size="icon-sm"

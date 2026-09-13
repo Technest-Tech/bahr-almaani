@@ -104,6 +104,8 @@ export interface ClientProjectFile {
   category: "source" | "reference" | "final";
   /** Set on the supporting documents the client supplied themselves. */
   document_request_id?: number | null;
+  /** Sent from the client area — theirs to delete while the project is still open. */
+  uploaded_by_client?: boolean;
   original_name: string;
   size_bytes: number;
   page_count: number | null;

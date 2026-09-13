@@ -73,10 +73,10 @@ class ProjectFile extends Model
      * What the client is allowed to see of a project's files.
      *
      * Source and final are theirs by definition — what they handed in and what they
-     * get back. A `reference` file joins that list only when it answers a document
-     * request, which is the office's own supporting material (internal glossaries,
-     * a previous translation) staying internal while the ID the client was asked
-     * for comes back visible to them.
+     * get back. A `reference` file joins that list only when the client has a claim
+     * on it: it answers a document request, or they uploaded it themselves. The
+     * office's own supporting material (internal glossaries, a previous translation)
+     * carries neither, and stays internal.
      */
     #[Scope]
     protected function visibleToClient(Builder $query): void
@@ -87,7 +87,9 @@ class ProjectFile extends Model
                 ->orWhere(function (Builder $query): void {
                     $query
                         ->where('category', self::CATEGORY_REFERENCE)
-                        ->whereNotNull('document_request_id');
+                        ->where(fn (Builder $query) => $query
+                            ->whereNotNull('document_request_id')
+                            ->orWhereNotNull('uploaded_by_client_id'));
                 });
         });
     }
@@ -114,7 +116,14 @@ class ProjectFile extends Model
     public function isVisibleToClient(): bool
     {
         return in_array($this->category, [self::CATEGORY_SOURCE, self::CATEGORY_FINAL], true)
-            || ($this->category === self::CATEGORY_REFERENCE && $this->document_request_id !== null);
+            || ($this->category === self::CATEGORY_REFERENCE
+                && ($this->document_request_id !== null || $this->isClientUpload()));
+    }
+
+    /** Sent from the client's own area rather than by a member of staff. */
+    public function isClientUpload(): bool
+    {
+        return $this->uploaded_by_client_id !== null;
     }
 
     public function project(): BelongsTo

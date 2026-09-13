@@ -384,22 +384,32 @@ DELETE /projects/{id}/files/{fileId}                (request attachments: now al
                                                      after the draft, see below)
 
                                           -- auth:client --
-DELETE /client/projects/{id}/files/{fileId}         (withdraw their own upload)
+POST   /client/projects/{id}/files                  (files[]; document_request_id?
+                                                     — with it: answer that OPEN request;
+                                                     without it: send files unasked, 422
+                                                     once the project is settled)
+DELETE /client/projects/{id}/files/{fileId}         (withdraw their own upload, asked for
+                                                     or not)
 ```
 
 - **A request names a file, not a project.** A visa batch is four certificates for
   four people, and "we need the ID" is unanswerable unless the ask says whose.
-- **The client's upload is deliberately the narrowest one that does the job.** It
-  must name an OPEN request on the client's own project; there is no general
-  "attach a file to my project", which would turn the portal into an inbox nobody
-  watches. Everything lands as `reference`, never `source` — source files are the
-  quote basis, they are counted, and the first of them names the project.
+- **The client's upload stays on the safe side of the quote.** It began as the
+  narrowest write that did the job — only an answer to an OPEN request. On
+  2026-09-13 the client asked for the obvious next thing: send a second document
+  without waiting to be asked. So `document_request_id` is now optional, and the
+  protection moved to where it actually matters: everything still lands as
+  `reference`, never `source`. Source files are the quote basis — counted, the first
+  names the project, frozen after publication for the office too — and a client
+  upload moves none of that. The PM is notified of every batch
+  (`DocumentSuppliedNotification` with a null request) and decides what it means for
+  the job; a settled project takes nothing more.
 - **Mime allowlist**, narrower than the office's own uploader: PDF and photos only.
   This endpoint takes identity papers off the open internet.
-- **Visibility.** `ProjectFile::isVisibleToClient()` adds `reference` files carrying
-  a `document_request_id` to the source+final the client already saw. The office's
-  own supporting material (an internal glossary, a previous translation) stays
-  internal because it carries no request.
+- **Visibility.** `ProjectFile::isVisibleToClient()` adds `reference` files that
+  answer a request or that the client uploaded to the source+final the client already
+  saw. The office's own supporting material (an internal glossary, a previous
+  translation) stays internal because it carries neither.
 - **Notifications.** The client is mailed the ask (mail only — the preference
   registry is a staff screen), and the PM who asked plus the project's creator get
   the `document_supplied` family when it arrives or is withdrawn. ⚠️ The client mail

@@ -26,8 +26,9 @@ use Tests\TestCase;
  * Two properties carry the feature. First, an ID belongs to a FILE, not to a
  * project: a visa batch holds four certificates and the answer to "whose ID?" has
  * to survive. Second, the client's upload is the first write the client area has
- * ever had, so its edges are the interesting part — it may only ever answer an
- * open request on the client's own project, and it may never produce a source file.
+ * ever had, so its edges are the interesting part — it lands only on the client's
+ * own live project, and it may never produce a source file. Since 2026-09-13 it no
+ * longer needs a request at all: a client may send documents unprompted.
  */
 class DocumentRequestTest extends TestCase
 {
@@ -271,8 +272,12 @@ class DocumentRequestTest extends TestCase
         Notification::assertSentTo($this->pm, DocumentSuppliedNotification::class);
     }
 
-    /** No open request, no upload — the portal is not a general inbox. */
-    public function test_the_client_cannot_upload_without_an_open_request(): void
+    /**
+     * Naming a request that is already answered is refused. Unprompted uploads are
+     * allowed now (see the section below), but they must not be able to pose as the
+     * answer to a request the office has already closed.
+     */
+    public function test_a_closed_request_cannot_be_answered_again(): void
     {
         $client = $this->client();
         $project = $this->project($client);
@@ -778,5 +783,195 @@ class DocumentRequestTest extends TestCase
                 'files' => [UploadedFile::fake()->image('id.jpg')],
             ])
             ->assertUnauthorized();
+    }
+
+    /* ------------------------------------------- files the client sends unasked */
+
+    /**
+     * The client's request of 2026-09-13: send more than one file to the same project
+     * without waiting for the office to ask.
+     */
+    public function test_a_client_can_send_files_to_their_project_without_being_asked(): void
+    {
+        Notification::fake();
+
+        $client = $this->client();
+        $project = $this->project($client, ['total_words' => 120, 'total_pages' => 2]);
+        $this->sourceFile($project);
+
+        $this->actingAs($client, 'client')
+            ->post("/api/v1/client/projects/{$project->id}/files", [
+                'files' => [UploadedFile::fake()->image('passport.jpg'), UploadedFile::fake()->create('marriage-contract.pdf', 40, 'application/pdf')],
+            ])
+            ->assertCreated()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.uploaded_by_client', true);
+
+        // And again later — the door does not close after the first batch.
+        $this->actingAs($client, 'client')
+            ->post("/api/v1/client/projects/{$project->id}/files", [
+                'files' => [UploadedFile::fake()->image('residence-card.jpg')],
+            ])
+            ->assertCreated();
+
+        $sent = $project->files()->whereNotNull('uploaded_by_client_id')->get();
+
+        $this->assertCount(3, $sent);
+
+        foreach ($sent as $file) {
+            // Supporting material, never the job itself: not counted, not linked to
+            // any request or work file, and the quote basis does not move.
+            $this->assertSame(ProjectFile::CATEGORY_REFERENCE, $file->category);
+            $this->assertNull($file->document_request_id);
+            $this->assertNull($file->parent_file_id);
+            $this->assertNull($file->uploaded_by);
+            $this->assertSame(ProjectFile::COUNT_NOT_APPLICABLE, $file->count_status);
+            Storage::disk('local')->assertExists($file->disk_path);
+        }
+
+        $project->refresh();
+        $this->assertSame(120, $project->total_words);
+        $this->assertSame(1, $project->files()->where('category', ProjectFile::CATEGORY_SOURCE)->count());
+
+        Notification::assertSentToTimes($this->pm, DocumentSuppliedNotification::class, 2);
+        Notification::assertSentTo(
+            $this->pm,
+            DocumentSuppliedNotification::class,
+            fn (DocumentSuppliedNotification $n) => $n->documentRequest === null && $n->fileCount === 2,
+        );
+
+        // The client sees what they sent, and can fetch it back.
+        $names = collect(
+            $this->actingAs($client, 'client')->getJson("/api/v1/client/projects/{$project->id}")->json('data.files'),
+        )->pluck('original_name');
+
+        $this->assertTrue($names->contains('passport.jpg'));
+        $this->assertTrue($names->contains('residence-card.jpg'));
+
+        $this->actingAs($client, 'client')
+            ->get("/api/v1/client/projects/{$project->id}/files/{$sent->first()->id}/download")
+            ->assertOk();
+    }
+
+    public function test_unprompted_files_reach_the_translator_holding_the_project(): void
+    {
+        $client = $this->client();
+        $project = $this->project($client);
+        $translator = User::factory()->create();
+        $translator->syncRoles(['translator']);
+        $project->assignments()->create([
+            'translator_id' => $translator->id,
+            'status' => 'active',
+            'claimed_at' => now(),
+        ]);
+
+        $this->actingAs($client, 'client')->post("/api/v1/client/projects/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->image('id-card.jpg')],
+        ])->assertCreated();
+
+        $names = collect(
+            $this->actingAs($translator, 'sanctum')->getJson('/api/v1/portal/current')->json('data.project.files'),
+        )->pluck('original_name');
+
+        $this->assertTrue($names->contains('id-card.jpg'));
+    }
+
+    public function test_a_finished_project_takes_no_unprompted_files(): void
+    {
+        $client = $this->client();
+
+        foreach ([Project::STATUS_COMPLETED, Project::STATUS_ARCHIVED, Project::STATUS_CANCELLED] as $status) {
+            $project = $this->project($client, ['status' => $status]);
+
+            $this->actingAs($client, 'client')
+                ->postJson("/api/v1/client/projects/{$project->id}/files", [
+                    'files' => [UploadedFile::fake()->image('late.jpg')],
+                ])
+                ->assertUnprocessable()
+                ->assertJsonPath('message', __('projects.client_upload_settled'));
+
+            $this->assertSame(0, $project->files()->count());
+        }
+    }
+
+    /** The same edges as a request answer: their own live project, photos and PDFs only. */
+    public function test_unprompted_uploads_keep_the_same_edges(): void
+    {
+        $client = $this->client();
+        $other = $this->client(['email' => 'other@example.com']);
+
+        $theirs = $this->project($other);
+        $this->actingAs($client, 'client')
+            ->post("/api/v1/client/projects/{$theirs->id}/files", ['files' => [UploadedFile::fake()->image('x.jpg')]])
+            ->assertNotFound();
+
+        // A draft is still the office's own business.
+        $draft = $this->project($client, ['status' => Project::STATUS_DRAFT]);
+        $this->actingAs($client, 'client')
+            ->post("/api/v1/client/projects/{$draft->id}/files", ['files' => [UploadedFile::fake()->image('x.jpg')]])
+            ->assertNotFound();
+
+        $mine = $this->project($client);
+        $this->actingAs($client, 'client')
+            ->postJson("/api/v1/client/projects/{$mine->id}/files", [
+                'files' => [UploadedFile::fake()->create('macro.docm', 20, 'application/vnd.ms-word.document.macroEnabled.12')],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('files.0');
+
+        $this->actingAs($client, 'client')
+            ->postJson("/api/v1/client/projects/{$mine->id}/files", [
+                'files' => array_map(fn (int $i) => UploadedFile::fake()->image("page-{$i}.jpg"), range(1, 7)),
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('files');
+
+        $this->assertSame(0, ProjectFile::query()->count());
+    }
+
+    public function test_the_client_can_delete_a_file_they_sent_unasked(): void
+    {
+        Notification::fake();
+
+        $client = $this->client();
+        $project = $this->project($client);
+
+        $this->actingAs($client, 'client')->post("/api/v1/client/projects/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->image('wrong-person.jpg')],
+        ])->assertCreated();
+
+        $file = $project->files()->where('original_name', 'wrong-person.jpg')->firstOrFail();
+
+        $this->actingAs($client, 'client')
+            ->deleteJson("/api/v1/client/projects/{$project->id}/files/{$file->id}")
+            ->assertOk()
+            ->assertJsonPath('data', null);
+
+        $this->assertModelMissing($file);
+        Storage::disk('local')->assertMissing($file->disk_path);
+        Notification::assertSentTo(
+            $this->pm,
+            DocumentWithdrawnNotification::class,
+            fn (DocumentWithdrawnNotification $n) => $n->documentRequest === null,
+        );
+    }
+
+    /** A stranger's passport sent to a live project must be removable by the office. */
+    public function test_the_office_can_remove_an_unprompted_file_from_a_live_project(): void
+    {
+        $client = $this->client();
+        $project = $this->project($client);
+
+        $this->actingAs($client, 'client')->post("/api/v1/client/projects/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->image('not-ours.jpg')],
+        ])->assertCreated();
+
+        $file = $project->files()->where('original_name', 'not-ours.jpg')->firstOrFail();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->deleteJson("/api/v1/projects/{$project->id}/files/{$file->id}")
+            ->assertOk();
+
+        $this->assertModelMissing($file);
     }
 }

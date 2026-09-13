@@ -24,6 +24,9 @@ return [
     'document_request_not_fulfilled' => 'لا يمكن طلب نسخة جديدة إلا بعد وصول المستند.',
     'document_delete_settled' => 'لا يمكن حذف المستندات بعد إغلاق المشروع.',
     'document_deleted' => 'تم حذف المستند، ويمكنك رفع نسخة أخرى.',
+    // The client sending files without being asked (2026-09-13)
+    'client_files_uploaded' => 'وصلت ملفاتك إلى المكتب.',
+    'client_upload_settled' => 'اكتمل هذا المشروع أو أُلغي، فلا يمكن إضافة ملفات إليه.',
     'document_kind' => [
         'identity' => 'إثبات هوية',
         'supporting' => 'مستند داعم',

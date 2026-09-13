@@ -25,6 +25,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToneBadge } from "@/components/tone-badge";
 import { DocumentRequestsPanel } from "@/components/account/document-requests-panel";
+import { ClientUploadsPanel } from "@/components/account/client-uploads-panel";
 
 const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "long" });
 
@@ -205,6 +206,11 @@ export default function AccountProjectPage() {
             `file-${file.id}`,
           )
         }
+      />
+
+      <ClientUploadsPanel
+        project={project}
+        onChanged={() => queryClient.invalidateQueries({ queryKey: ["client-project", id] })}
       />
 
     </div>

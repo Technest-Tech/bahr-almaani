@@ -8,9 +8,11 @@ use App\Http\Resources\ClientProjectResource;
 use App\Http\Resources\DocumentRequestResource;
 use App\Http\Resources\InvoiceResource;
 use App\Models\Client;
+use App\Models\DocumentRequest;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\ProjectFile;
+use App\Models\User;
 use App\Notifications\DocumentSuppliedNotification;
 use App\Notifications\DocumentWithdrawnNotification;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +21,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -185,18 +188,19 @@ class ClientPortalController extends Controller
     }
 
     /**
-     * The client answering a document request from their own area.
+     * The client sending files to their own project — asked for, or not.
      *
-     * The first write the client area has ever had, and it is deliberately the
-     * narrowest one that does the job: an upload must name an OPEN request on the
-     * client's OWN project. There is no general "attach a file to my project" —
-     * that would turn the portal into an inbox nobody watches, and it would let a
-     * client add a document after pricing that the office never agreed to translate.
+     * With `document_request_id` it answers that request, which must still be open:
+     * the files hang off the work file the request names and close it. Without one
+     * it is the client adding documents on their own initiative (client request
+     * 2026-09-13 — the portal used to take files only when the office had asked, so a
+     * client with a second document had no way to send it).
      *
-     * Everything lands as `reference`, never `source`: source files are the quote
-     * basis, they are counted, and the first of them names the project
-     * (ProjectFileController::nameProjectAfterFirstSource). A client-supplied ID
-     * card must not move any of that.
+     * Either way everything lands as `reference`, never `source`, and that is what
+     * keeps the open door safe. Source files are the quote basis: they are counted,
+     * the first names the project, and after publication they are frozen for the
+     * office too. A client upload moves none of that — it reaches the PM, who decides
+     * what it means for the job, and the translator sees it as supporting material.
      */
     public function uploadFile(Request $request, Project $project): JsonResponse
     {
@@ -208,7 +212,7 @@ class ClientPortalController extends Controller
             'document_request_id' => $request->input('document_request_id'),
             'files' => $this->uploads($request),
         ], [
-            'document_request_id' => ['required', 'integer'],
+            'document_request_id' => ['nullable', 'integer'],
             'files' => ['required', 'array', 'min:1', 'max:'.self::MAX_CLIENT_FILES],
             // Photos and scans. Narrower than the office's own upload on purpose:
             // this endpoint takes identity papers off the open internet, and an
@@ -217,20 +221,34 @@ class ClientPortalController extends Controller
         ])->validate();
 
         // 404 rather than 403 on someone else's request id, like every other lookup here.
-        $documentRequest = $project->documentRequests()
-            ->whereKey($validated['document_request_id'])
-            ->pending()
-            ->first();
+        $documentRequest = isset($validated['document_request_id'])
+            ? $project->documentRequests()
+                ->whereKey($validated['document_request_id'])
+                ->pending()
+                ->first()
+            : null;
 
-        abort_if($documentRequest === null, 404, __('projects.document_request_closed'));
+        abort_if(
+            isset($validated['document_request_id']) && $documentRequest === null,
+            404,
+            __('projects.document_request_closed'),
+        );
+
+        // A finished job takes nothing more. An open request on it is answered the
+        // same way it always was; only the unprompted door closes.
+        abort_if(
+            $documentRequest === null && in_array($project->status, Project::SETTLED_STATUSES, true),
+            422,
+            __('projects.client_upload_settled'),
+        );
 
         $files = DB::transaction(function () use ($client, $project, $documentRequest, $validated): array {
             $stored = array_map(fn (UploadedFile $upload): ProjectFile => $project->files()->create([
                 'category' => ProjectFile::CATEGORY_REFERENCE,
                 // No `uploaded_by`: clients are not staff and do not live in `users`.
                 'uploaded_by_client_id' => $client->id,
-                'parent_file_id' => $documentRequest->project_file_id,
-                'document_request_id' => $documentRequest->id,
+                'parent_file_id' => $documentRequest?->project_file_id,
+                'document_request_id' => $documentRequest?->id,
                 'original_name' => $upload->getClientOriginalName(),
                 'disk_path' => $upload->store("projects/{$project->id}/reference", 'local'),
                 'mime_type' => $upload->getClientMimeType(),
@@ -238,15 +256,22 @@ class ClientPortalController extends Controller
                 'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
             ]), $validated['files']);
 
-            $documentRequest->markFulfilled();
+            $documentRequest?->markFulfilled();
 
             return $stored;
         });
 
         Notification::send(
-            $documentRequest->recipients(),
+            $this->officeRecipients($project, $documentRequest),
             new DocumentSuppliedNotification($project, $documentRequest, $client, count($files)),
         );
+
+        if ($documentRequest === null) {
+            return response()->json([
+                'message' => __('projects.client_files_uploaded'),
+                'data' => array_map(fn (ProjectFile $file): array => ClientProjectResource::file($file), $files),
+            ], 201);
+        }
 
         return response()->json([
             'message' => __('projects.document_supplied'),
@@ -267,7 +292,8 @@ class ClientPortalController extends Controller
      * Bounded three ways: it must be a file THEY uploaded, still standing, on a
      * project that is still running. A file the office has already superseded is
      * part of the record of the job and is theirs to keep or remove, not the
-     * client's — and once the job is settled nothing on it moves at all.
+     * client's — and once the job is settled nothing on it moves at all. That covers
+     * files sent unprompted as well as request answers: both are the client's own.
      */
     public function destroyFile(Request $request, Project $project, ProjectFile $file): JsonResponse
     {
@@ -277,7 +303,6 @@ class ClientPortalController extends Controller
 
         abort_unless($file->project_id === $project->id, 404);
         abort_unless($file->uploaded_by_client_id === $client->id, 404);
-        abort_unless($file->document_request_id !== null, 404);
         abort_if($file->isSuperseded(), 404);
 
         abort_if(
@@ -296,13 +321,11 @@ class ClientPortalController extends Controller
         $documentRequest?->reopenIfUnanswered();
 
         // A PM who downloaded that scan an hour ago is now working from a file the
-        // client has withdrawn, and the request may have quietly reopened.
-        if ($documentRequest !== null) {
-            Notification::send(
-                $documentRequest->recipients(),
-                new DocumentWithdrawnNotification($project, $documentRequest->refresh(), $client, $name),
-            );
-        }
+        // client has withdrawn, and a request it answered may have quietly reopened.
+        Notification::send(
+            $this->officeRecipients($project, $documentRequest),
+            new DocumentWithdrawnNotification($project, $documentRequest?->refresh(), $client, $name),
+        );
 
         return response()->json([
             'message' => __('projects.document_deleted'),
@@ -346,6 +369,25 @@ class ClientPortalController extends Controller
         abort_unless($invoice->disk_path && Storage::disk('local')->exists($invoice->disk_path), 404);
 
         return Storage::disk('local')->download($invoice->disk_path, "{$invoice->number}.pdf");
+    }
+
+    /**
+     * Who in the office hears about a client's file: the people behind the request it
+     * answers, or — for a file nobody asked for — the PM who owns the project.
+     *
+     * @return Collection<int, User>
+     */
+    private function officeRecipients(Project $project, ?DocumentRequest $documentRequest): Collection
+    {
+        if ($documentRequest !== null) {
+            return $documentRequest->recipients();
+        }
+
+        return User::query()
+            ->whereKey($project->created_by)
+            ->where('status', User::STATUS_ACTIVE)
+            ->with('notificationPreferences')
+            ->get();
     }
 
     private function authorizeProject(Request $request, Project $project): void

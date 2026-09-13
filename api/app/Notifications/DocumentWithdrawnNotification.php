@@ -25,7 +25,8 @@ class DocumentWithdrawnNotification extends Notification implements ShouldQueue
 
     public function __construct(
         public Project $project,
-        public DocumentRequest $documentRequest,
+        /** Null when the file was one the client sent without being asked. */
+        public ?DocumentRequest $documentRequest,
         public Client $client,
         public string $fileName,
     ) {}
@@ -46,7 +47,9 @@ class DocumentWithdrawnNotification extends Notification implements ShouldQueue
             ->subject("سحب العميل مستنداً — {$this->project->code}")
             ->greeting("مرحباً {$notifiable->name}،")
             ->line("حذف «{$this->client->name}» المستند «{$this->fileName}» من مشروع «{$this->project->title}».")
-            ->line($this->reopened() ? 'عاد الطلب إلى «بانتظار العميل» تلقائياً.' : 'ما زال هناك مستند آخر مرفق بالطلب.')
+            ->when($this->documentRequest !== null, fn (MailMessage $mail) => $mail->line(
+                $this->reopened() ? 'عاد الطلب إلى «بانتظار العميل» تلقائياً.' : 'ما زال هناك مستند آخر مرفق بالطلب.',
+            ))
             ->action('فتح المشروع', config('app.frontend_url')."/projects/{$this->project->id}");
     }
 
@@ -64,6 +67,6 @@ class DocumentWithdrawnNotification extends Notification implements ShouldQueue
     /** True when that file was the last one answering the request. */
     private function reopened(): bool
     {
-        return $this->documentRequest->isPending();
+        return $this->documentRequest?->isPending() ?? false;
     }
 }
