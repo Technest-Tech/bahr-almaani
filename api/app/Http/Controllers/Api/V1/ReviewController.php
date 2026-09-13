@@ -68,11 +68,7 @@ class ReviewController extends Controller
                 $validated['note'],
             );
 
-            $transition = $project->transitions()
-                ->where('to_status', Project::STATUS_REVISION_REQUESTED)
-                ->latest('created_at')
-                ->latest('id')
-                ->first();
+            $transition = $project->transitionsTo(Project::STATUS_REVISION_REQUESTED)->first();
 
             foreach ($request->file('attachments') ?? [] as $upload) {
                 $project->files()->create([

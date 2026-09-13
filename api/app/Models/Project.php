@@ -184,6 +184,24 @@ class Project extends Model
         return $this->hasMany(StatusTransition::class)->orderBy('created_at');
     }
 
+    /**
+     * Transitions into `$status`, newest first.
+     *
+     * Not `transitions()->latest()`: that relation sorts oldest-first for the
+     * timeline, and an ORDER BY added after it only breaks ties — so the "latest"
+     * row it returned was the OLDEST one whenever two rounds were more than a second
+     * apart, which in production is always. A translator on a second revision was
+     * shown the first round's note, the PM's new screenshots were bound to the first
+     * round, and re-delivery work time was counted from the first revision request.
+     */
+    public function transitionsTo(string $status): HasMany
+    {
+        return $this->hasMany(StatusTransition::class)
+            ->where('to_status', $status)
+            ->latest('created_at')
+            ->latest('id');
+    }
+
     public function letterhead(): BelongsTo
     {
         return $this->belongsTo(LetterheadTemplate::class, 'letterhead_id');

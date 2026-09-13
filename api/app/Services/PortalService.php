@@ -178,9 +178,7 @@ class PortalService
             }
 
             $windowStart = $project->status === Project::STATUS_REVISION_REQUESTED
-                ? $project->transitions()
-                    ->where('to_status', Project::STATUS_REVISION_REQUESTED)
-                    ->latest('created_at')->value('created_at') ?? $assignment->claimed_at
+                ? $project->transitionsTo(Project::STATUS_REVISION_REQUESTED)->value('created_at') ?? $assignment->claimed_at
                 : $assignment->claimed_at;
 
             $this->transitions->transition($project, Project::STATUS_DELIVERED, $translator);
@@ -330,11 +328,8 @@ class PortalService
             return null;
         }
 
-        return $project->transitions()
-            ->where('to_status', Project::STATUS_REVISION_REQUESTED)
+        return $project->transitionsTo(Project::STATUS_REVISION_REQUESTED)
             ->with(['actor:id,name', 'attachments'])
-            ->latest('created_at')
-            ->latest('id')
             ->first();
     }
 

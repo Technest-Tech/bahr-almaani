@@ -404,6 +404,15 @@ activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app
 > quote; if the office wants client uploads to become *work files* (counted, priced),
 > that is a further change request with pricing rules to agree first.
 
+> **Found while testing, same day — a review-flow defect, NOT billable.**
+> `Project::transitions()` sorts oldest-first, so every `->latest()` on it returned
+> the OLDEST transition. From the second revision round on, the translator saw the
+> first round's note and screenshots, new screenshots were bound to the first round,
+> and re-delivery work time was counted from the first revision request — inflating
+> `assignments.work_seconds` for any job revised twice or more. Fixed with
+> `Project::transitionsTo()`; it is inside the priced M5 review flow, so it is owed.
+> Rows already written keep their inflated `work_seconds` — recomputing them from
+> `status_transitions` is possible but was not done; Ahmed's call.
 
 **NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
 

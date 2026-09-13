@@ -383,6 +383,68 @@ class PortalFlowTest extends TestCase
             ->assertOk();
     }
 
+    /**
+     * Revision rounds hours apart, as they are in real use.
+     *
+     * The earlier attachments test ran both rounds inside one second, where a query
+     * that returned the OLDEST transition still looked right on a tie. This one moves
+     * the clock between rounds, so the note, the screenshots and the work window all
+     * have to come from the newest round to pass.
+     */
+    public function test_a_later_revision_round_uses_its_own_note_attachments_and_work_window(): void
+    {
+        Notification::fake();
+        $project = $this->makeAvailableProject();
+        $translator = $this->translator1;
+
+        $this->actingAs($translator, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+        $this->travel(1)->hours();
+        $this->actingAs($translator, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->createWithContent('v1.txt', 'one'),
+        ])->assertOk(); // window 1: one hour
+
+        foreach (['round-one', 'round-two'] as $round) {
+            $this->travel(1)->hours();
+            $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/open")->assertOk();
+            $this->actingAs($this->pm, 'sanctum')->post("/api/v1/projects/{$project->id}/review/request-revision", [
+                'note' => $round,
+                'attachments' => [UploadedFile::fake()->image("{$round}.png")],
+            ])->assertOk();
+
+            if ($round === 'round-two') {
+                break;
+            }
+
+            $this->travel(1)->hours();
+            $this->actingAs($translator, 'sanctum')->postJson('/api/v1/portal/deliver', [
+                'file' => UploadedFile::fake()->createWithContent('v2.txt', 'two'),
+            ])->assertOk(); // window 2: one hour
+        }
+
+        $current = $this->actingAs($translator, 'sanctum')->getJson('/api/v1/portal/current')->assertOk();
+        $this->assertSame('round-two', $current->json('revision_note.note'));
+        $current->assertJsonCount(1, 'revision_note.attachments');
+        $this->assertSame('round-two.png', $current->json('revision_note.attachments.0.original_name'));
+
+        // Each round's screenshot is bound to its own transition.
+        foreach (['round-one', 'round-two'] as $round) {
+            $transition = $project->transitions()->where('note', $round)->firstOrFail();
+            $this->assertSame(["{$round}.png"], $transition->attachments()->pluck('original_name')->all());
+        }
+
+        $this->travel(1)->hours();
+        $this->actingAs($translator, 'sanctum')->postJson('/api/v1/portal/deliver', [
+            'file' => UploadedFile::fake()->createWithContent('v3.txt', 'three'),
+        ])->assertOk(); // window 3: one hour — from the SECOND revision request
+
+        $this->assertEqualsWithDelta(
+            3 * 3600,
+            Assignment::where('project_id', $project->id)->value('work_seconds'),
+            10,
+            'Three one-hour windows; counting from the first revision request would add two more hours.',
+        );
+    }
+
     /** Round two must not show round one's screenshots. */
     public function test_only_the_current_rounds_attachments_are_shown(): void
     {
