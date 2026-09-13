@@ -86,6 +86,9 @@ GET    /roles · GET /permissions · PUT /roles/{id}/permissions
 ```
 GET|POST /clients · GET|PUT|DELETE /clients/{id}
 GET|POST /projects · GET|PUT /projects/{id}
+DELETE /projects/{id}                (soft delete; refused once any translator has
+                                      claimed it — cancel those instead. A converted
+                                      quote request goes back to `accepted`)
 POST   /projects/{id}/publish        (draft → available)
 POST   /projects/{id}/cancel         (reason required)
 POST   /projects/{id}/withdraw       (claimed → available, reason required)
@@ -105,6 +108,11 @@ GET    /portal/queue                 (available projects for my language pairs,
 POST   /portal/claim/{projectId}     (atomic; 409 on race/active-file conflict)
 GET    /portal/current               (my active assignment + files + instructions)
 POST   /portal/deliver               (attach deliverable file, claimed → delivered)
+GET    /portal/deliveries            (my deliveries still `delivered` — not yet opened
+                                      by the PM — with the newest round's files)
+POST   /portal/deliveries/{projectId}/files          (add files[] to that round, or
+                                      swap one: `replaces` = file id, exactly one file)
+DELETE /portal/deliveries/{projectId}/files/{fileId} (refused for the last file)
 GET    /portal/history               (my delivered work, read-only, with work durations)
 ```
 

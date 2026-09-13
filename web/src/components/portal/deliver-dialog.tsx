@@ -48,6 +48,9 @@ export function DeliverDialog({
   onCancel,
   onConfirm,
   submitting,
+  title = "تسليم الترجمة",
+  description,
+  confirmLabel = "تسليم",
 }: {
   open: boolean;
   files: File[];
@@ -60,6 +63,10 @@ export function DeliverDialog({
   onCancel: () => void;
   onConfirm: (placements: Record<number, StampPosition>) => void;
   submitting: boolean;
+  /** Reused to correct a delivery awaiting review, where "deliver" is the wrong word. */
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
 }) {
   const [placements, setPlacements] = useState<Record<number, StampPosition>>(
     initialPlacements ?? {},
@@ -113,11 +120,12 @@ export function DeliverDialog({
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>تسليم الترجمة</DialogTitle>
+            <DialogTitle>{title}</DialogTitle>
             <DialogDescription>
-              {files.length === 1
-                ? "سيتم تسليم الملف لمدير المشروع وإيقاف عداد الوقت."
-                : `سيتم تسليم ${files.length.toLocaleString("ar-EG")} ملفات لمدير المشروع وإيقاف عداد الوقت.`}
+              {description ??
+                (files.length === 1
+                  ? "سيتم تسليم الملف لمدير المشروع وإيقاف عداد الوقت."
+                  : `سيتم تسليم ${files.length.toLocaleString("ar-EG")} ملفات لمدير المشروع وإيقاف عداد الوقت.`)}
             </DialogDescription>
           </DialogHeader>
 
@@ -173,7 +181,7 @@ export function DeliverDialog({
             </Button>
             <Button onClick={() => onConfirm(placements)} loading={submitting}>
               <Send className="size-4" />
-              تسليم
+              {confirmLabel}
             </Button>
           </DialogFooter>
         </DialogContent>

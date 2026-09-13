@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Events\ProjectCancelled;
+use App\Events\ProjectDeleted;
 use App\Events\ProjectPublished;
 use App\Events\ProjectWithdrawn;
 use App\Exceptions\InvalidTransitionException;
@@ -13,6 +14,7 @@ use App\Http\Resources\TransitionResource;
 use App\Models\Assignment;
 use App\Models\Project;
 use App\Models\ProjectFile;
+use App\Models\QuoteRequest;
 use App\Notifications\ProjectAvailableNotification;
 use App\Notifications\ProjectWithdrawnNotification;
 use App\Services\ProjectCodeGenerator;
@@ -205,6 +207,47 @@ class ProjectController extends Controller
         }
 
         return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
+    }
+
+    /**
+     * Delete a project nobody has worked on — a duplicate, a test, a job entered twice.
+     *
+     * The line is a translator's claim, not a status. Once someone has held the file,
+     * their time and their delivery are recorded against it — the productivity report,
+     * the payslip, the audit of who delivered what — and those projects are cancelled
+     * instead. Without a claim a project can only be a draft, an available file or a
+     * cancelled one, so the one check covers every status.
+     *
+     * Soft delete (docs/01): out of every list, but the files and history stay
+     * recoverable, and the activity log still labels its rows.
+     */
+    public function destroy(Project $project): JsonResponse
+    {
+        $wasOnPortal = DB::transaction(function () use ($project): bool {
+            // The same row lock a claim takes, so a claim landing in the same instant
+            // is seen here — or finds the project already gone.
+            /** @var Project $fresh */
+            $fresh = Project::whereKey($project->getKey())->lockForUpdate()->firstOrFail();
+
+            abort_if($fresh->assignments()->exists(), 422, __('projects.delete_after_claim'));
+
+            // A converted quote request would point at nothing and refuse to convert
+            // again. Hand it back as accepted — where it stood before converting.
+            QuoteRequest::query()->where('project_id', $fresh->id)->get()->each->update([
+                'project_id' => null,
+                'status' => QuoteRequest::STATUS_ACCEPTED,
+            ]);
+
+            $fresh->delete();
+
+            return $fresh->status === Project::STATUS_AVAILABLE;
+        });
+
+        if ($wasOnPortal) {
+            $this->broadcastLive(new ProjectDeleted($project));
+        }
+
+        return response()->json(['message' => 'ok']);
     }
 
     public function timeline(Project $project): AnonymousResourceCollection

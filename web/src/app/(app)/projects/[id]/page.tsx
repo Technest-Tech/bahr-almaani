@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -85,6 +85,7 @@ function formatBytes(bytes: number): string {
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { can } = useAuth();
   const { download } = useFileTransfer();
   const { prompt, confirm } = useConfirm();
@@ -95,15 +96,19 @@ export default function ProjectDetailPage() {
   const [askingAbout, setAskingAbout] = useState<ProjectFile | null | undefined>(undefined);
   const [approving, setApproving] = useState(false);
   const [requestingRevision, setRequestingRevision] = useState(false);
+  /** Set on delete: the cache entries go, and nothing on this page may fetch them back. */
+  const [deleted, setDeleted] = useState(false);
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", id],
     queryFn: () => api<{ data: Project }>(`/projects/${id}`).then((r) => r.data),
+    enabled: !deleted,
   });
 
   const { data: timeline } = useQuery({
     queryKey: ["project-timeline", id],
     queryFn: () => api<{ data: Transition[] }>(`/projects/${id}/timeline`).then((r) => r.data),
+    enabled: !deleted,
   });
 
   const invalidate = () => {
@@ -137,6 +142,21 @@ export default function ProjectDetailPage() {
     onSuccess: () => {
       invalidate();
       toast.success("تم سحب الملف وإعادته للمتاح");
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api(`/projects/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      // Removed, not invalidated — a cached copy would show a deleted project on the
+      // way back. Disabled first, or the still-mounted page refetches it into a 404.
+      setDeleted(true);
+      queryClient.removeQueries({ queryKey: ["project", id] });
+      queryClient.removeQueries({ queryKey: ["project-timeline", id] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("تم حذف المشروع");
+      router.replace("/projects");
     },
     onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
@@ -359,6 +379,31 @@ export default function ProjectDetailPage() {
             >
               <XCircle className="size-4" />
               إلغاء المشروع
+            </Button>
+          )}
+
+          {/* Only while no translator has ever held it — after a claim their time and
+              delivery are recorded against the project, and the API refuses. */}
+          {canManage && !assignment && ["draft", "available", "cancelled"].includes(project.status) && (
+            <Button
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              loading={deleteMutation.isPending}
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: `حذف المشروع «${project.title}»؟`,
+                    description:
+                      "يختفي المشروع وملفاته من القوائم ومن بورتال المترجمين. مناسب للمشاريع المكررة أو المُدخلة بالخطأ.",
+                    confirmLabel: "حذف المشروع",
+                    destructive: true,
+                  })
+                )
+                  deleteMutation.mutate();
+              }}
+            >
+              <Trash2 className="size-4" />
+              حذف المشروع
             </Button>
           )}
         </div>

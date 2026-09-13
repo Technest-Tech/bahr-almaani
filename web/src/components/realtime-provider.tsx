@@ -50,6 +50,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["portal-queue"] });
       queryClient.invalidateQueries({ queryKey: ["portal-current"] });
       queryClient.invalidateQueries({ queryKey: ["portal-history"] });
+      queryClient.invalidateQueries({ queryKey: ["portal-deliveries"] });
     };
 
     // ── Personal channel: bell + PM review views ──────────────────────
@@ -99,7 +100,12 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         queryClient.invalidateQueries({ queryKey: ["portal-queue"] });
       });
 
-      for (const name of [".project.published", ".project.withdrawn", ".project.cancelled"]) {
+      for (const name of [
+        ".project.published",
+        ".project.withdrawn",
+        ".project.cancelled",
+        ".project.deleted",
+      ]) {
         portal.listen(name, invalidatePortal);
       }
     }

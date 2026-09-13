@@ -60,7 +60,8 @@ class CountWordsJob implements ShouldQueue
             'count_source' => $source,
         ]);
 
-        $file->project->refreshTotals();
+        // Null when the project was deleted while this count sat in the queue.
+        $file->project?->refreshTotals();
     }
 
     public function failed(): void

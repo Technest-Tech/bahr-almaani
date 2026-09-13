@@ -130,7 +130,7 @@ what makes the login lookup unambiguous.
 | created_by | FK users | the PM |
 | published_at / completed_at / cancelled_at | timestamptz | nullable milestones |
 | cancel_reason | text | nullable |
-| deleted_at | timestamptz | soft delete (admin only) |
+| deleted_at | timestamptz | soft delete — PM or admin (`projects.manage`), and only while no assignment exists: a claimed project carries a translator's time and delivery, so it is cancelled rather than deleted |
 
 Indexes: `status`, `(status, priority, deadline_at)` (portal query), `deadline_at`, `client_id`, `created_by`,
 `(source_language_id, target_language_id, status)` (portal language filter).

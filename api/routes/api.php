@@ -136,6 +136,8 @@ Route::prefix('v1')->group(function (): void {
         Route::middleware('permission:projects.manage')->group(function (): void {
             Route::post('/projects', [ProjectController::class, 'store']);
             Route::put('/projects/{project}', [ProjectController::class, 'update']);
+            // Only a project no translator ever claimed — see ProjectController::destroy.
+            Route::delete('/projects/{project}', [ProjectController::class, 'destroy']);
             Route::post('/projects/{project}/publish', [ProjectController::class, 'publish']);
             Route::post('/projects/{project}/cancel', [ProjectController::class, 'cancel']);
             Route::post('/projects/{project}/archive', [ProjectController::class, 'archive']);
@@ -210,6 +212,11 @@ Route::prefix('v1')->group(function (): void {
                 ->middleware('throttle:10,1');
             Route::get('/current', [PortalController::class, 'current']);
             Route::post('/deliver', [PortalController::class, 'deliver']);
+            // Correcting a delivery until the PM opens the review (docs/02 rule 6):
+            // swap a wrong file, add a forgotten one, take out an extra one.
+            Route::get('/deliveries', [PortalController::class, 'awaitingReview']);
+            Route::post('/deliveries/{project}/files', [PortalController::class, 'amendDelivery']);
+            Route::delete('/deliveries/{project}/files/{file}', [PortalController::class, 'removeDeliveredFile']);
             Route::get('/history', [PortalController::class, 'history']);
             Route::get('/files/{fileId}/download', [PortalController::class, 'downloadFile']);
 

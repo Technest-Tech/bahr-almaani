@@ -9,9 +9,12 @@ use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\StatusTransition;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class PortalService
 {
@@ -193,6 +196,111 @@ class PortalService
         });
     }
 
+    /**
+     * Deliveries the translator can still change: handed over, not yet opened by the
+     * PM (docs/02 rule 6). Carries the newest round's files only — an earlier round is
+     * what a revision note was written about, and it is not theirs to rewrite.
+     *
+     * @return Collection<int, Assignment>
+     */
+    public function awaitingReview(User $translator): Collection
+    {
+        return $this->awaitingReviewQuery($translator)->latest('delivered_at')->get();
+    }
+
+    /**
+     * Change a delivery the PM has not opened yet: add files to it, or swap one of its
+     * files for the right one when `$replaces` is given.
+     *
+     * The files join the round they correct instead of starting a new one. This is the
+     * translator fixing what they handed over, not a revision cycle — a new version
+     * would read as one, and the merge would drop the files the translator kept. The
+     * clock stays stopped: waiting for a review is not work.
+     *
+     * @param  list<UploadedFile>  $uploads
+     * @param  array<int, array|null>  $stampPlacements  keyed by upload index, as in deliver()
+     */
+    public function amendDelivery(
+        User $translator,
+        Project $project,
+        array $uploads,
+        array $stampPlacements = [],
+        ?int $replaces = null,
+    ): Assignment {
+        $replaced = DB::transaction(function () use ($translator, $project, $uploads, $stampPlacements, $replaces): ?ProjectFile {
+            [$project, $round] = $this->lockAmendableDelivery($translator, $project);
+
+            $replaced = $replaces !== null ? $this->roundFile($project, $round, $replaces) : null;
+            $replaced?->delete();
+
+            $added = [];
+
+            foreach ($uploads as $index => $upload) {
+                $file = $project->files()->create([
+                    'category' => ProjectFile::CATEGORY_DELIVERABLE,
+                    'uploaded_by' => $translator->id,
+                    'original_name' => $upload->getClientOriginalName(),
+                    'disk_path' => $upload->store("projects/{$project->id}/deliverable", 'local'),
+                    'mime_type' => $upload->getClientMimeType(),
+                    'size_bytes' => $upload->getSize(),
+                    'version' => $round,
+                    'stamp_placement' => $stampPlacements[$index] ?? null,
+                ]);
+
+                CountWordsJob::dispatch($file)->afterCommit();
+                $added[] = $file->original_name;
+            }
+
+            // The replaced file's count leaves the delivered totals now; the new file's
+            // arrives when its count job lands.
+            $project->refreshTotals();
+            $this->logAmendment($project, $translator, $replaced ? [$replaced->original_name] : [], $added);
+
+            return $replaced;
+        });
+
+        // After commit: a rolled-back swap must still find the file it was going to replace.
+        if ($replaced !== null) {
+            Storage::disk('local')->delete($replaced->disk_path);
+        }
+
+        return $this->awaitingReviewQuery($translator)->where('project_id', $project->id)->firstOrFail();
+    }
+
+    /**
+     * Take one file out of a delivery the PM has not opened yet — the extra document
+     * that was never meant to go. Never the last one: a delivered project with nothing
+     * delivered would reach review empty. The way to fix a lone wrong file is to
+     * replace it.
+     */
+    public function removeDeliveredFile(User $translator, Project $project, int $fileId): Assignment
+    {
+        $removed = DB::transaction(function () use ($translator, $project, $fileId): ProjectFile {
+            [$project, $round] = $this->lockAmendableDelivery($translator, $project);
+
+            $file = $this->roundFile($project, $round, $fileId);
+
+            abort_if(
+                $project->files()
+                    ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+                    ->where('version', $round)
+                    ->count() === 1,
+                422,
+                __('portal.delivery_last_file'),
+            );
+
+            $file->delete();
+            $project->refreshTotals();
+            $this->logAmendment($project, $translator, [$file->original_name], []);
+
+            return $file;
+        });
+
+        Storage::disk('local')->delete($removed->disk_path);
+
+        return $this->awaitingReviewQuery($translator)->where('project_id', $project->id)->firstOrFail();
+    }
+
     /** The assignment the translator must work on now (fresh claim or pending revision). */
     public function currentAssignment(User $translator): ?Assignment
     {
@@ -228,6 +336,88 @@ class PortalService
             ->latest('created_at')
             ->latest('id')
             ->first();
+    }
+
+    /** @return Builder<Assignment> */
+    private function awaitingReviewQuery(User $translator): Builder
+    {
+        return Assignment::query()
+            ->where('translator_id', $translator->id)
+            ->where('status', Assignment::STATUS_DELIVERED)
+            ->whereHas('project', fn ($query) => $query->where('status', Project::STATUS_DELIVERED))
+            ->with([
+                'project.sourceLanguage',
+                'project.targetLanguage',
+                'project.files' => fn ($query) => $query
+                    ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+                    ->whereRaw(
+                        'project_files.version = (SELECT MAX(round.version) FROM project_files AS round WHERE round.project_id = project_files.project_id AND round.category = ?)',
+                        [ProjectFile::CATEGORY_DELIVERABLE],
+                    )
+                    ->orderBy('id'),
+            ]);
+    }
+
+    /**
+     * Lock the project and confirm the delivery is still this translator's to change.
+     *
+     * The row lock is what makes "until the PM opens the review" exact: opening it is
+     * a transition, and every transition takes the same lock. Whichever lands second
+     * sees the other — the translator never swaps a file the PM is already reading.
+     *
+     * @return array{0: Project, 1: int} the locked project and its newest round
+     */
+    private function lockAmendableDelivery(User $translator, Project $project): array
+    {
+        /** @var Project $fresh */
+        $fresh = Project::whereKey($project->getKey())->lockForUpdate()->firstOrFail();
+
+        // Someone else's delivery is answered like a project that does not exist.
+        abort_unless(
+            $fresh->assignments()
+                ->where('translator_id', $translator->id)
+                ->where('status', Assignment::STATUS_DELIVERED)
+                ->exists(),
+            404,
+        );
+
+        abort_unless($fresh->status === Project::STATUS_DELIVERED, 422, __('portal.delivery_locked'));
+
+        $round = (int) $fresh->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->max('version');
+
+        return [$fresh, $round];
+    }
+
+    /** A file of the newest delivery round, or 404 — never a file from a round already reviewed. */
+    private function roundFile(Project $project, int $round, int $fileId): ProjectFile
+    {
+        return $project->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->where('version', $round)
+            ->whereKey($fileId)
+            ->firstOrFail();
+    }
+
+    /**
+     * On the audit trail, in the shape the activity screen already renders: what the
+     * delivery lost as `old`, what it gained as `attributes`. Files have no log of
+     * their own, and without this the PM would find a different document than the one
+     * they were notified about with nothing to say why.
+     *
+     * @param  list<string>  $removed
+     * @param  list<string>  $added
+     */
+    private function logAmendment(Project $project, User $translator, array $removed, array $added): void
+    {
+        activity('projects')
+            ->performedOn($project)
+            ->causedBy($translator)
+            ->event('updated')
+            ->withProperties([
+                'old' => ['deliverable' => $removed === [] ? null : implode('، ', $removed)],
+                'attributes' => ['deliverable' => $added === [] ? null : implode('، ', $added)],
+            ])
+            ->log('delivery_amended');
     }
 
     /** @throws ClaimConflictException */

@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 
 interface ConfirmOptions {
   title: string;
@@ -96,10 +95,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
           <AlertDialogFooter>
             <AlertDialogCancel>إلغاء</AlertDialogCancel>
             <AlertDialogAction
-              className={cn(
-                confirmState?.destructive &&
-                  "bg-destructive text-white hover:bg-destructive/90",
-              )}
+              variant={confirmState?.destructive ? "destructive" : "default"}
               onClick={() => settleConfirm(true)}
             >
               {confirmState?.confirmLabel ?? "تأكيد"}

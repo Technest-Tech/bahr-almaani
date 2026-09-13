@@ -67,6 +67,8 @@ const FIELD_LABELS: Record<string, string> = {
   deadline_at: "موعد التسليم",
   client_id: "العميل",
   quoted_amount: "المبلغ",
+  // A translator correcting a delivery before review (PortalService::logAmendment).
+  deliverable: "ملفات التسليم",
   name: "الاسم",
   email: "البريد",
   phone: "الهاتف",

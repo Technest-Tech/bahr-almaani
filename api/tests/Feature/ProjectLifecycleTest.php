@@ -2,13 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Events\ProjectDeleted;
 use App\Models\Language;
 use App\Models\Project;
+use App\Models\QuoteRequest;
 use App\Models\User;
+use App\Services\QuoteReferenceGenerator;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -187,5 +192,129 @@ class ProjectLifecycleTest extends TestCase
             ->assertJsonPath('data.0.to_status', 'available')
             ->assertJsonPath('data.1.to_status', 'cancelled')
             ->assertJsonPath('data.1.note', 'تجربة');
+    }
+
+    private function publishedProject(): Project
+    {
+        $project = $this->createDraft();
+
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/files", [
+            'file' => UploadedFile::fake()->createWithContent('contract.txt', 'one two three'),
+            'category' => 'source',
+        ])->assertCreated();
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/publish")->assertOk();
+
+        return $project->fresh();
+    }
+
+    private function translator(): User
+    {
+        $translator = User::factory()->create();
+        $translator->syncRoles(['translator']);
+
+        return $translator;
+    }
+
+    public function test_a_draft_project_can_be_deleted(): void
+    {
+        $project = $this->createDraft();
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/files", [
+            'file' => UploadedFile::fake()->createWithContent('duplicate.txt', 'entered twice'),
+            'category' => 'source',
+        ])->assertCreated();
+
+        $this->actingAs($this->pm, 'sanctum')->deleteJson("/api/v1/projects/{$project->id}")->assertOk();
+
+        $this->assertSoftDeleted($project);
+        $this->actingAs($this->pm, 'sanctum')->getJson("/api/v1/projects/{$project->id}")->assertNotFound();
+        $this->actingAs($this->pm, 'sanctum')->getJson('/api/v1/projects')->assertJsonCount(0, 'data');
+        $this->assertDatabaseHas('activity_log', ['subject_id' => $project->id, 'event' => 'deleted']);
+    }
+
+    public function test_an_available_project_can_be_deleted_and_leaves_the_portal(): void
+    {
+        Notification::fake();
+        Event::fake([ProjectDeleted::class]);
+        $project = $this->publishedProject();
+
+        $this->actingAs($this->pm, 'sanctum')->deleteJson("/api/v1/projects/{$project->id}")->assertOk();
+
+        Event::assertDispatched(ProjectDeleted::class, fn (ProjectDeleted $event) => $event->project->is($project));
+
+        $translator = $this->translator();
+        $this->actingAs($translator, 'sanctum')->getJson('/api/v1/portal/queue')->assertJsonCount(0, 'data');
+        $this->actingAs($translator, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertNotFound();
+    }
+
+    /** A translator's time and delivery are recorded against the project — cancel it instead. */
+    public function test_a_project_a_translator_claimed_cannot_be_deleted(): void
+    {
+        Notification::fake();
+        $project = $this->publishedProject();
+        $translator = $this->translator();
+
+        $this->actingAs($translator, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->deleteJson("/api/v1/projects/{$project->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('message', __('projects.delete_after_claim'));
+
+        // Withdrawn back to the queue, it still carries the first translator's time.
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/withdraw", ['reason' => 'إجازة مرضية'])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'available');
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->deleteJson("/api/v1/projects/{$project->id}")
+            ->assertUnprocessable();
+
+        $this->assertNotSoftDeleted($project);
+    }
+
+    public function test_a_cancelled_project_nobody_claimed_can_be_deleted(): void
+    {
+        $project = $this->createDraft();
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/cancel", ['reason' => 'مشروع تجريبي'])
+            ->assertOk();
+
+        $this->actingAs($this->pm, 'sanctum')->deleteJson("/api/v1/projects/{$project->id}")->assertOk();
+
+        $this->assertSoftDeleted($project);
+    }
+
+    public function test_translators_cannot_delete_projects(): void
+    {
+        $project = $this->createDraft();
+
+        $this->actingAs($this->translator(), 'sanctum')
+            ->deleteJson("/api/v1/projects/{$project->id}")
+            ->assertForbidden();
+
+        $this->assertNotSoftDeleted($project);
+    }
+
+    /** Otherwise the request would point at nothing and refuse to be converted again. */
+    public function test_deleting_a_converted_project_hands_its_quote_request_back(): void
+    {
+        $project = $this->createDraft();
+        $quote = QuoteRequest::create([
+            'reference' => app(QuoteReferenceGenerator::class)->next(),
+            'name' => 'سامي عبد الله',
+            'email' => 'sami@example.com',
+            'title' => 'ترجمة عقد',
+            'service_type' => 'certified',
+            'priority' => 'normal',
+            'status' => QuoteRequest::STATUS_CONVERTED,
+            'project_id' => $project->id,
+        ]);
+
+        $this->actingAs($this->pm, 'sanctum')->deleteJson("/api/v1/projects/{$project->id}")->assertOk();
+
+        $quote->refresh();
+        $this->assertNull($quote->project_id);
+        $this->assertSame(QuoteRequest::STATUS_ACCEPTED, $quote->status);
     }
 }

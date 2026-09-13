@@ -49,6 +49,7 @@ import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { DraftPreviewDialog } from "@/components/portal/draft-preview-dialog";
 import { DeliverDialog } from "@/components/portal/deliver-dialog";
+import { AwaitingReview } from "@/components/portal/awaiting-review";
 
 const ALL = "all";
 
@@ -141,6 +142,7 @@ export default function PortalPage() {
     queryClient.invalidateQueries({ queryKey: ["portal-current"] });
     queryClient.invalidateQueries({ queryKey: ["portal-queue"] });
     queryClient.invalidateQueries({ queryKey: ["portal-history"] });
+    queryClient.invalidateQueries({ queryKey: ["portal-deliveries"] });
   };
 
   return (
@@ -159,6 +161,8 @@ export default function PortalPage() {
           onDelivered={invalidateAll}
         />
       ) : null}
+
+      <AwaitingReview onChanged={invalidateAll} />
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">

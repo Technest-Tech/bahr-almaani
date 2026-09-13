@@ -764,4 +764,202 @@ class PortalFlowTest extends TestCase
             $this->actingAs($this->pm, 'sanctum')->getJson('/api/v1/notifications')->json('unread_count'),
         );
     }
+
+    /** Claim and deliver, stopping at `delivered` — the window docs/02 rule 6 opens. */
+    private function deliveredAwaitingReview(array $files): Project
+    {
+        $project = $this->makeAvailableProject();
+
+        $this->actingAs($this->translator1, 'sanctum')->postJson("/api/v1/portal/claim/{$project->id}")->assertCreated();
+        $this->actingAs($this->translator1, 'sanctum')->post('/api/v1/portal/deliver', [
+            'files' => array_map(
+                fn (string $content, string $name) => UploadedFile::fake()->createWithContent($name, $content),
+                $files,
+                array_keys($files),
+            ),
+        ])->assertOk();
+
+        return $project;
+    }
+
+    private function deliverable(Project $project, string $name): ProjectFile
+    {
+        return $project->files()
+            ->where('category', ProjectFile::CATEGORY_DELIVERABLE)
+            ->where('original_name', $name)
+            ->firstOrFail();
+    }
+
+    public function test_a_translator_can_replace_a_delivered_file_before_review(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredAwaitingReview(['wrong.txt' => 'one two']);
+        $wrong = $this->deliverable($project, 'wrong.txt');
+        $workSeconds = Assignment::where('project_id', $project->id)->value('work_seconds');
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->getJson('/api/v1/portal/deliveries')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.project.files.0.original_name', 'wrong.txt');
+
+        $this->travel(3)->hours();
+
+        $this->actingAs($this->translator1, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->createWithContent('right.txt', 'one two three four')],
+            'replaces' => $wrong->id,
+        ])->assertOk()->assertJsonPath('data.project.files.0.original_name', 'right.txt');
+
+        $project->refresh();
+        $delivered = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->get();
+
+        $this->assertSame(['right.txt'], $delivered->pluck('original_name')->all());
+        $this->assertSame(1, $delivered->first()->version, 'A correction joins its round; it is not a revision.');
+        $this->assertModelMissing($wrong);
+        Storage::disk('local')->assertMissing($wrong->disk_path);
+        Storage::disk('local')->assertExists($delivered->first()->disk_path);
+
+        $this->assertSame(Project::STATUS_DELIVERED, $project->status);
+        $this->assertSame(4, $project->delivered_words, 'Delivered totals follow the file that replaced the wrong one.');
+        $this->assertSame(
+            $workSeconds,
+            Assignment::where('project_id', $project->id)->value('work_seconds'),
+            'Waiting for the review is not work.',
+        );
+
+        Notification::assertSentTo($this->pm, ProjectDeliveredNotification::class, fn ($n) => $n->amended);
+        $this->assertDatabaseHas('activity_log', [
+            'subject_id' => $project->id,
+            'causer_id' => $this->translator1->id,
+            'description' => 'delivery_amended',
+        ]);
+    }
+
+    public function test_a_translator_can_add_and_remove_files_but_never_empty_the_delivery(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredAwaitingReview(['passport.txt' => 'passport', 'extra.txt' => 'not meant to go']);
+
+        $extra = $this->deliverable($project, 'extra.txt');
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->deleteJson("/api/v1/portal/deliveries/{$project->id}/files/{$extra->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data.project.files');
+
+        Storage::disk('local')->assertMissing($extra->disk_path);
+
+        $passport = $this->deliverable($project, 'passport.txt');
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->deleteJson("/api/v1/portal/deliveries/{$project->id}/files/{$passport->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('message', __('portal.delivery_last_file'));
+
+        $this->assertModelExists($passport);
+
+        // The document they forgot joins the same round.
+        $this->actingAs($this->translator1, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->createWithContent('licence.txt', 'licence')],
+        ])->assertOk()->assertJsonCount(2, 'data.project.files');
+
+        $this->assertSame(
+            [1, 1],
+            $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->pluck('version')->all(),
+        );
+    }
+
+    public function test_a_swap_is_one_file_for_one_file(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredAwaitingReview(['wrong.txt' => 'wrong']);
+        $wrong = $this->deliverable($project, 'wrong.txt');
+
+        $this->actingAs($this->translator1, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [
+                UploadedFile::fake()->createWithContent('a.txt', 'a'),
+                UploadedFile::fake()->createWithContent('b.txt', 'b'),
+            ],
+            'replaces' => $wrong->id,
+        ], ['Accept' => 'application/json'])->assertUnprocessable()->assertJsonValidationErrors('files');
+
+        $this->assertModelExists($wrong);
+    }
+
+    public function test_a_delivery_is_locked_once_the_pm_opens_the_review(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredAwaitingReview(['a.txt' => 'a', 'b.txt' => 'b']);
+        $file = $this->deliverable($project, 'a.txt');
+
+        $this->actingAs($this->pm, 'sanctum')->postJson("/api/v1/projects/{$project->id}/review/open")->assertOk();
+
+        $this->actingAs($this->translator1, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->createWithContent('late.txt', 'too late')],
+            'replaces' => $file->id,
+        ], ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', __('portal.delivery_locked'));
+
+        $this->actingAs($this->translator1, 'sanctum')
+            ->deleteJson("/api/v1/portal/deliveries/{$project->id}/files/{$file->id}")
+            ->assertUnprocessable()
+            ->assertJsonPath('message', __('portal.delivery_locked'));
+
+        $this->assertModelExists($file);
+        $this->actingAs($this->translator1, 'sanctum')
+            ->getJson('/api/v1/portal/deliveries')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        Notification::assertNotSentTo($this->pm, ProjectDeliveredNotification::class, fn ($n) => $n->amended);
+    }
+
+    /** The round a revision note was written about is the PM's record, not the translator's draft. */
+    public function test_only_the_newest_round_can_be_changed(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredProjectInReview();
+        $firstRound = $this->deliverable($project, 'v1.txt');
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->post("/api/v1/projects/{$project->id}/review/request-revision", ['note' => 'أعد الصياغة'])
+            ->assertOk();
+        $this->actingAs($this->translator1, 'sanctum')->post('/api/v1/portal/deliver', [
+            'files' => [UploadedFile::fake()->createWithContent('v2.txt', 'منقح')],
+        ])->assertOk();
+
+        $this->actingAs($this->translator1, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->createWithContent('rewrite.txt', 'x')],
+            'replaces' => $firstRound->id,
+        ], ['Accept' => 'application/json'])->assertNotFound();
+
+        $this->actingAs($this->translator1, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->createWithContent('v2-fixed.txt', 'منقح ومصحح')],
+            'replaces' => $this->deliverable($project, 'v2.txt')->id,
+        ])->assertOk()->assertJsonPath('data.project.files.0.original_name', 'v2-fixed.txt');
+
+        $this->assertModelExists($firstRound);
+        $this->assertSame(2, $this->deliverable($project, 'v2-fixed.txt')->version);
+    }
+
+    public function test_another_translator_cannot_change_someone_elses_delivery(): void
+    {
+        Notification::fake();
+        $project = $this->deliveredAwaitingReview(['a.txt' => 'a', 'b.txt' => 'b']);
+        $file = $this->deliverable($project, 'a.txt');
+
+        $this->actingAs($this->translator2, 'sanctum')
+            ->deleteJson("/api/v1/portal/deliveries/{$project->id}/files/{$file->id}")
+            ->assertNotFound();
+
+        $this->actingAs($this->translator2, 'sanctum')->post("/api/v1/portal/deliveries/{$project->id}/files", [
+            'files' => [UploadedFile::fake()->createWithContent('mine.txt', 'x')],
+        ], ['Accept' => 'application/json'])->assertNotFound();
+
+        $this->actingAs($this->translator2, 'sanctum')
+            ->getJson('/api/v1/portal/deliveries')
+            ->assertJsonCount(0, 'data');
+
+        $this->assertSame(2, $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->count());
+    }
 }

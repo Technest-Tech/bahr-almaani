@@ -384,6 +384,19 @@ activation (`company_id` is in the schema, Phase 1 is single-tenant); mobile app
 > today the client sees the ask only when they sign in. That banner is the channel
 > that works, and fixing the mail is in-scope, not billable.
 
+> **Deletion shipped 2026-09-13 — and it splits in two as well.** **The translator
+> half is NOT billable:** correcting a delivery before the PM opens review is
+> docs/02 business rule 6 (*"translator may replace the deliverable while status is
+> `delivered`"*) — the state machine the client signed off — and it was never built.
+> It was owed; do not quote it. **The PM half is a small change request:** deleting a
+> project appears in no spec — docs/03 lists `GET|PUT /projects/{id}` with no DELETE,
+> and docs/01 only carried a `deleted_at` column marked admin-only with nothing behind
+> it. Roughly half a day with tests. Ahmed's call whether to bill it or fold it in as
+> goodwill; either way it is not one of the twelve modules. The rule chosen — no
+> deletion once any translator has claimed the file — keeps it out of payroll and
+> productivity history, which is why widening it later needs a conversation first.
+
+
 **NOT billable — inside the 85k and still owed**: everything in §7 items 3b and 3c.
 
 Word counting itself (the client's "ثالثاً" requirement) is **delivered** inside M3:

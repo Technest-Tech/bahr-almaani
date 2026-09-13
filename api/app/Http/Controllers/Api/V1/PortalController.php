@@ -12,6 +12,7 @@ use App\Http\Resources\ProjectFileResource;
 use App\Models\Assignment;
 use App\Models\LetterheadTemplate;
 use App\Models\Project;
+use App\Models\ProjectFile;
 use App\Notifications\ProjectDeliveredNotification;
 use App\Services\DocumentMergeService;
 use App\Services\PortalService;
@@ -121,6 +122,61 @@ class PortalController extends Controller
         $this->broadcastLive(new ProjectDelivered($assignment->project, $request->user()));
 
         return AssignmentResource::make($assignment->load('project'));
+    }
+
+    /** Deliveries the PM has not opened yet, which the translator can still correct. */
+    public function awaitingReview(Request $request): AnonymousResourceCollection
+    {
+        return AssignmentResource::collection($this->portal->awaitingReview($request->user()));
+    }
+
+    /**
+     * Add files to a delivery awaiting review, or swap one for the right file.
+     *
+     * `replaces` names the file being swapped; without it the uploads are added —
+     * the document the translator forgot. Same upload rules as deliver(), seal
+     * positions included, because these files are letterheaded like the rest.
+     */
+    public function amendDelivery(Request $request, Project $project): AssignmentResource
+    {
+        $uploads = $request->hasFile('files')
+            ? Arr::wrap($request->file('files'))
+            : Arr::wrap($request->file('file'));
+
+        $validated = Validator::make([
+            'files' => array_values(array_filter($uploads)),
+            'replaces' => $request->input('replaces'),
+        ], [
+            // A swap is one file for one file. Several files replacing one is a removal
+            // plus an addition, and the portal offers those as what they are.
+            'files' => ['required', 'array', 'min:1', 'max:'.($request->filled('replaces') ? 1 : self::MAX_DELIVERY_FILES)],
+            'files.*' => ['file', 'max:51200'],
+            'replaces' => ['nullable', 'integer'],
+        ])->validate();
+
+        $assignment = $this->portal->amendDelivery(
+            $request->user(),
+            $project,
+            $validated['files'],
+            $this->stampPlacements($request, count($validated['files'])),
+            isset($validated['replaces']) ? (int) $validated['replaces'] : null,
+        );
+
+        $this->announceAmendment($assignment, $request);
+
+        return AssignmentResource::make($assignment);
+    }
+
+    /** Take a file out of a delivery awaiting review. Refused for the last one. */
+    public function removeDeliveredFile(Request $request, Project $project, ProjectFile $file): AssignmentResource
+    {
+        abort_unless($file->project_id === $project->id, 404);
+
+        $assignment = $this->portal->removeDeliveredFile($request->user(), $project, $file->id);
+
+        $this->announceAmendment($assignment, $request);
+
+        return AssignmentResource::make($assignment);
     }
 
     public function history(Request $request): AnonymousResourceCollection
@@ -337,6 +393,19 @@ class PortalController extends Controller
         }
 
         return $placements;
+    }
+
+    /**
+     * Tell the PM the delivery they were notified about has changed. They may already
+     * have downloaded the first version, and nothing on the project page alone would
+     * say it is no longer the one waiting for them.
+     */
+    private function announceAmendment(Assignment $assignment, Request $request): void
+    {
+        $assignment->project->creator->notify(
+            new ProjectDeliveredNotification($assignment->project, $request->user(), amended: true),
+        );
+        $this->broadcastLive(new ProjectDelivered($assignment->project, $request->user()));
     }
 
     /** An active template of the expected kind, or null. */

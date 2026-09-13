@@ -68,7 +68,10 @@ Any transition not listed is **forbidden** and returns HTTP 422.
 3. **Merge failure (letterhead job):** stays `approved`, PM + admin notified with error detail; retry button. Never silently completes.
 4. **Deadline passes:** status does NOT change — `late` is a computed flag. Late projects float to top of PM dashboard; notifications fire once per escalation level (due-soon → late), not repeatedly.
 5. **Cancel while claimed:** admin-only, requires reason; assignment marked `withdrawn`, translator notified and unlocked, work time preserved.
-6. **Re-upload before review:** translator may replace the deliverable while status is `delivered` (new file version); after `in_review` starts, uploads are locked.
+6. **Re-upload before review** *(built 2026-09-13)***:** while the status is `delivered`, the translator may swap a file of their delivery for the right one, add a file they forgot, or take out one that was never meant to go. After `in_review` starts it is locked — the change and the PM's "open review" take the same row lock, so whichever lands second sees the other. Three deliberate details:
+   - **Same round, not a new version.** The corrected files keep the round's `version`. A new version would read as a revision cycle, and the merge — which letterheads only the newest round — would drop the files the translator kept.
+   - **Never empty.** The last file cannot be removed, only replaced, so review can never open on nothing.
+   - **Newest round only, and the clock stays stopped.** An earlier round is what a revision note was written about; waiting for review is not work, so `work_seconds` and `delivered_at` do not move. The PM is notified (`ProjectDeliveredNotification`, `amended`) and the activity log records which files went and came.
 7. **Suspended user:** active tokens invalidated; if they held a claimed file, admin must withdraw it explicitly (system flags it on the admin dashboard).
 
 ## Notification triggers
