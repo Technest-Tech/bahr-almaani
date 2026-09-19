@@ -7,8 +7,9 @@ import { Download, FileText, Pencil, Plus, ReceiptText } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useFileTransfer } from "@/lib/use-transfer";
-import type { BillableProject, Client, Invoice, Paginated } from "@/lib/types";
+import type { BillableProject, BillingClient, Invoice, Paginated } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import { DataTable } from "@/components/ui/data-table";
 import {
   Dialog,
@@ -30,8 +31,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/field";
 import { PageHeader } from "@/components/page-header";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" });
+const dateFormatter = officeFormat({ dateStyle: "medium" });
 
 const money = (value: string | number, currency: string) =>
   `${Number(value).toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -213,10 +215,28 @@ function InvoiceDialog({
   const [notes, setNotes] = useState(invoice?.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
 
+  // Every client, those with work waiting to be billed first — not the paged
+  // /clients list, which stopped at the 100 newest.
   const { data: clients } = useQuery({
-    queryKey: ["clients", "picker"],
-    queryFn: () => api<Paginated<Client>>("/clients?per_page=100").then((r) => r.data),
+    queryKey: ["invoice-clients"],
+    queryFn: () => api<{ data: BillingClient[] }>("/invoices/clients").then((r) => r.data),
   });
+
+  const clientOptions = useMemo(() => {
+    const options = (clients ?? []).map((client) => ({
+      value: String(client.id),
+      label: client.name,
+      hint:
+        client.billable_count > 0
+          ? `${client.billable_count.toLocaleString("ar-EG")} بانتظار الفوترة`
+          : undefined,
+    }));
+    // An edit shows its own client while the list is still loading.
+    if (invoice?.client && !options.some((option) => option.value === clientId)) {
+      options.unshift({ value: clientId, label: invoice.client.name, hint: undefined });
+    }
+    return options;
+  }, [clients, invoice, clientId]);
 
   const { data: billable, isLoading: loadingBillable } = useQuery({
     queryKey: ["billable-projects", clientId, invoice?.id ?? null],
@@ -258,6 +278,7 @@ function InvoiceDialog({
   );
   const pages = chosen.reduce((sum, project) => sum + (project.pages ?? 0), 0);
   const computedTotal = mode === "unit" && unitPrice !== "" ? pages * Number(unitPrice) : null;
+  const allSelected = listed.length > 0 && chosen.length === listed.length;
 
   function toggle(id: number) {
     setSelected((current) => {
@@ -266,6 +287,10 @@ function InvoiceDialog({
       else next.add(id);
       return next;
     });
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(listed.map((project) => project.id)));
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -336,25 +361,19 @@ function InvoiceDialog({
             htmlFor="inv-client"
             hint={isEdit ? "لا يمكن تغيير العميل على فاتورة صادرة." : undefined}
           >
-            <Select
+            <Combobox
+              id="inv-client"
+              options={clientOptions}
               value={clientId}
               disabled={isEdit}
-              onValueChange={(value) => {
+              placeholder="اختر العميل…"
+              searchPlaceholder="ابحث باسم العميل…"
+              emptyText="لا يوجد عميل بهذا الاسم"
+              onChange={(value) => {
                 setClientId(value);
                 setSelected(new Set());
               }}
-            >
-              <SelectTrigger id="inv-client" className="w-full">
-                <SelectValue placeholder="اختر العميل…" />
-              </SelectTrigger>
-              <SelectContent>
-                {clients?.map((client) => (
-                  <SelectItem key={client.id} value={String(client.id)}>
-                    {client.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            />
           </Field>
 
           {clientId !== "" && (
@@ -367,37 +386,54 @@ function InvoiceDialog({
                   لا توجد أعمال مكتملة قابلة للفوترة لهذا العميل.
                 </p>
               ) : (
-                <ul className="max-h-72 divide-y overflow-y-auto rounded-lg border">
-                  {listed.map((project) => (
-                    <li key={project.id}>
-                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/40">
-                        <input
-                          type="checkbox"
-                          className="size-4 accent-primary"
-                          checked={selected.has(project.id)}
-                          onChange={() => toggle(project.id)}
-                        />
-                        <FileText className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate text-[13px]">
-                          {project.title}
-                          <span dir="ltr" className="ms-2 font-mono text-[11px] text-muted-foreground">
-                            {project.code}
+                <div className="overflow-hidden rounded-lg border">
+                  <label className="flex cursor-pointer items-center gap-3 border-b bg-muted/40 px-3 py-2 text-[13px] font-medium">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={allSelected}
+                      ref={(input) => {
+                        if (input) input.indeterminate = chosen.length > 0 && !allSelected;
+                      }}
+                      onChange={toggleAll}
+                    />
+                    تحديد الكل
+                    <span className="ms-auto text-[12px] font-normal tabular-nums text-muted-foreground">
+                      {listed.length.toLocaleString("ar-EG")} مشروع
+                    </span>
+                  </label>
+                  <ul className="max-h-72 divide-y overflow-y-auto">
+                    {listed.map((project) => (
+                      <li key={project.id}>
+                        <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-muted/40">
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-primary"
+                            checked={selected.has(project.id)}
+                            onChange={() => toggle(project.id)}
+                          />
+                          <FileText className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate text-[13px]">
+                            {project.title}
+                            <span dir="ltr" className="ms-2 font-mono text-[11px] text-muted-foreground">
+                              {project.code}
+                            </span>
                           </span>
-                        </span>
-                        {billedIds.has(project.id) && (
-                          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                            على الفاتورة
+                          {billedIds.has(project.id) && (
+                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                              على الفاتورة
+                            </span>
+                          )}
+                          <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                            {project.pages !== null
+                              ? `${project.pages.toLocaleString("ar-EG")} صفحة`
+                              : "بدون عدد صفحات"}
                           </span>
-                        )}
-                        <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
-                          {project.pages !== null
-                            ? `${project.pages.toLocaleString("ar-EG")} صفحة`
-                            : "بدون عدد صفحات"}
-                        </span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {chosen.length > 0 && (
                 <p className="text-[13px] text-muted-foreground">

@@ -14,7 +14,9 @@ use Illuminate\Notifications\Notification;
 
 /**
  * The client sent files to their project — answering a document request, or on their
- * own initiative (no request). Either way the files are waiting on the project.
+ * own initiative (no request), or adding documents to translate to a project they
+ * submitted themselves and the office has not published yet. Either way the files
+ * are waiting on the project.
  */
 class DocumentSuppliedNotification extends Notification implements ShouldQueue
 {
@@ -25,6 +27,8 @@ class DocumentSuppliedNotification extends Notification implements ShouldQueue
         public ?DocumentRequest $documentRequest,
         public Client $client,
         public int $fileCount,
+        /** Work files on the client's own draft, not supporting material. */
+        public bool $toTranslate = false,
     ) {}
 
     public function via(object $notifiable): array
@@ -65,6 +69,10 @@ class DocumentSuppliedNotification extends Notification implements ShouldQueue
         }
 
         $files = $this->fileCount === 1 ? 'ملفاً' : "{$this->fileCount} ملفات";
+
+        if ($this->toTranslate) {
+            return "أضاف «{$this->client->name}» {$files} للترجمة إلى مشروعه «{$this->project->title}» — ما زال بانتظار المراجعة والنشر.";
+        }
 
         return "أرسل «{$this->client->name}» {$files} إلى مشروع «{$this->project->title}» دون طلب — راجِعها في المستندات الداعمة.";
     }

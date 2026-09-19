@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\Project;
 use App\Models\User;
+use App\Support\Timezone;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -29,8 +30,9 @@ class ActivityLogController extends Controller
             ->when($request->filled('log'), fn ($q) => $q->where('log_name', $request->string('log')->toString()))
             ->when($request->filled('event'), fn ($q) => $q->where('event', $request->string('event')->toString()))
             ->when($request->filled('causer_id'), fn ($q) => $q->where('causer_id', $request->integer('causer_id')))
-            ->when($request->filled('from'), fn ($q) => $q->where('created_at', '>=', $request->date('from')->startOfDay()))
-            ->when($request->filled('to'), fn ($q) => $q->where('created_at', '<=', $request->date('to')->endOfDay()))
+            // The filter's days are Cairo days, compared as the UTC instants they are.
+            ->when($request->filled('from'), fn ($q) => $q->where('created_at', '>=', $request->date('from', null, Timezone::display())->startOfDay()->utc()))
+            ->when($request->filled('to'), fn ($q) => $q->where('created_at', '<=', $request->date('to', null, Timezone::display())->endOfDay()->utc()))
             ->latest()
             ->latest('id')
             ->paginate(min($request->integer('per_page', 25), 100));

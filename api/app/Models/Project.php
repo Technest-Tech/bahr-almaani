@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Laravel\Scout\Searchable;
@@ -48,9 +49,12 @@ class Project extends Model
      * The production pipeline is the office's business: a client has no use for
      * "claimed" vs "delivered" vs "approved", and publishing it would expose who
      * is working on what and how often a file bounced back for revision. Four
-     * stages carry everything they actually need to know.
+     * stages carry everything they actually need to know — plus `submitted`, for a
+     * project the client started themselves and the office has not published yet.
+     * The office's own drafts never reach the client at all (see isClientDraft()).
      */
     public const CLIENT_STAGES = [
+        self::STATUS_DRAFT => 'submitted',
         self::STATUS_AVAILABLE => 'in_progress',
         self::STATUS_CLAIMED => 'in_progress',
         self::STATUS_DELIVERED => 'in_review',
@@ -62,6 +66,12 @@ class Project extends Model
         self::STATUS_CANCELLED => 'cancelled',
     ];
 
+    /**
+     * The most seals one certified document can carry. Real documents carry one or
+     * two; this only stops a runaway payload, never a genuine combination.
+     */
+    public const MAX_STAMPS = 6;
+
     /** Statuses where "late" no longer applies. */
     public const SETTLED_STATUSES = [
         self::STATUS_COMPLETED,
@@ -72,6 +82,7 @@ class Project extends Model
     protected $fillable = [
         'code',
         'client_id',
+        'client_submitted',
         'title',
         'title_auto',
         'source_language_id',
@@ -88,7 +99,6 @@ class Project extends Model
         'quoted_amount',
         'currency',
         'letterhead_id',
-        'stamp_id',
         'created_by',
     ];
 
@@ -101,6 +111,7 @@ class Project extends Model
             'cancelled_at' => 'datetime',
             'quoted_amount' => 'decimal:2',
             'title_auto' => 'boolean',
+            'client_submitted' => 'boolean',
         ];
     }
 
@@ -115,10 +126,21 @@ class Project extends Model
         return $this->belongsTo(Invoice::class);
     }
 
-    /** @see self::CLIENT_STAGES — a draft never reaches the client area at all. */
+    /** @see self::CLIENT_STAGES — the office's own drafts never reach the client area. */
     public function clientStage(): string
     {
         return self::CLIENT_STAGES[$this->status] ?? 'in_progress';
+    }
+
+    /**
+     * Started by the client from their own area and still waiting on the office.
+     *
+     * The one kind of draft a client may see — and, while it lasts, the one project
+     * where the client may still change which documents are to be translated.
+     */
+    public function isClientDraft(): bool
+    {
+        return $this->client_submitted && $this->status === self::STATUS_DRAFT;
     }
 
     public function sourceLanguage(): BelongsTo
@@ -207,9 +229,32 @@ class Project extends Model
         return $this->belongsTo(LetterheadTemplate::class, 'letterhead_id');
     }
 
-    public function stamp(): BelongsTo
+    /**
+     * The seals approval chose, in the order they are drawn — a later one sits over an
+     * earlier one where they overlap. Empty means the final goes out unsealed.
+     *
+     * Several, because some documents need more than one: the office's seal and the
+     * sworn translator's, or a small seal on every page and the full one on the last.
+     */
+    public function stamps(): BelongsToMany
     {
-        return $this->belongsTo(LetterheadTemplate::class, 'stamp_id');
+        return $this->belongsToMany(LetterheadTemplate::class, 'project_stamps', 'project_id', 'stamp_id')
+            ->withPivot('draw_order')
+            ->orderByPivot('draw_order');
+    }
+
+    /**
+     * Replace the seals, drawn in the order given.
+     *
+     * @param  list<int>  $stampIds
+     */
+    public function syncStamps(array $stampIds): void
+    {
+        $this->stamps()->sync(
+            collect(array_values($stampIds))
+                ->mapWithKeys(fn (int $id, int $order): array => [$id => ['draw_order' => $order]])
+                ->all(),
+        );
     }
 
     /**
@@ -312,5 +357,33 @@ class Project extends Model
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs()
             ->useLogName('projects');
+    }
+
+    /**
+     * The projects `$user` works on (client request 2026-09-19).
+     *
+     * A PM sees the projects they own — `created_by`, the same column that routes
+     * delivery notices and deadline alerts to them — plus any nobody owns yet: a
+     * client's own submission waits for whichever PM picks it up first. Holders of
+     * `projects.view-all` (the admin; the accountant, for billing) see every one.
+     */
+    #[Scope]
+    protected function visibleTo(Builder $query, User $user): void
+    {
+        if ($user->can('projects.view-all')) {
+            return;
+        }
+
+        $query->where(fn (Builder $q) => $q
+            ->where('projects.created_by', $user->id)
+            ->orWhereNull('projects.created_by'));
+    }
+
+    /** @see self::visibleTo() — the same rule for a project already in hand. */
+    public function isVisibleTo(User $user): bool
+    {
+        return $this->created_by === null
+            || (int) $this->created_by === (int) $user->id
+            || $user->can('projects.view-all');
     }
 }

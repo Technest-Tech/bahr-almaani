@@ -107,7 +107,7 @@ class PortalDraftPreviewTest extends TestCase
             ->post('/api/v1/portal/preview', [
                 'file' => $this->upload(),
                 'letterhead_id' => $this->letterhead->id,
-                'stamp_id' => $this->stamp->id,
+                'stamp_ids' => [$this->stamp->id],
             ]);
 
         $response->assertOk();
@@ -132,11 +132,13 @@ class PortalDraftPreviewTest extends TestCase
         $this->mock(DocumentMergeService::class, function ($mock) {
             $mock->shouldReceive('mergeStoredFile')
                 ->once()
-                ->withArgs(fn ($path, $name, $letterhead, $stamp, $watermark, $placement) => $placement == [
-                    'pages' => 'last',
-                    'anchor' => 'top-left',
-                    'offset_x_mm' => -60.0,
-                    'offset_y_mm' => 240.5,
+                ->withArgs(fn ($path, $name, $letterhead, $stamps, $watermark, $placements) => $placements == [
+                    $this->stamp->id => [
+                        'pages' => 'last',
+                        'anchor' => 'top-left',
+                        'offset_x_mm' => -60.0,
+                        'offset_y_mm' => 240.5,
+                    ],
                 ])
                 ->andReturn('%PDF-fake');
         });
@@ -144,15 +146,65 @@ class PortalDraftPreviewTest extends TestCase
         $this->actingAs($this->translator, 'sanctum')
             ->post('/api/v1/portal/preview', [
                 'file' => $this->upload(),
-                'stamp_id' => $this->stamp->id,
+                'stamp_ids' => [$this->stamp->id],
                 'stamp_placements' => [
                     0 => json_encode([
-                        'anchor' => 'top-left',
-                        'offset_x_mm' => -60,
-                        'offset_y_mm' => 240.5,
-                        'pages' => 'last',
+                        $this->stamp->id => [
+                            'anchor' => 'top-left',
+                            'offset_x_mm' => -60,
+                            'offset_y_mm' => 240.5,
+                            'pages' => 'last',
+                        ],
                     ]),
                 ],
+            ])->assertOk();
+    }
+
+    /** Every chosen seal is drawn, in the order chosen, each from its own position. */
+    public function test_preview_draws_several_seals(): void
+    {
+        $this->heldProject();
+        $sworn = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id]);
+
+        $this->mock(DocumentMergeService::class, function ($mock) use ($sworn) {
+            $mock->shouldReceive('mergeStoredFile')
+                ->once()
+                ->withArgs(fn ($path, $name, $letterhead, $stamps, $watermark, $placements) => array_map(
+                    fn (LetterheadTemplate $stamp) => $stamp->id,
+                    $stamps,
+                ) === [$sworn->id, $this->stamp->id]
+                    && array_keys($placements) === [$sworn->id]
+                    && $placements[$sworn->id]['offset_x_mm'] === 130.5)
+                ->andReturn('%PDF-fake');
+        });
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/preview', [
+                'file' => $this->upload(),
+                'stamp_ids' => [$sworn->id, $this->stamp->id],
+                'stamp_placements' => [0 => json_encode([$sworn->id => ['anchor' => 'top-left', 'offset_x_mm' => 130.5]])],
+            ])->assertOk();
+    }
+
+    /** A preview screen loaded before several seals were possible still sends one. */
+    public function test_preview_still_accepts_a_single_stamp_and_its_flat_position(): void
+    {
+        $this->heldProject();
+
+        $this->mock(DocumentMergeService::class, function ($mock) {
+            $mock->shouldReceive('mergeStoredFile')
+                ->once()
+                ->withArgs(fn ($path, $name, $letterhead, $stamps, $watermark, $placements) => count($stamps) === 1
+                    && $stamps[0]->id === $this->stamp->id
+                    && $placements == [$this->stamp->id => ['anchor' => 'top-left', 'offset_x_mm' => 12.5]])
+                ->andReturn('%PDF-fake');
+        });
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/preview', [
+                'file' => $this->upload(),
+                'stamp_id' => $this->stamp->id,
+                'stamp_placements' => [0 => json_encode(['anchor' => 'top-left', 'offset_x_mm' => 12.5])],
             ])->assertOk();
     }
 
@@ -169,8 +221,8 @@ class PortalDraftPreviewTest extends TestCase
             UploadedFile::fake()->createWithContent('t.pdf', $this->samplePdf(1))->store('tmp', 'local'),
         );
 
-        $plain = $merger->merge($source, $this->letterhead, $this->stamp);
-        $drafted = $merger->merge($source, $this->letterhead, $this->stamp, 'مسودة — غير معتمدة');
+        $plain = $merger->merge($source, $this->letterhead, [$this->stamp]);
+        $drafted = $merger->merge($source, $this->letterhead, [$this->stamp], 'مسودة — غير معتمدة');
 
         $this->assertStringStartsWith('%PDF', $plain);
         $this->assertStringStartsWith('%PDF', $drafted);
@@ -207,12 +259,12 @@ class PortalDraftPreviewTest extends TestCase
             ->post('/api/v1/portal/preview', [
                 'file' => $this->upload(),
                 'letterhead_id' => $this->letterhead->id,
-                'stamp_id' => $this->stamp->id,
+                'stamp_ids' => [$this->stamp->id],
             ])->assertOk();
 
         $project->refresh();
         $this->assertNull($project->letterhead_id);
-        $this->assertNull($project->stamp_id);
+        $this->assertSame(0, $project->stamps()->count());
         $this->assertSame(Project::STATUS_CLAIMED, $project->status);
     }
 

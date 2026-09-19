@@ -1,6 +1,46 @@
 const relativeFormatter = new Intl.RelativeTimeFormat("ar", { numeric: "always" });
 
-export const dateTimeFormatter = new Intl.DateTimeFormat("ar-EG", {
+/**
+ * The office's wall clock. Every time on screen is Cairo time, whatever the
+ * viewer's device is set to — a laptop on the wrong zone (or on Egypt's pre-2023
+ * no-DST rules) used to show every deadline an hour or more off. Matches the
+ * API's `work_timezone`.
+ */
+export const OFFICE_TIMEZONE = "Africa/Cairo";
+
+/** Formatter for instants (API timestamps), always read on the Cairo clock. */
+export function officeFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("ar-EG", { ...options, timeZone: OFFICE_TIMEZONE });
+}
+
+/**
+ * Formatter for calendar days (`YYYY-MM-DD` from the API). A day has no clock,
+ * so it is pinned to UTC on both sides — parse with `calendarDate()` — and no
+ * device zone can slide it onto its neighbour.
+ */
+export function calendarFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("ar-EG", { ...options, timeZone: "UTC" });
+}
+
+/** `2026-09-19` → that day, for `calendarFormat()` and `getUTCDay()`. */
+export function calendarDate(day: string): Date {
+  return new Date(`${day}T00:00:00Z`);
+}
+
+const officeDayParts = new Intl.DateTimeFormat("en-CA", {
+  timeZone: OFFICE_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** Today on the Cairo clock, as `YYYY-MM-DD` — after midnight Cairo, even while UTC is still on yesterday. */
+export function officeToday(): string {
+  const parts = Object.fromEntries(officeDayParts.formatToParts(new Date()).map((p) => [p.type, p.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export const dateTimeFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });

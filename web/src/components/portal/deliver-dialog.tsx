@@ -8,6 +8,7 @@ import {
   type LetterheadTemplate,
   type PlacementPages,
   type StampPosition,
+  type StampPositions,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,9 +38,12 @@ const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
  * line is taken by a signature block — which is why the position is set here rather
  * than once, globally, by an admin who never sees the file.
  *
- * Positioning is optional and per file: skip it and the stamp template's own position
- * applies, exactly as before. Whatever is set here arrives with the delivery, and the
- * PM sees it pre-filled at approval and can still move it.
+ * Positioning is optional, per file and per seal: skip it and each seal's template
+ * position applies, exactly as before. Some documents carry more than one seal — the
+ * office's and the sworn translator's — so every active seal has its own button, and
+ * the ones already placed show faintly while the next is dragged. Whatever is set here
+ * arrives with the delivery, and the PM sees it pre-filled at approval, decides which
+ * seals the file actually carries, and can still move them.
  */
 export function DeliverDialog({
   open,
@@ -59,20 +63,23 @@ export function DeliverDialog({
    * the position the translator dragged there, so it never has to be re-dragged.
    * Read once on mount: the parent remounts this dialog per staging (via key).
    */
-  initialPlacements?: Record<number, StampPosition>;
+  initialPlacements?: Record<number, StampPositions>;
   onCancel: () => void;
-  onConfirm: (placements: Record<number, StampPosition>) => void;
+  /** File index → stamp id → position. */
+  onConfirm: (placements: Record<number, StampPositions>) => void;
   submitting: boolean;
   /** Reused to correct a delivery awaiting review, where "deliver" is the wrong word. */
   title?: string;
   description?: string;
   confirmLabel?: string;
 }) {
-  const [placements, setPlacements] = useState<Record<number, StampPosition>>(
+  const [placements, setPlacements] = useState<Record<number, StampPositions>>(
     initialPlacements ?? {},
   );
-  const [positioning, setPositioning] = useState<number | null>(null);
-  const [stampId, setStampId] = useState<number | null>(null);
+  const [positioning, setPositioning] = useState<{
+    index: number;
+    stamp: LetterheadTemplate;
+  } | null>(null);
 
   const { data } = useQuery({
     queryKey: ["portal-templates"],
@@ -83,10 +90,25 @@ export function DeliverDialog({
   const letterheads = useMemo(() => data?.filter((t) => t.kind === "letterhead") ?? [], [data]);
   const stamps = useMemo(() => data?.filter((t) => t.kind === "stamp") ?? [], [data]);
 
-  // The office runs one letterhead and one seal, so the common case needs no choosing.
-  // The picker below only appears when there is genuinely something to choose between.
+  // The office runs one letterhead, so the page the seals are dragged onto needs no
+  // choosing. Seals are another matter: each active one can be placed.
   const letterhead = letterheads[0] ?? null;
-  const stamp = stamps.find((t) => t.id === stampId) ?? stamps[0] ?? null;
+
+  const positionOf = (index: number, stampId: number) => placements[index]?.[stampId] ?? null;
+
+  function savePosition(index: number, stampId: number, next: StampPosition | null) {
+    setPlacements((current) => {
+      const file = { ...current[index] };
+      if (next === null) delete file[stampId];
+      else file[stampId] = next;
+
+      const rest = { ...current };
+      if (Object.keys(file).length === 0) delete rest[index];
+      else rest[index] = file;
+
+      return rest;
+    });
+  }
 
   function loadSurface(index: number) {
     return async (pages: PlacementPages): Promise<StampSurface> => {
@@ -137,41 +159,31 @@ export function DeliverDialog({
 
             <ul className="divide-y rounded-lg border">
               {files.map((file, index) => (
-                <li key={`${file.name}-${index}`} className="flex items-center gap-3 px-3 py-2.5">
+                <li
+                  key={`${file.name}-${index}`}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5"
+                >
                   <FileText className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-[13px]">{file.name}</span>
-                  <span className="shrink-0 text-[12px] text-muted-foreground">
-                    {placements[index] ? "موضع مخصّص" : "موضع القالب"}
-                  </span>
-                  <StampPlacementButton
-                    value={placements[index] ?? null}
-                    onClick={() => setPositioning(index)}
-                    disabled={!stamp || submitting}
-                  />
+                  <div className="flex max-w-full flex-wrap gap-2">
+                    {stamps.map((stamp) => (
+                      <StampPlacementButton
+                        key={stamp.id}
+                        value={positionOf(index, stamp.id)}
+                        label={stamps.length > 1 ? stamp.name : undefined}
+                        onClick={() => setPositioning({ index, stamp })}
+                        disabled={submitting}
+                      />
+                    ))}
+                  </div>
                 </li>
               ))}
             </ul>
 
-            {stamps.length > 1 && (
-              <label className="flex items-center gap-2 text-[13px]">
-                <span className="text-muted-foreground">الختم المعروض:</span>
-                <select
-                  className="rounded-md border bg-background px-2 py-1"
-                  value={stamp?.id ?? ""}
-                  onChange={(event) => setStampId(Number(event.target.value))}
-                >
-                  {stamps.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
             <p className="text-[12px] text-muted-foreground">
-              الترويسة والختم النهائيان يختارهما مدير المشروع عند الاعتماد؛ ما تضبطه هنا هو موضع
-              الختم على الصفحة، ويصله كما تركته.
+              {stamps.length > 1
+                ? "اضبط موضع كل ختم يحمله الملف؛ الختم الذي لا تضبطه يوضع في موضع قالبه. مدير المشروع يختار الترويسة والأختام النهائية عند الاعتماد، ويصله ما ضبطته كما تركته."
+                : "الترويسة والختم النهائيان يختارهما مدير المشروع عند الاعتماد؛ ما تضبطه هنا هو موضع الختم على الصفحة، ويصله كما تركته."}
             </p>
           </section>
 
@@ -191,24 +203,27 @@ export function DeliverDialog({
         <StampPlacementDialog
           open
           onClose={() => setPositioning(null)}
-          stamp={stamp}
+          stamp={positioning.stamp}
           stampAssetPath={portalAssetPath}
-          loadSurface={loadSurface(positioning)}
-          surfaceKey={`upload-${positioning}-${files[positioning]?.name ?? ""}-${files[positioning]?.size ?? 0}`}
-          value={placements[positioning] ?? null}
-          onSave={(next) =>
-            setPlacements((current) => {
-              if (next === null) {
-                const rest = { ...current };
-                delete rest[positioning];
-
-                return rest;
-              }
-
-              return { ...current, [positioning]: next };
-            })
+          loadSurface={loadSurface(positioning.index)}
+          surfaceKey={[
+            "upload",
+            positioning.index,
+            files[positioning.index]?.name ?? "",
+            files[positioning.index]?.size ?? 0,
+          ].join("-")}
+          value={positionOf(positioning.index, positioning.stamp.id)}
+          onSave={(next) => savePosition(positioning.index, positioning.stamp.id, next)}
+          // Only the seals already placed: an unplaced one may not go on this file at all.
+          others={stamps
+            .filter((stamp) => stamp.id !== positioning.stamp.id)
+            .map((stamp) => ({ stamp, position: positionOf(positioning.index, stamp.id) }))
+            .filter((other) => other.position !== null)}
+          title={
+            stamps.length > 1
+              ? `موضع ${positioning.stamp.name} — ${files[positioning.index]?.name ?? ""}`
+              : `موضع الختم — ${files[positioning.index]?.name ?? ""}`
           }
-          title={`موضع الختم — ${files[positioning]?.name ?? ""}`}
         />
       )}
     </>

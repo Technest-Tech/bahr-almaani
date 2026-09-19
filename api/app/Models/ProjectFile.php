@@ -56,15 +56,16 @@ class ProjectFile extends Model
         'count_status',
         'count_source',
         'version',
-        'stamp_placement',
+        'stamp_placements',
     ];
 
     protected function casts(): array
     {
         return [
-            // Deliverables only: where this document's stamp goes, normalized by
-            // App\Support\PlacementConfig. Null = the stamp template's own position.
-            'stamp_placement' => 'array',
+            // Deliverables only: where each seal goes on this document, keyed by stamp
+            // template id (App\Support\PlacementConfig::sanitizeStampMap). A seal with
+            // no entry, or a null column, sits at its template's own position.
+            'stamp_placements' => 'array',
             'superseded_at' => 'datetime',
         ];
     }

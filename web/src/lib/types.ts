@@ -79,11 +79,19 @@ export interface ClientAccount {
 /**
  * What a client is told about a project. The internal pipeline (claimed,
  * delivered, in_review, approved …) never leaves the API — see
- * Project::CLIENT_STAGES.
+ * Project::CLIENT_STAGES. `submitted` is a project the client started themselves
+ * and the office has not published yet.
  */
-export type ClientStage = "in_progress" | "in_review" | "ready" | "completed" | "cancelled";
+export type ClientStage =
+  | "submitted"
+  | "in_progress"
+  | "in_review"
+  | "ready"
+  | "completed"
+  | "cancelled";
 
 export const CLIENT_STAGE_TONES: Record<ClientStage, "green" | "red" | "slate" | "violet" | "amber" | "blue"> = {
+  submitted: "slate",
   in_progress: "blue",
   in_review: "amber",
   ready: "violet",
@@ -92,6 +100,7 @@ export const CLIENT_STAGE_TONES: Record<ClientStage, "green" | "red" | "slate" |
 };
 
 export const CLIENT_STAGE_LABELS: Record<ClientStage, string> = {
+  submitted: "بانتظار مراجعة المكتب",
   in_progress: "قيد التنفيذ",
   in_review: "قيد المراجعة",
   ready: "جاهز للاستلام",
@@ -285,8 +294,8 @@ export interface ProjectFile {
   count_status: "pending" | "processing" | "done" | "failed" | "not_applicable";
   count_source: "auto" | "manual" | "ocr";
   version: number;
-  /** Deliverables only: where the seal sits on THIS document (null = the template's). */
-  stamp_placement: StampPosition | null;
+  /** Deliverables only: where each seal sits on THIS document (a missing seal = its template's). */
+  stamp_placements: StampPositions | null;
   uploaded_by?: { id: number; name: string } | null;
   /** Set instead of `uploaded_by` when the client supplied the file themselves. */
   uploaded_by_client?: { id: number; name: string } | null;
@@ -323,8 +332,8 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
  * millimetres — physical paper geometry, matching App\Support\PlacementConfig.
  *
  * Deliberately partial: it carries only what the translator decided by dragging. The
- * merge layers it over whichever stamp template the PM picks at approval, so the seal
- * keeps its true physical size instead of being reset to a default.
+ * merge layers it over that seal's own template placement, so the seal keeps its true
+ * physical size instead of being reset to a default.
  */
 export interface StampPosition {
   anchor: "top-left";
@@ -333,6 +342,13 @@ export interface StampPosition {
   /** Which pages carry the seal; omitted means the stamp template decides. */
   pages?: PlacementPages;
 }
+
+/**
+ * One document's seal positions, keyed by stamp template id. A document can carry
+ * several seals and each has its own spot; a seal with no entry sits where its
+ * template says.
+ */
+export type StampPositions = Record<number, StampPosition>;
 
 /** One billed project as it stood at issue — a snapshot, never live data. */
 export interface InvoiceLineItem {
@@ -366,6 +382,15 @@ export interface BillableProject {
   pages: number | null;
   words: number | null;
   completed_at: string | null;
+}
+
+/** A row of the invoice dialog's client picker (GET /invoices/clients). */
+export interface BillingClient {
+  id: number;
+  name: string;
+  type: Client["type"];
+  /** Finished projects waiting to be billed, as the viewer may bill them. */
+  billable_count: number;
 }
 
 export interface Transition {
@@ -409,6 +434,8 @@ export interface Project {
   title: string;
   status: ProjectStatus;
   status_label: string;
+  /** Started by the client from their own area, not by the office. */
+  client_submitted?: boolean;
   priority: Priority;
   service_type: "certified" | "regular";
   country_code: string | null;
@@ -438,9 +465,11 @@ export interface Project {
   client?: Client | null;
   source_language?: Language;
   target_language?: Language;
-  creator?: { id: number; name: string };
+  /** Null on a client's own submission until a PM edits or publishes it. */
+  creator?: { id: number; name: string } | null;
   letterhead?: LetterheadTemplate | null;
-  stamp?: LetterheadTemplate | null;
+  /** The seals approval chose, in the order they are drawn; empty = unsealed. */
+  stamps?: LetterheadTemplate[];
   files?: ProjectFile[];
   files_count?: number;
   source_files_count?: number;

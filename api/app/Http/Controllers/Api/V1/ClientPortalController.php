@@ -3,18 +3,22 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreClientProjectRequest;
 use App\Http\Resources\ClientAccountResource;
 use App\Http\Resources\ClientProjectResource;
 use App\Http\Resources\DocumentRequestResource;
 use App\Http\Resources\InvoiceResource;
+use App\Jobs\CountWordsJob;
 use App\Models\Client;
 use App\Models\DocumentRequest;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\User;
+use App\Notifications\ClientProjectSubmittedNotification;
 use App\Notifications\DocumentSuppliedNotification;
 use App\Notifications\DocumentWithdrawnNotification;
+use App\Services\ProjectCodeGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -26,6 +30,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -46,14 +51,17 @@ class ClientPortalController extends Controller
     private const MAX_CLIENT_FILE_KB = 20480;
 
     /**
-     * A draft is the office still assembling the record — no deadline committed,
-     * often no files yet — so it stays internal until it is published.
+     * The office's own draft is still being assembled — no deadline committed, often
+     * no files yet — so it stays internal until it is published. A draft the client
+     * submitted is the exception: they created it, and it is theirs to follow.
      */
     private function visibleProjects(Client $client)
     {
         return Project::query()
             ->where('client_id', $client->id)
-            ->where('status', '!=', Project::STATUS_DRAFT);
+            ->where(fn ($query) => $query
+                ->where('status', '!=', Project::STATUS_DRAFT)
+                ->orWhere('client_submitted', true));
     }
 
     /** The dashboard of the client area: who they are, and their whole history in numbers. */
@@ -99,6 +107,7 @@ class ClientPortalController extends Controller
             'stats' => [
                 'projects_total' => (int) array_sum($stages),
                 'by_stage' => [
+                    'submitted' => $stages['submitted'] ?? 0,
                     'in_progress' => $stages['in_progress'] ?? 0,
                     'in_review' => $stages['in_review'] ?? 0,
                     'ready' => $stages['ready'] ?? 0,
@@ -167,6 +176,56 @@ class ClientPortalController extends Controller
         ]));
     }
 
+    /**
+     * A new project, started by the client from their own area.
+     *
+     * Asked for 2026-09-19: a client with an account still had to go through the
+     * public quote form — the stranger's form — for every new job, re-typing who they
+     * are, and the office then converted each request into a project by hand. Now it
+     * lands as a draft already linked to the client, its documents stored and counted
+     * as work files, exactly as if a PM had opened it.
+     *
+     * It goes no further on its own. Nothing reaches a translator until a PM has
+     * checked the date, the letterhead and the stamp and published it, and the first
+     * PM to edit or publish it becomes its owner (ProjectController). The office is
+     * still the gate; only the re-typing and the conversion are gone.
+     */
+    public function storeProject(StoreClientProjectRequest $request, ProjectCodeGenerator $codes): JsonResponse
+    {
+        $client = $request->user();
+        $validated = $request->validated();
+        $code = $codes->next();
+        $titled = filled($validated['title'] ?? null);
+
+        $project = DB::transaction(function () use ($client, $validated, $code, $titled): Project {
+            $project = Project::create([
+                ...Arr::except($validated, 'files'),
+                'code' => $code,
+                // Seeded with the code like the office's own blank name, and handed
+                // over to the first file in storeSources().
+                'title' => $titled ? $validated['title'] : $code,
+                'title_auto' => ! $titled,
+                'client_id' => $client->id,
+                'client_submitted' => true,
+                'status' => Project::STATUS_DRAFT,
+            ]);
+
+            $this->storeSources($project, $client, $validated['files']);
+
+            return $project;
+        });
+
+        Notification::send(
+            $this->projectManagers(),
+            new ClientProjectSubmittedNotification($project, $client, count($validated['files'])),
+        );
+
+        return ClientProjectResource::make($project->fresh(['sourceLanguage', 'targetLanguage']))
+            ->additional(['message' => __('projects.client_project_submitted', ['code' => $project->code])])
+            ->response()
+            ->setStatusCode(201);
+    }
+
     /** One certified file — the same bytes the PM sees, reached through the client's own scope. */
     public function downloadFile(Request $request, Project $project, ProjectFile $file): StreamedResponse
     {
@@ -201,10 +260,18 @@ class ClientPortalController extends Controller
      * the first names the project, and after publication they are frozen for the
      * office too. A client upload moves none of that — it reaches the PM, who decides
      * what it means for the job, and the translator sees it as supporting material.
+     *
+     * The one exception is `category=source` on a project the client submitted
+     * themselves and the office has not published yet (addSources): until then they
+     * are still putting the job together, and the quote basis is theirs to set.
      */
     public function uploadFile(Request $request, Project $project): JsonResponse
     {
         $this->authorizeProject($request, $project);
+
+        if ($request->input('category') === ProjectFile::CATEGORY_SOURCE) {
+            return $this->addSources($request, $project);
+        }
 
         $client = $request->user();
 
@@ -305,6 +372,15 @@ class ClientPortalController extends Controller
         abort_unless($file->uploaded_by_client_id === $client->id, 404);
         abort_if($file->isSuperseded(), 404);
 
+        // A work file is the job itself. The client may take one back only while
+        // their own submission still waits on the office; once published it is
+        // frozen, for the office too.
+        abort_if(
+            $file->category === ProjectFile::CATEGORY_SOURCE && ! $project->isClientDraft(),
+            422,
+            __('projects.client_source_draft_only'),
+        );
+
         abort_if(
             in_array($project->status, Project::SETTLED_STATUSES, true),
             422,
@@ -317,6 +393,10 @@ class ClientPortalController extends Controller
 
         Storage::disk('local')->delete($file->disk_path);
         $file->delete();
+
+        if ($file->category === ProjectFile::CATEGORY_SOURCE) {
+            $project->refreshTotals();
+        }
 
         $documentRequest?->reopenIfUnanswered();
 
@@ -333,6 +413,74 @@ class ClientPortalController extends Controller
                 $documentRequest->load(['file:id,original_name', 'attachments']),
             ),
         ]);
+    }
+
+    /**
+     * More documents to translate on the client's own draft — the page they forgot,
+     * or the right file after withdrawing the wrong one.
+     *
+     * Only until the office publishes it. From then on the work files are frozen,
+     * and anything more the client sends is supporting material (uploadFile).
+     */
+    private function addSources(Request $request, Project $project): JsonResponse
+    {
+        abort_unless($project->isClientDraft(), 422, __('projects.client_source_draft_only'));
+
+        $client = $request->user();
+
+        $validated = Validator::make(
+            ['files' => $this->uploads($request)],
+            StoreClientProjectRequest::fileRules(),
+        )->validate();
+
+        $files = DB::transaction(fn (): array => $this->storeSources($project, $client, $validated['files']));
+
+        Notification::send(
+            $this->officeRecipients($project, null),
+            new DocumentSuppliedNotification($project, null, $client, count($files), toTranslate: true),
+        );
+
+        return response()->json([
+            'message' => __('projects.client_files_uploaded'),
+            'data' => array_map(fn (ProjectFile $file): array => ClientProjectResource::file($file), $files),
+        ], 201);
+    }
+
+    /**
+     * Store documents to translate on the client's draft: work files, counted like
+     * the office's own, and marked as the client's so they can still take one back
+     * while the office has not published the project.
+     *
+     * @param  list<UploadedFile>  $uploads
+     * @return list<ProjectFile>
+     */
+    private function storeSources(Project $project, Client $client, array $uploads): array
+    {
+        $hadSources = $project->files()->where('category', ProjectFile::CATEGORY_SOURCE)->exists();
+
+        $files = array_map(fn (UploadedFile $upload): ProjectFile => $project->files()->create([
+            'category' => ProjectFile::CATEGORY_SOURCE,
+            'uploaded_by_client_id' => $client->id,
+            'original_name' => $upload->getClientOriginalName(),
+            'disk_path' => $upload->store("projects/{$project->id}/".ProjectFile::CATEGORY_SOURCE, 'local'),
+            'mime_type' => $upload->getClientMimeType(),
+            'size_bytes' => $upload->getSize(),
+        ]), $uploads);
+
+        // After commit, so the counter reads rows that exist.
+        foreach ($files as $file) {
+            CountWordsJob::dispatch($file)->afterCommit();
+        }
+
+        // The first work file names an unnamed project, the same rule as the office's
+        // upload (ProjectFileController::nameProjectAfterFirstSource).
+        $base = trim(pathinfo((string) ($files[0]->original_name ?? ''), PATHINFO_FILENAME));
+
+        if (! $hadSources && $project->title_auto && $base !== '') {
+            $project->forceFill(['title' => Str::limit($base, 255, '')])->save();
+        }
+
+        return $files;
     }
 
     /**
@@ -383,8 +531,26 @@ class ClientPortalController extends Controller
             return $documentRequest->recipients();
         }
 
+        // The client's own submission has no owner until a PM takes it.
+        if ($project->created_by === null) {
+            return $this->projectManagers();
+        }
+
         return User::query()
             ->whereKey($project->created_by)
+            ->where('status', User::STATUS_ACTIVE)
+            ->with('notificationPreferences')
+            ->get();
+    }
+
+    /**
+     * Every active PM: who hears about work nobody in the office owns yet.
+     *
+     * @return Collection<int, User>
+     */
+    private function projectManagers(): Collection
+    {
+        return User::permission('projects.manage')
             ->where('status', User::STATUS_ACTIVE)
             ->with('notificationPreferences')
             ->get();
@@ -393,6 +559,7 @@ class ClientPortalController extends Controller
     private function authorizeProject(Request $request, Project $project): void
     {
         abort_unless($project->client_id === $request->user()->id, 404);
-        abort_if($project->status === Project::STATUS_DRAFT, 404);
+        // Same rule as visibleProjects(): the office's drafts only, not the client's own.
+        abort_if($project->status === Project::STATUS_DRAFT && ! $project->client_submitted, 404);
     }
 }

@@ -15,6 +15,7 @@ use App\Models\Assignment;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\QuoteRequest;
+use App\Models\User;
 use App\Notifications\ProjectAvailableNotification;
 use App\Notifications\ProjectWithdrawnNotification;
 use App\Services\ProjectCodeGenerator;
@@ -34,7 +35,12 @@ class ProjectController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $projects = Project::query()
-            ->with(['client:id,name,type', 'sourceLanguage', 'targetLanguage', 'creator:id,name'])
+            ->visibleTo($request->user())
+            ->with([
+                'client:id,name,type', 'sourceLanguage', 'targetLanguage', 'creator:id,name',
+                // The translator column — ProjectResource picks the one still on the job.
+                'assignments.translator:id,name',
+            ])
             ->withCount('files')
             // One EXISTS per page rather than a query per row — the list shows a
             // "waiting on the client" badge and never needs the rows themselves.
@@ -49,6 +55,14 @@ class ProjectController extends Controller
             ->when($request->filled('priority'), fn ($q) => $q->where('priority', $request->string('priority')->toString()))
             ->when($request->filled('client_id'), fn ($q) => $q->where('client_id', $request->integer('client_id')))
             ->when($request->boolean('late'), fn ($q) => $q->late())
+            // Who owns it; `none` is a client's submission no PM has taken yet.
+            ->when($request->filled('created_by'), fn ($q) => $request->string('created_by')->toString() === 'none'
+                ? $q->whereNull('projects.created_by')
+                : $q->where('projects.created_by', $request->integer('created_by')))
+            // Who translates it: the job is theirs unless it was withdrawn from them.
+            ->when($request->filled('translator_id'), fn ($q) => $q->whereHas('assignments', fn ($a) => $a
+                ->where('translator_id', $request->integer('translator_id'))
+                ->where('status', '!=', Assignment::STATUS_WITHDRAWN)))
             ->tap(function ($query) use ($request): void {
                 // Server-side sorting: the whole result set, not just the current page.
                 $sortable = ['created_at', 'deadline_at', 'title', 'code', 'status', 'priority', 'total_words'];
@@ -63,11 +77,34 @@ class ProjectController extends Controller
         return ProjectResource::collection($projects);
     }
 
+    /**
+     * Who the admin's list can be narrowed by (2026-09-19): the PMs who own projects
+     * and the translators who work on them. Drawn from the projects themselves, so a
+     * PM who has since left still appears beside the work that is theirs.
+     */
+    public function filterOptions(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->can('projects.view-all'), 403);
+
+        $people = fn ($ids) => User::withTrashed()
+            ->whereIn('id', $ids)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (User $user): array => ['id' => $user->id, 'name' => $user->name]);
+
+        return response()->json(['data' => [
+            'managers' => $people(Project::query()->whereNotNull('created_by')->select('created_by')),
+            'translators' => $people(
+                Assignment::query()->where('status', '!=', Assignment::STATUS_WITHDRAWN)->select('translator_id'),
+            ),
+        ]]);
+    }
+
     public function show(Project $project): ProjectResource
     {
         return ProjectResource::make($project->load([
             'client', 'sourceLanguage', 'targetLanguage', 'creator:id,name',
-            'assignments.translator:id,name', 'letterhead', 'stamp',
+            'assignments.translator:id,name', 'letterhead', 'stamps',
             'files' => fn ($q) => $q->with(['uploader:id,name', 'clientUploader:id,name'])
                 ->orderBy('category')
                 ->orderByDesc('created_at'),
@@ -118,8 +155,26 @@ class ProjectController extends Controller
         }
 
         $project->update($validated);
+        $this->claimOwnership($project, $request->user());
 
         return ProjectResource::make($project->load(['client', 'sourceLanguage', 'targetLanguage']));
+    }
+
+    /**
+     * A client's own submission belongs to nobody until a PM works on it; the
+     * first to do so owns it, and hears about its delivery and its deadlines.
+     *
+     * Decided on the row, not on the copy this request loaded: two PMs acting at
+     * once both loaded NULL, and only the first write may land.
+     */
+    private function claimOwnership(Project $project, User $pm): void
+    {
+        if ($project->created_by !== null) {
+            return;
+        }
+
+        Project::whereKey($project->getKey())->whereNull('created_by')->update(['created_by' => $pm->getKey()]);
+        $project->refresh();
     }
 
     /** draft → available. Requires at least one source file. */
@@ -129,7 +184,16 @@ class ProjectController extends Controller
             throw new InvalidTransitionException(__('projects.publish_requires_source'));
         }
 
-        $project = $this->transitions->transition($project, Project::STATUS_AVAILABLE, $request->user());
+        // Published straight from the client's submission, unedited: the publisher
+        // takes it. Every project in the pipeline has an owner — see update(). Only
+        // once the publish has gone through, and under its row lock: a PM whose
+        // publish lost the race must not walk away owning the project.
+        $project = DB::transaction(function () use ($request, $project): Project {
+            $published = $this->transitions->transition($project, Project::STATUS_AVAILABLE, $request->user());
+            $this->claimOwnership($published, $request->user());
+
+            return $published;
+        });
 
         $this->broadcastLive(new ProjectPublished($project));
         Notification::send(

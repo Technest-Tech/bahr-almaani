@@ -30,6 +30,9 @@ class InvoicesTest extends TestCase
 
     private Client $client;
 
+    // Sequential, not random: 120 random codes in 99,999 collide ~7% of runs.
+    private int $codes = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -59,7 +62,7 @@ class InvoicesTest extends TestCase
         $ar = Language::where('code', 'ar')->firstOrFail();
 
         $project = Project::create(array_merge([
-            'code' => 'BM-2026-'.str_pad((string) random_int(1, 99999), 5, '0', STR_PAD_LEFT),
+            'code' => sprintf('BM-2026-%05d', ++$this->codes),
             'title' => 'ترجمة عقد',
             'client_id' => $this->client->id,
             'source_language_id' => $en->id,
@@ -100,6 +103,56 @@ class InvoicesTest extends TestCase
         $this->assertSame($billable->code, $data[0]['code']);
         $this->assertSame(4, $data[0]['pages']);
         $this->assertSame(900, $data[0]['words']);
+    }
+
+    public function test_the_client_picker_lists_every_client_with_work_to_bill_first(): void
+    {
+        // More than the 100 the paged /clients list used to stop at.
+        foreach (range(1, 105) as $n) {
+            Client::create(['name' => "عميل {$n}", 'type' => 'individual', 'created_by' => $this->accountant->id]);
+        }
+
+        $this->makeProject([], deliveredPages: 3);
+        $this->makeProject([], deliveredPages: 5);
+        $this->makeProject(['status' => Project::STATUS_CLAIMED]); // not finished
+        $this->issueInvoiceFor([$this->makeProject([], deliveredPages: 2)->id]); // already billed
+
+        // The accountant bills but holds no clients.view — this list is theirs anyway.
+        $data = $this->actingAs($this->accountant, 'sanctum')
+            ->getJson('/api/v1/invoices/clients')
+            ->assertOk()
+            ->json('data');
+
+        $this->assertCount(106, $data);
+        $this->assertSame($this->client->id, $data[0]['id']);
+        $this->assertSame(2, $data[0]['billable_count']);
+        $this->assertSame(0, $data[1]['billable_count']);
+    }
+
+    public function test_a_pm_counts_only_their_own_work_in_the_client_picker(): void
+    {
+        $mona = User::factory()->create();
+        $mona->syncRoles(['project_manager']);
+        $omar = User::factory()->create();
+        $omar->syncRoles(['project_manager']);
+
+        $this->makeProject(['created_by' => $mona->id], deliveredPages: 3);
+        $this->makeProject(['created_by' => $omar->id], deliveredPages: 4);
+
+        $row = collect($this->actingAs($mona, 'sanctum')->getJson('/api/v1/invoices/clients')->assertOk()->json('data'))
+            ->firstWhere('id', $this->client->id);
+
+        $this->assertSame(1, $row['billable_count']);
+    }
+
+    public function test_select_all_can_bill_more_than_a_hundred_projects(): void
+    {
+        $ids = collect(range(1, 120))->map(fn () => $this->makeProject([], deliveredPages: 1)->id)->all();
+
+        $invoice = $this->issueInvoiceFor($ids);
+
+        $this->assertSame(120, $invoice->total_pages);
+        $this->assertSame(120, Project::where('invoice_id', $invoice->id)->count());
     }
 
     public function test_issuing_an_invoice_computes_from_delivered_pages_and_stores_the_pdf(): void

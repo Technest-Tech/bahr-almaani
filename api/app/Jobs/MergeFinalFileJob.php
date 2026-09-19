@@ -20,9 +20,9 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * approved → completed (system transition), via the M9b letterhead + stamp merge.
+ * approved → completed (system transition), via the M9b letterhead + seals merge.
  *
- * The PM's letterhead/stamp selection is already on the project (ReviewController::approve),
+ * The PM's letterhead and seals are already on the project (ReviewController::approve),
  * so this job only has to render. On failure the project STAYS `approved` with the reason
  * recorded — docs/02 edge case 3 — and the PM retries from the project page.
  */
@@ -45,7 +45,7 @@ class MergeFinalFileJob implements ShouldQueue
             return;
         }
 
-        $project->load(['letterhead', 'stamp', 'creator']);
+        $project->load(['letterhead', 'stamps', 'creator']);
 
         // Every file of the newest delivery round, not just one. A translator may
         // hand back a passport, a licence and a contract for the same visa
@@ -70,13 +70,14 @@ class MergeFinalFileJob implements ShouldQueue
                     $deliverable->disk_path,
                     $deliverable->original_name,
                     $project->letterhead,
-                    $project->stamp,
+                    $project->stamps->all(),
                     null,
-                    // Where the translator put the seal on THIS document and the PM
+                    // Where the translator put each seal on THIS document and the PM
                     // confirmed at approval. Per file, because one delivery round can
                     // be three separately certified documents with their blank space
-                    // in three different places. Null falls back to the template's.
-                    $deliverable->stamp_placement,
+                    // in three different places. A seal with no entry keeps its
+                    // template's position.
+                    $deliverable->stamp_placements ?? [],
                 ),
             ]);
 
@@ -144,7 +145,7 @@ class MergeFinalFileJob implements ShouldQueue
         Log::error('Letterhead merge failed', [
             'project' => $project->code,
             'letterhead_id' => $project->letterhead_id,
-            'stamp_id' => $project->stamp_id,
+            'stamp_ids' => $project->stamps()->pluck('letterhead_templates.id')->all(),
             'error' => $e->getMessage(),
             // Full trace here is the only record — the job does not fail the queue.
             'exception' => $e,

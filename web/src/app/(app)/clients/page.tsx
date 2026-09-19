@@ -29,8 +29,9 @@ import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { ClientFormDialog } from "@/components/clients/client-form-dialog";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" });
+const dateFormatter = officeFormat({ dateStyle: "medium" });
 
 export default function ClientsPage() {
   const queryClient = useQueryClient();

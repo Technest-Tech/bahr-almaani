@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ColumnDef, SortingState } from "@tanstack/react-table";
-import { AlertTriangle, IdCard, Plus, Search } from "lucide-react";
+import { AlertTriangle, Globe, IdCard, Plus, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import {
   PRIORITY_LABELS,
@@ -29,8 +29,9 @@ import { Switch } from "@/components/ui/switch";
 import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useAuth } from "@/lib/auth";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });
@@ -49,12 +50,25 @@ const STATUS_OPTIONS = [
   ["cancelled", "ملغي"],
 ] as const;
 
+/** Owner filter value for a client's submission no PM has taken yet. */
+const UNOWNED = "none";
+
+interface Person {
+  id: number;
+  name: string;
+}
+
 export default function ProjectsPage() {
   const { can } = useAuth();
   const router = useRouter();
+  // The admin's view: every PM's projects, so "whose is it, who is on it" is worth
+  // a column and a filter. A PM's list is all their own — nothing to tell apart.
+  const seesAll = can("projects.view-all");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState(ALL);
   const [priority, setPriority] = useState(ALL);
+  const [manager, setManager] = useState(ALL);
+  const [translator, setTranslator] = useState(ALL);
   const [lateOnly, setLateOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -63,6 +77,8 @@ export default function ProjectsPage() {
   if (q) params.set("q", q);
   if (status !== ALL) params.set("status", status);
   if (priority !== ALL) params.set("priority", priority);
+  if (manager !== ALL) params.set("created_by", manager);
+  if (translator !== ALL) params.set("translator_id", translator);
   if (lateOnly) params.set("late", "1");
   if (sorting[0]) {
     params.set("sort", sorting[0].id);
@@ -70,9 +86,47 @@ export default function ProjectsPage() {
   }
 
   const { data, isLoading } = useQuery({
-    queryKey: ["projects", q, status, priority, lateOnly, page, sorting],
+    queryKey: ["projects", q, status, priority, manager, translator, lateOnly, page, sorting],
     queryFn: () => api<Paginated<Project>>(`/projects?${params.toString()}`),
   });
+
+  const { data: people } = useQuery({
+    queryKey: ["project-filter-options"],
+    queryFn: () =>
+      api<{ data: { managers: Person[]; translators: Person[] } }>("/projects/filter-options").then(
+        (r) => r.data,
+      ),
+    enabled: seesAll,
+  });
+
+  const peopleColumns: ColumnDef<Project, unknown>[] = [
+    {
+      id: "manager",
+      meta: { label: "مدير المشروع" },
+      header: "مدير المشروع",
+      cell: ({ row }) => (
+        <span className="text-muted-foreground">
+          {row.original.creator?.name ?? (row.original.client_submitted ? "لم يُستلم بعد" : "—")}
+        </span>
+      ),
+    },
+    {
+      id: "translator",
+      meta: { label: "المترجم" },
+      header: "المترجم",
+      // A withdrawn translator is no longer on the job — the file is back on the portal.
+      cell: ({ row }) => {
+        const assignment = row.original.assignment;
+        return (
+          <span className="text-muted-foreground">
+            {assignment && assignment.status !== "withdrawn"
+              ? (assignment.translator?.name ?? "—")
+              : "—"}
+          </span>
+        );
+      },
+    },
+  ];
 
   const columns: ColumnDef<Project, unknown>[] = [
     {
@@ -96,6 +150,7 @@ export default function ProjectsPage() {
         <span className="text-muted-foreground">{row.original.client?.name ?? "—"}</span>
       ),
     },
+    ...(seesAll ? peopleColumns : []),
     {
       id: "languages",
       meta: { label: "اللغات" },
@@ -125,6 +180,14 @@ export default function ProjectsPage() {
           <ToneBadge tone={STATUS_TONES[row.original.status]}>
             {row.original.status_label}
           </ToneBadge>
+          {/* A draft the client sent from their own account: nobody in the office
+              has checked its date, letterhead or stamp yet. */}
+          {row.original.client_submitted && row.original.status === "draft" && (
+            <ToneBadge tone="blue" title="أضافه العميل من حسابه — بانتظار المراجعة والنشر">
+              <Globe />
+              من العميل
+            </ToneBadge>
+          )}
           {/* Beside the status rather than inside it: the project is still
               claimed, it is just blocked on something only the client can send. */}
           {row.original.awaiting_documents && (
@@ -232,6 +295,37 @@ export default function ProjectsPage() {
                 <SelectItem value="critical">حرج</SelectItem>
               </SelectContent>
             </Select>
+            {seesAll && (
+              <>
+                <Select value={manager} onValueChange={(v) => { setManager(v); setPage(1); }}>
+                  <SelectTrigger size="sm" className="w-40 bg-background text-[13px]">
+                    <SelectValue placeholder="مدير المشروع" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>كل مديري المشاريع</SelectItem>
+                    <SelectItem value={UNOWNED}>لم يُستلم بعد</SelectItem>
+                    {people?.managers.map((person) => (
+                      <SelectItem key={person.id} value={String(person.id)}>
+                        {person.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={translator} onValueChange={(v) => { setTranslator(v); setPage(1); }}>
+                  <SelectTrigger size="sm" className="w-40 bg-background text-[13px]">
+                    <SelectValue placeholder="المترجم" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>كل المترجمين</SelectItem>
+                    {people?.translators.map((person) => (
+                      <SelectItem key={person.id} value={String(person.id)}>
+                        {person.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
             <div className="flex items-center gap-2 ps-1">
               <Switch
                 id="late-only"

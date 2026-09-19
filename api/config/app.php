@@ -61,13 +61,32 @@ return [
     | Application Timezone
     |--------------------------------------------------------------------------
     |
-    | Here you may specify the default timezone for your application, which
-    | will be used by the PHP date and date-time functions. The timezone
-    | is set to "UTC" by default as it is suitable for most use cases.
+    | This is the timezone the application *stores* in, and it must stay UTC.
+    | Every timestamp column is `timestamptz` against a Postgres session running
+    | on UTC, so setting Africa/Cairo here would make Eloquent write a Cairo wall
+    | clock with the offset dropped and Postgres read it back as UTC — every new
+    | row three hours into the future.
+    |
+    | The wall clock people actually read is 'display_timezone' below. Reach for
+    | it through App\Support\Timezone::display(), never by formatting in
+    | config('app.timezone').
     |
     */
 
     'timezone' => 'UTC',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Display Timezone
+    |--------------------------------------------------------------------------
+    |
+    | The office's wall clock — what deadlines, reports and invoices are rendered
+    | in, and which day a night-shift delivery belongs to. Overridable per
+    | install by the `work_timezone` setting; APP_TIMEZONE is the default.
+    |
+    */
+
+    'display_timezone' => env('APP_TIMEZONE', App\Support\Timezone::FALLBACK),
 
     /*
     |--------------------------------------------------------------------------

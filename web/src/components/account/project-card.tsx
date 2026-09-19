@@ -2,8 +2,9 @@ import Link from "next/link";
 import { ArrowLeft, CalendarClock, FileCheck2, IdCard } from "lucide-react";
 import { CLIENT_STAGE_TONES, type ClientProject } from "@/lib/types";
 import { ToneBadge } from "@/components/tone-badge";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" });
+const dateFormatter = officeFormat({ dateStyle: "medium" });
 
 const numberFormatter = new Intl.NumberFormat("ar-EG");
 

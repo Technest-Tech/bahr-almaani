@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\InvoiceResource;
+use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Services\InvoiceNumberGenerator;
@@ -41,6 +42,36 @@ class InvoiceController extends Controller
     }
 
     /**
+     * The invoice dialog's client picker: every client, with how many finished
+     * projects each has waiting to be billed — the ones with work to bill first.
+     *
+     * Not `/clients`: that list is paged (the picker saw only the 100 newest
+     * clients, so older ones could never be billed) and sits behind clients.view,
+     * which the accountant does not hold.
+     */
+    public function clients(Request $request): JsonResponse
+    {
+        $clients = Client::query()
+            ->select(['id', 'name', 'type'])
+            ->withCount(['projects as billable_count' => fn ($query) => $query
+                ->visibleTo($request->user())
+                ->whereIn('status', self::BILLABLE_STATUSES)
+                ->whereNull('invoice_id')])
+            ->orderByDesc('billable_count')
+            ->orderBy('name')
+            ->get();
+
+        return response()->json([
+            'data' => $clients->map(fn (Client $client): array => [
+                'id' => $client->id,
+                'name' => $client->name,
+                'type' => $client->type,
+                'billable_count' => (int) $client->billable_count,
+            ])->values(),
+        ]);
+    }
+
+    /**
      * The client's finished, not-yet-invoiced projects — what a new invoice
      * can bill. Pages and words arrive already on the delivered basis, so the
      * dialog shows the exact numbers the invoice will carry.
@@ -56,6 +87,8 @@ class InvoiceController extends Controller
         ]);
 
         $projects = Project::query()
+            // A PM bills their own projects; the admin and the accountant, anyone's.
+            ->visibleTo($request->user())
             ->where('client_id', $validated['client_id'])
             ->whereIn('status', self::BILLABLE_STATUSES)
             ->where(function ($query) use ($validated): void {
@@ -84,7 +117,8 @@ class InvoiceController extends Controller
     {
         $validated = $request->validate([
             'client_id' => ['required', 'integer', 'exists:clients,id'],
-            'project_ids' => ['required', 'array', 'min:1', 'max:100'],
+            // Room for "select all" on a client whose work piled up unbilled.
+            'project_ids' => ['required', 'array', 'min:1', 'max:500'],
             'project_ids.*' => ['integer', 'distinct'],
             // Either a per-page rate (amount is computed) or a typed total.
             'unit_price' => ['nullable', 'numeric', 'min:0', 'max:1000000', 'required_without:amount'],
@@ -97,6 +131,7 @@ class InvoiceController extends Controller
             // Locked so two windows cannot bill the same project at once: the
             // second transaction waits here, then fails the invoice_id check.
             $projects = Project::query()
+                ->visibleTo($request->user())
                 ->whereKey($validated['project_ids'])
                 ->where('client_id', $validated['client_id'])
                 ->whereIn('status', self::BILLABLE_STATUSES)
@@ -174,7 +209,7 @@ class InvoiceController extends Controller
     public function update(Request $request, Invoice $invoice): InvoiceResource
     {
         $validated = $request->validate([
-            'project_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'project_ids' => ['required', 'array', 'min:1', 'max:500'],
             'project_ids.*' => ['integer', 'distinct'],
             'unit_price' => ['nullable', 'numeric', 'min:0', 'max:1000000', 'required_without:amount'],
             'amount' => ['nullable', 'numeric', 'min:0', 'max:100000000', 'required_without:unit_price'],
@@ -182,11 +217,24 @@ class InvoiceController extends Controller
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $invoice = DB::transaction(function () use ($validated, $invoice): Invoice {
+        // The edit rebuilds the whole billed set, and a PM's dialog lists only their
+        // own projects — saving it would quietly unbill another PM's work. Those
+        // invoices are for whoever sees every project to correct.
+        abort_if(
+            Project::query()
+                ->where('invoice_id', $invoice->id)
+                ->whereNotIn('id', Project::query()->visibleTo($request->user())->select('id'))
+                ->exists(),
+            403,
+            'هذه الفاتورة تشمل مشاريع مدير مشروع آخر — يعدّلها المدير أو المحاسب.',
+        );
+
+        $invoice = DB::transaction(function () use ($validated, $invoice, $request): Invoice {
             // Billable, unbilled, OR already on this invoice — the last clause is
             // what lets an edit keep the rows it already had without them looking
             // like a double-billing attempt.
             $projects = Project::query()
+                ->visibleTo($request->user())
                 ->whereKey($validated['project_ids'])
                 ->where('client_id', $invoice->client_id)
                 ->whereIn('status', self::BILLABLE_STATUSES)

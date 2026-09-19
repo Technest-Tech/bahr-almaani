@@ -10,6 +10,7 @@ return [
 
     /* Stages as the client sees them — never the internal production pipeline. */
     'stage' => [
+        'submitted' => 'Awaiting office review',
         'in_progress' => 'In progress',
         'in_review' => 'Under review',
         'ready' => 'Ready to collect',
@@ -18,6 +19,7 @@ return [
     ],
 
     'stage_hint' => [
+        'submitted' => 'We have your project and the office is reviewing it to confirm the date and cost before translation starts. You can still add or remove files until then.',
         'in_progress' => 'Our translators are working on your documents.',
         'in_review' => 'Translation is done and under final review before certification.',
         'ready' => 'Your certified files are ready to download.',

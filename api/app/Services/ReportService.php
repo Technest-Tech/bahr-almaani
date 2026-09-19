@@ -6,6 +6,7 @@ use App\Models\Assignment;
 use App\Models\Project;
 use App\Models\StatusTransition;
 use App\Models\User;
+use App\Support\Timezone;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -30,8 +31,12 @@ class ReportService
     /** @return array{columns: array<string,string>, rows: Collection} */
     public function build(string $type, array $params): array
     {
-        $from = Carbon::parse($params['from'] ?? now()->startOfMonth())->startOfDay();
-        $to = Carbon::parse($params['to'] ?? now())->endOfDay();
+        // The range is Cairo calendar days — the office's "1 September" starts at
+        // 00:00 Cairo, not 03:00. The edges stay zoned so day and month labels
+        // read right; queries get their UTC instants through Timezone::between().
+        $tz = Timezone::display();
+        $from = Carbon::parse($params['from'] ?? Timezone::now()->startOfMonth()->toDateString(), $tz)->startOfDay();
+        $to = Carbon::parse($params['to'] ?? Timezone::now()->toDateString(), $tz)->endOfDay();
 
         return match ($type) {
             'translators' => $this->translators($from, $to),
@@ -178,7 +183,7 @@ class ReportService
                 $delivered = Assignment::query()
                     ->where('assignments.translator_id', $translator->id)
                     ->where('assignments.status', Assignment::STATUS_DELIVERED)
-                    ->whereBetween('assignments.delivered_at', [$from, $to]);
+                    ->whereBetween('assignments.delivered_at', Timezone::between($from, $to));
 
                 // Delivered-file figures (client request 2026-09-05): what the
                 // translator produced, with source totals standing in until the
@@ -221,7 +226,7 @@ class ReportService
             ->map(function (User $pm) use ($from, $to): array {
                 $created = Project::query()
                     ->where('created_by', $pm->id)
-                    ->whereBetween('created_at', [$from, $to]);
+                    ->whereBetween('created_at', Timezone::between($from, $to));
 
                 $total = (clone $created)->count();
                 $completed = (clone $created)->where('status', Project::STATUS_COMPLETED);
@@ -281,7 +286,7 @@ class ReportService
 
             $completed = Project::query()
                 ->where('status', Project::STATUS_COMPLETED)
-                ->whereBetween('completed_at', [$start, $end]);
+                ->whereBetween('completed_at', Timezone::between($start, $end));
 
             // Delivered-file figures (client request 2026-09-05), pages first:
             // completed projects always carry deliverables, so the source
@@ -292,7 +297,7 @@ class ReportService
 
             $months->push([
                 'month' => $start->isoFormat('YYYY/MM'),
-                'created' => Project::whereBetween('created_at', [$start, $end])->count(),
+                'created' => Project::whereBetween('created_at', Timezone::between($start, $end))->count(),
                 'completed' => (int) $totals->completed,
                 'pages' => (int) $totals->pages,
                 'words' => (int) $totals->words,
@@ -318,7 +323,7 @@ class ReportService
     {
         $rows = Project::query()
             ->with(['client:id,name', 'sourceLanguage', 'targetLanguage'])
-            ->whereBetween('created_at', [$from, $to])
+            ->whereBetween('created_at', Timezone::between($from, $to))
             ->when(! empty($params['status']), fn ($q) => $q->where('status', $params['status']))
             ->when(! empty($params['client_id']), fn ($q) => $q->where('client_id', $params['client_id']))
             ->orderByDesc('created_at')
@@ -334,7 +339,9 @@ class ReportService
                 // drafts too, and before any delivery the source is the number.
                 'pages' => $project->delivered_pages ?? $project->total_pages,
                 'words' => $project->delivered_words ?? $project->total_words,
-                'deadline' => $project->deadline_at->isoFormat('YYYY/MM/DD'),
+                // Cairo calendar day: a 01:00 Cairo deadline is still 22:00 UTC the
+                // day before, and the registry would date it a day early.
+                'deadline' => $project->deadline_at->timezone(Timezone::display())->isoFormat('YYYY/MM/DD'),
                 'amount' => $project->quoted_amount !== null ? (float) $project->quoted_amount : null,
             ]);
 

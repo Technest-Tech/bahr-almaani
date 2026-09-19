@@ -69,6 +69,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
           queryClient.invalidateQueries({ queryKey: ["project"] });
           queryClient.invalidateQueries({ queryKey: ["projects"] });
         }
+        // A client started a project from their own account — a new draft on the board.
+        if (notification.type === "client_project_submitted") {
+          queryClient.invalidateQueries({ queryKey: ["projects"] });
+        }
       })
       .listen(".project.delivered", () => {
         queryClient.invalidateQueries({ queryKey: ["projects"] });

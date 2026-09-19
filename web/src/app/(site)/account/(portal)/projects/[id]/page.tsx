@@ -3,17 +3,20 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowRight,
   Download,
   FileCheck2,
+  FilePlus2,
   FileUp,
   Package,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { downloadFile } from "@/lib/api";
+import { ApiError, downloadFile } from "@/lib/api";
 import { clientApi } from "@/lib/client-auth";
+import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import {
   CLIENT_STAGE_TONES,
   PRIORITY_LABELS,
@@ -24,10 +27,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToneBadge } from "@/components/tone-badge";
+import { useConfirm } from "@/components/confirm";
 import { DocumentRequestsPanel } from "@/components/account/document-requests-panel";
 import { ClientUploadsPanel } from "@/components/account/client-uploads-panel";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "long" });
+const dateFormatter = officeFormat({ dateStyle: "long" });
 
 const numberFormatter = new Intl.NumberFormat("ar-EG");
 
@@ -41,6 +46,9 @@ export default function AccountProjectPage() {
   const id = useParams<{ id: string }>().id;
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
+  const sourceInput = useRef<HTMLInputElement>(null);
+  const { upload } = useFileTransfer();
+  const { confirm } = useConfirm();
 
   const { data: project, isLoading } = useQuery({
     queryKey: ["client-project", id],
@@ -60,6 +68,58 @@ export default function AccountProjectPage() {
     }
   }
 
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["client-project", id] });
+
+  /** More pages for their own new project — only until the office publishes it. */
+  async function addSources(event: React.ChangeEvent<HTMLInputElement>) {
+    const picked = Array.from(event.target.files ?? []);
+    if (sourceInput.current) sourceInput.current.value = "";
+    if (picked.length === 0) return;
+
+    const form = new FormData();
+    form.set("category", "source");
+    picked.forEach((file) => form.append("files[]", file));
+
+    setBusy("add-sources");
+    try {
+      await upload(
+        `/client/projects/${id}/files`,
+        form,
+        picked.length === 1 ? picked[0].name : `${picked.length.toLocaleString("ar-EG")} ملفات`,
+        { realm: "client" },
+      );
+      toast.success(picked.length === 1 ? "أُضيف الملف إلى المشروع" : "أُضيفت الملفات إلى المشروع");
+      refresh();
+    } catch (err) {
+      if (!isAbort(err)) toast.error(err instanceof ApiError ? err.message : "فشل رفع الملف");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeSource(file: ClientProjectFile) {
+    if (
+      !(await confirm({
+        title: `حذف «${file.original_name}»؟`,
+        description: "يُحذف الملف من المشروع ولن يُترجم. يمكنك إضافة ملف آخر مكانه.",
+        confirmLabel: "حذف",
+        destructive: true,
+      }))
+    )
+      return;
+
+    setBusy(`remove-${file.id}`);
+    try {
+      await clientApi(`/client/projects/${id}/files/${file.id}`, { method: "DELETE" });
+      toast.success("تم حذف الملف");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "تعذر حذف الملف");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (isLoading || !project) {
     return (
       <div className="space-y-4">
@@ -73,6 +133,8 @@ export default function AccountProjectPage() {
   // Only the files they opened the job with: what they supplied against a
   // document request is listed and downloadable inside that request's own card.
   const sources = (project.files ?? []).filter((file) => file.category === "source");
+  // Their own new project, not yet published: the files to translate are still theirs to change.
+  const submitted = project.stage === "submitted";
 
   return (
     <div className="space-y-6">
@@ -131,7 +193,8 @@ export default function AccountProjectPage() {
               <Row label="عدد الكلمات">{numberFormatter.format(project.words)}</Row>
             )}
             {project.deadline_at && (
-              <Row label="موعد التسليم">
+              // Until the office publishes it, the date is still the client's ask.
+              <Row label={submitted ? "الموعد المطلوب" : "موعد التسليم"}>
                 {dateFormatter.format(new Date(project.deadline_at))}
               </Row>
             )}
@@ -194,9 +257,13 @@ export default function AccountProjectPage() {
       />
 
       <FileGroup
-        title="الملفات المرسلة"
+        title={submitted ? "الملفات المطلوب ترجمتها" : "الملفات المرسلة"}
         icon={FileUp}
-        emptyText="لا توجد ملفات مصدر مسجلة على هذا المشروع."
+        emptyText={
+          submitted
+            ? "لا توجد ملفات بعد — أضف المستندات المطلوب ترجمتها."
+            : "لا توجد ملفات مصدر مسجلة على هذا المشروع."
+        }
         files={sources}
         busy={busy}
         onDownload={(file) =>
@@ -205,6 +272,22 @@ export default function AccountProjectPage() {
             file.original_name,
             `file-${file.id}`,
           )
+        }
+        onRemove={submitted ? removeSource : undefined}
+        action={
+          submitted ? (
+            <>
+              <input ref={sourceInput} type="file" hidden multiple onChange={addSources} />
+              <Button
+                size="sm"
+                loading={busy === "add-sources"}
+                onClick={() => sourceInput.current?.click()}
+              >
+                <FilePlus2 className="size-4" />
+                إضافة ملفات
+              </Button>
+            </>
+          ) : null
         }
       />
 
@@ -224,6 +307,7 @@ function FileGroup({
   files,
   busy,
   onDownload,
+  onRemove,
   action,
 }: {
   title: string;
@@ -232,6 +316,8 @@ function FileGroup({
   files: ClientProjectFile[];
   busy: string | null;
   onDownload: (file: ClientProjectFile) => void;
+  /** Offered on the client's own uploads only. */
+  onRemove?: (file: ClientProjectFile) => void;
   action?: React.ReactNode;
 }) {
   return (
@@ -268,6 +354,19 @@ function FileGroup({
                 <Download className="size-4" />
                 تحميل
               </Button>
+              {onRemove && file.uploaded_by_client && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="حذف"
+                  aria-label={`حذف ${file.original_name}`}
+                  className="text-muted-foreground hover:text-destructive"
+                  loading={busy === `remove-${file.id}`}
+                  onClick={() => onRemove(file)}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              )}
             </li>
           ))}
         </ul>

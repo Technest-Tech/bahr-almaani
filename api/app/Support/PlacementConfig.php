@@ -54,6 +54,9 @@ class PlacementConfig
         'content_bottom_mm' => 0.0,
     ];
 
+    /** Every key a position can carry — how a flat, single-seal position is recognised. */
+    private const GEOMETRY_KEYS = ['pages', 'anchor', 'offset_x_mm', 'offset_y_mm', 'width_mm', 'opacity', 'layer'];
+
     /** Keys only a letterhead carries — a stamp has no content band of its own. */
     private const LETTERHEAD_ONLY_KEYS = ['content_top_mm', 'content_bottom_mm'];
 
@@ -154,13 +157,13 @@ class PlacementConfig
      * Keep only recognised geometry keys and coerce their types, WITHOUT filling in
      * defaults for the ones that are absent.
      *
-     * This is what a per-document stamp position is stored as. It is captured at
-     * delivery, and nobody has chosen a stamp template yet — the PM does that at
-     * approval — so defaulting the gaps here would bake in the 45mm kind default and
-     * silently shrink the office's real 174.5mm seal. What is stored is only what the
-     * translator actually decided (where they dragged it, and which pages), and the
-     * merge layers it over the chosen template's own placement via normalize()'s
-     * $defaults. Returns [] when nothing usable is present, which reads as "no opinion".
+     * This is what each of a document's seal positions is stored as (see
+     * sanitizeStampMap()). It is captured at delivery, before the PM has confirmed the
+     * seals at approval, so defaulting the gaps here would bake in the 45mm kind
+     * default and silently shrink the office's real 174.5mm seal. What is stored is only
+     * what the translator actually decided (where they dragged it, and which pages), and
+     * the merge layers it over that seal's own placement via normalize()'s $defaults.
+     * Returns [] when nothing usable is present, which reads as "no opinion".
      *
      * @return array<string, mixed>
      */
@@ -194,6 +197,58 @@ class PlacementConfig
                 $clean['width_mm'] = null;
             } elseif (is_numeric($width)) {
                 $clean['width_mm'] = round((float) $width, 2);
+            }
+        }
+
+        return $clean;
+    }
+
+    /**
+     * A document's seal positions, keyed by stamp template id, each through sanitize().
+     *
+     * One document can carry several seals and each needs its own spot, so a position
+     * is always stored against the seal it was dragged for. Anything keyed by something
+     * other than a template id, and any entry that leaves nothing usable, is dropped: a
+     * delivery or an approval must never fail over the optional positions riding along.
+     *
+     * A flat position — geometry keys at the top level — is what a screen loaded before
+     * several seals were possible still sends. It is kept, keyed to `$legacyStampId`,
+     * the seal that screen had on display; with no such seal it is dropped.
+     *
+     * @param  bool  $keepNulls  keep an explicit null, which at approval means "back to
+     *                           this seal's template position"
+     * @return array<int, array|null>
+     */
+    public static function sanitizeStampMap(mixed $input, ?int $legacyStampId = null, bool $keepNulls = false): array
+    {
+        if (! is_array($input)) {
+            return [];
+        }
+
+        if (array_intersect_key($input, array_flip(self::GEOMETRY_KEYS)) !== []) {
+            $input = $legacyStampId !== null ? [$legacyStampId => $input] : [];
+        }
+
+        $clean = [];
+
+        foreach ($input as $stampId => $position) {
+            // JSON object keys arrive as strings; PHP turns numeric ones into ints.
+            if (! is_int($stampId) || $stampId < 1) {
+                continue;
+            }
+
+            if ($position === null) {
+                if ($keepNulls) {
+                    $clean[$stampId] = null;
+                }
+
+                continue;
+            }
+
+            $sanitized = is_array($position) ? self::sanitize($position) : [];
+
+            if ($sanitized !== []) {
+                $clean[$stampId] = $sanitized;
             }
         }
 

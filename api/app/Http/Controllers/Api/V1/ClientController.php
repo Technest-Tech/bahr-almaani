@@ -23,7 +23,7 @@ class ClientController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $clients = Client::query()
-            ->withCount('projects')
+            ->withCount($this->visibleProjects($request))
             ->when($request->filled('q'), function ($query) use ($request): void {
                 // Scout (Meilisearch): typo-tolerant search over name/phone/email/notes.
                 $query->whereIn('clients.id', Client::search(
@@ -52,19 +52,26 @@ class ClientController extends Controller
         return ClientResource::collection($clients);
     }
 
-    public function show(Client $client): ClientResource
+    public function show(Request $request, Client $client): ClientResource
     {
-        return ClientResource::make($client->loadCount(['projects', 'invoices']));
+        return ClientResource::make($client->loadCount([...$this->visibleProjects($request), 'invoices']));
     }
 
     /**
      * The admin's client file (M15): the same history the client sees in their own
      * area, plus what only the office may see — internal notes, account state, the
      * quote requests they sent and the money side.
+     *
+     * A PM's view of it holds their own projects only; clients are shared, projects
+     * are not (Project::visibleTo). Invoices and quote requests stay whole.
+     *
+     * Projects and invoices come back in full, not the latest ten: the office reads
+     * this page to see what a client was billed for, and a capped list hid every
+     * older invoice with no way to reach it.
      */
-    public function overview(Client $client): JsonResponse
+    public function overview(Request $request, Client $client): JsonResponse
     {
-        $projects = Project::query()->where('client_id', $client->id);
+        $projects = Project::query()->visibleTo($request->user())->where('client_id', $client->id);
 
         $byStatus = (clone $projects)
             ->select('status', DB::raw('COUNT(*) AS total'))
@@ -90,7 +97,7 @@ class ClientController extends Controller
             ]);
 
         return response()->json([
-            'client' => ClientResource::make($client->loadCount(['projects', 'invoices'])),
+            'client' => ClientResource::make($client->loadCount([...$this->visibleProjects($request), 'invoices'])),
             'stats' => [
                 'by_status' => $byStatus,
                 'total_pages' => (int) $volume->pages,
@@ -108,15 +115,15 @@ class ClientController extends Controller
             'projects' => ClientProjectResource::collection(
                 (clone $projects)
                     ->with(['sourceLanguage', 'targetLanguage', 'invoice:id,number'])
+                    // Uncapped now, so no per-row query for awaitsDocuments().
+                    ->withExists(['documentRequests as awaiting_documents' => fn ($query) => $query->pending()])
                     ->latest('created_at')
-                    ->take(10)
                     ->get(),
             ),
             'invoices' => InvoiceResource::collection(
                 Invoice::query()
                     ->where('client_id', $client->id)
                     ->latest('issued_at')
-                    ->take(10)
                     ->get(),
             ),
             'quote_requests' => QuoteRequestResource::collection(
@@ -171,16 +178,16 @@ class ClientController extends Controller
             $client->tokens()->delete();
         }
 
-        return ClientResource::make($client->loadCount('projects'));
+        return ClientResource::make($client->loadCount($this->visibleProjects($request)));
     }
 
     /** Take the website account away without touching the client's record or history. */
-    public function revokeAccount(Client $client): ClientResource
+    public function revokeAccount(Request $request, Client $client): ClientResource
     {
         $client->forceFill(['password' => null])->save();
         $client->tokens()->delete();
 
-        return ClientResource::make($client->loadCount('projects'));
+        return ClientResource::make($client->loadCount($this->visibleProjects($request)));
     }
 
     public function destroy(Client $client): JsonResponse
@@ -195,5 +202,17 @@ class ClientController extends Controller
         $client->delete();
 
         return response()->json(['message' => 'ok']);
+    }
+
+    /**
+     * `projects_count` as the viewer sees it — a PM counts their own projects, the
+     * same ones the client's file lists for them. Deleting a client still checks
+     * every project (destroy()), whoever owns them.
+     *
+     * @return array<string, \Closure>
+     */
+    private function visibleProjects(Request $request): array
+    {
+        return ['projects' => fn ($query) => $query->visibleTo($request->user())];
     }
 }

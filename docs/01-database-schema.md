@@ -17,7 +17,7 @@ erDiagram
     projects ||--o{ assignments : "assigned via"
     projects ||--o{ status_transitions : "history"
     projects }o--|| letterhead_templates : "letterhead"
-    projects }o--|| letterhead_templates : "stamp"
+    projects }o--o{ letterhead_templates : "stamps (project_stamps)"
     users ||--o{ status_transitions : "acts"
     users ||--o{ report_exports : "requests"
 
@@ -126,7 +126,7 @@ what makes the login lookup unambiguous.
 | deadline_at | timestamptz | |
 | instructions | text | nullable, special instructions |
 | quoted_amount | decimal(12,2) | nullable; currency `EGP` default |
-| letterhead_id / stamp_id | FK letterhead_templates | nullable until approval |
+| letterhead_id | FK letterhead_templates | nullable until approval |
 | created_by | FK users | the PM |
 | published_at / completed_at / cancelled_at | timestamptz | nullable milestones |
 | cancel_reason | text | nullable |
@@ -134,6 +134,19 @@ what makes the login lookup unambiguous.
 
 Indexes: `status`, `(status, priority, deadline_at)` (portal query), `deadline_at`, `client_id`, `created_by`,
 `(source_language_id, target_language_id, status)` (portal language filter).
+
+### project_stamps — the seals a final carries (2026-09-19)
+Replaced `projects.stamp_id`. Some documents go out under more than one seal — the
+office's and the sworn translator's, or a small seal on every page and the full one on
+the last — so approval picks any number, including none.
+
+| Column | Type | Notes |
+|---|---|---|
+| project_id | FK projects | `cascade` on delete |
+| stamp_id | FK letterhead_templates | `restrict` on delete — a seal a project was certified with cannot be deleted |
+| draw_order | smallint | Order picked at approval; later seals are drawn over earlier ones |
+
+Primary key `(project_id, stamp_id)`; index on `stamp_id`.
 
 ### project_files
 | Column | Type | Notes |
@@ -153,6 +166,7 @@ Indexes: `status`, `(status, priority, deadline_at)` (portal query), `deadline_a
 | count_status | varchar(20) | `pending` / `processing` / `done` / `failed` / `not_applicable` |
 | count_source | varchar(10) | `auto` / `manual` — manual fallback for scanned docs (OCR is Phase 2) |
 | version | int | default 1; re-uploads increment |
+| stamp_placements | jsonb, null | Deliverables only: where each seal sits on this document, keyed by stamp id — `{"6": {"anchor": "top-left", "offset_x_mm": 54.5, "offset_y_mm": 138.5, "pages": "last"}}`. Only what was dragged is stored; the merge fills the rest from that seal's template. A seal with no entry sits at its template's position. |
 
 Index: `(project_id, category)`.
 

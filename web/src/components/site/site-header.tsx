@@ -97,8 +97,14 @@ export function SiteHeader() {
               </>
             ))}
 
+          {/* A signed-in client is past the quote stage: their next job goes straight
+              into their own list, not through the stranger's form again. */}
           <Button size="sm" asChild>
-            <Link href="/request">اطلب عرض سعر</Link>
+            {client ? (
+              <Link href="/account/projects/new">مشروع جديد</Link>
+            ) : (
+              <Link href="/request">اطلب عرض سعر</Link>
+            )}
           </Button>
 
           <Button

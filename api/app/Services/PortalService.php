@@ -125,12 +125,13 @@ class PortalService
     /**
      * @param  list<UploadedFile>  $uploads  one delivery round; a visa application can
      *                                       carry a passport, a licence and a contract
-     * @param  array<int, array|null>  $stampPlacements  where the translator dragged the
-     *                                                   seal on each upload, keyed by the
-     *                                                   same index. Already normalized by
-     *                                                   the controller; a missing entry
-     *                                                   leaves the stamp template's own
-     *                                                   position in charge.
+     * @param  array<int, array<int, array>>  $stampPlacements  where the translator dragged
+     *                                                         each seal on each upload:
+     *                                                         upload index → stamp id →
+     *                                                         position. Already sanitized
+     *                                                         by the controller; a seal
+     *                                                         with no entry keeps its
+     *                                                         template's own position.
      */
     public function deliver(User $translator, array $uploads, array $stampPlacements = []): Assignment
     {
@@ -163,9 +164,9 @@ class PortalService
                     'mime_type' => $upload->getClientMimeType(),
                     'size_bytes' => $upload->getSize(),
                     'version' => $version,
-                    // Where this document's seal goes. Per file, because the blank
+                    // Where this document's seals go. Per file, because the blank
                     // space on a passport is nowhere near the blank space on a lease.
-                    'stamp_placement' => $stampPlacements[$index] ?? null,
+                    'stamp_placements' => ($stampPlacements[$index] ?? []) ?: null,
                 ]);
 
                 // The delivered file is counted like any other upload. It used to be
@@ -216,7 +217,7 @@ class PortalService
      * clock stays stopped: waiting for a review is not work.
      *
      * @param  list<UploadedFile>  $uploads
-     * @param  array<int, array|null>  $stampPlacements  keyed by upload index, as in deliver()
+     * @param  array<int, array<int, array>>  $stampPlacements  keyed by upload index, as in deliver()
      */
     public function amendDelivery(
         User $translator,
@@ -242,7 +243,7 @@ class PortalService
                     'mime_type' => $upload->getClientMimeType(),
                     'size_bytes' => $upload->getSize(),
                     'version' => $round,
-                    'stamp_placement' => $stampPlacements[$index] ?? null,
+                    'stamp_placements' => ($stampPlacements[$index] ?? []) ?: null,
                 ]);
 
                 CountWordsJob::dispatch($file)->afterCommit();

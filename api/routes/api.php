@@ -64,10 +64,15 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('/overview', [ClientPortalController::class, 'overview']);
             Route::get('/projects', [ClientPortalController::class, 'projects']);
+            // A new project from the client's own area — a draft the office publishes.
+            // Writes files, so it shares the upload limiter.
+            Route::post('/projects', [ClientPortalController::class, 'storeProject'])
+                ->middleware('throttle:client-uploads');
             Route::get('/projects/{project}', [ClientPortalController::class, 'project']);
             Route::get('/projects/{project}/files/{file}/download', [ClientPortalController::class, 'downloadFile']);
-            // The client area's only write: answering a document request. Throttled
-            // like every other route on the site that puts bytes on our disk.
+            // Answering a document request, sending a file unasked, or adding pages to
+            // their own unpublished draft. Throttled like every other route on the
+            // site that puts bytes on our disk.
             Route::post('/projects/{project}/files', [ClientPortalController::class, 'uploadFile'])
                 ->middleware('throttle:client-uploads');
             // Withdrawing their own upload — how "I sent the wrong photo" gets fixed.
@@ -123,9 +128,12 @@ Route::prefix('v1')->group(function (): void {
             Route::delete('/clients/{client}/account', [ClientController::class, 'revokeAccount']);
         });
 
-        // Projects (M3 + M5)
-        Route::middleware('permission:projects.view|projects.manage')->group(function (): void {
+        // Projects (M3 + M5). `project.visible`: a PM reaches only their own
+        // projects; the list is scoped the same way in ProjectController::index.
+        Route::middleware(['permission:projects.view|projects.manage', 'project.visible'])->group(function (): void {
             Route::get('/projects', [ProjectController::class, 'index']);
+            // Before {project}: "filter-options" must not be captured as an id.
+            Route::get('/projects/filter-options', [ProjectController::class, 'filterOptions']);
             Route::get('/projects/{project}', [ProjectController::class, 'show']);
             Route::get('/projects/{project}/timeline', [ProjectController::class, 'timeline']);
             Route::get('/projects/{project}/files/{file}/download', [ProjectFileController::class, 'download']);
@@ -133,7 +141,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/projects/{project}/final-files', [ProjectFileController::class, 'finalArchive']);
         });
 
-        Route::middleware('permission:projects.manage')->group(function (): void {
+        Route::middleware(['permission:projects.manage', 'project.visible'])->group(function (): void {
             Route::post('/projects', [ProjectController::class, 'store']);
             Route::put('/projects/{project}', [ProjectController::class, 'update']);
             // Only a project no translator ever claimed — see ProjectController::destroy.
@@ -180,8 +188,9 @@ Route::prefix('v1')->group(function (): void {
         // Invoices — client billing (change request agreed 2026-09-05)
         Route::middleware('permission:invoices.view|invoices.manage')->group(function (): void {
             Route::get('/invoices', [InvoiceController::class, 'index']);
-            // Before {invoice}: "billable" must not be captured as an id.
+            // Before {invoice}: "billable" and "clients" must not be captured as an id.
             Route::get('/invoices/billable', [InvoiceController::class, 'billable']);
+            Route::get('/invoices/clients', [InvoiceController::class, 'clients']);
             Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
             Route::get('/invoices/{invoice}/download', [InvoiceController::class, 'download']);
         });
@@ -193,7 +202,7 @@ Route::prefix('v1')->group(function (): void {
         });
 
         // Review flow (M5)
-        Route::middleware('permission:projects.review')->group(function (): void {
+        Route::middleware(['permission:projects.review', 'project.visible'])->group(function (): void {
             Route::post('/projects/{project}/review/open', [ReviewController::class, 'open']);
             Route::post('/projects/{project}/review/request-revision', [ReviewController::class, 'requestRevision']);
             Route::post('/projects/{project}/review/approve', [ReviewController::class, 'approve']);

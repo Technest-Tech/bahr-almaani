@@ -29,8 +29,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToneBadge } from "@/components/tone-badge";
 import { cn } from "@/lib/utils";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateFormatter = officeFormat({
   dateStyle: "long",
   timeStyle: "short",
 });

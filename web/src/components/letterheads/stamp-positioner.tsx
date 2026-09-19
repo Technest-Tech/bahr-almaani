@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { StampPosition } from "@/lib/types";
 
 /** How far one arrow-key press moves the seal, in millimetres. */
@@ -42,6 +42,7 @@ export function StampPositioner({
   value,
   onChange,
   disabled = false,
+  children,
 }: {
   surface: StampSurface;
   stampSrc: string;
@@ -50,6 +51,8 @@ export function StampPositioner({
   value: StampPosition | null;
   onChange: (next: StampPosition) => void;
   disabled?: boolean;
+  /** Drawn on the page under the seal being dragged — the document's other seals. */
+  children?: ReactNode;
 }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const stampRef = useRef<HTMLImageElement>(null);
@@ -184,6 +187,8 @@ export function StampPositioner({
           className="pointer-events-none absolute inset-0 size-full select-none object-contain"
           draggable={false}
         />
+
+        {children}
 
         <div
           role="application"

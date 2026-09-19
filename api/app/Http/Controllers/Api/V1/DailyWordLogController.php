@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\DailyWordLog;
 use App\Services\ProductionService;
+use App\Support\Timezone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -39,11 +40,14 @@ class DailyWordLogController extends Controller
         ]);
 
         $user = $request->user();
-        $from = Carbon::parse(($validated['month'] ?? now()->format('Y-m')).'-01')->startOfMonth();
+
+        // Every "today" here is the office's: at 01:00 Cairo it is already the
+        // next day, and the night shift logs against that one.
+        $today = Timezone::now()->startOfDay();
+        $from = Carbon::parse(($validated['month'] ?? $today->format('Y-m')).'-01', $today->timezone)->startOfMonth();
 
         // The current month stops at today: a row for the 27th of a month that
         // has not happened yet is an input nobody can use.
-        $today = now()->setTimezone($this->production->workTimezone())->startOfDay();
         $to = $from->copy()->endOfMonth()->min($today);
 
         $days = $this->production->dailyBreakdown($user->id, $from, $to->copy()->endOfDay());
@@ -68,8 +72,8 @@ class DailyWordLogController extends Controller
             ],
             'limits' => [
                 'max_declared_words' => self::MAX_DECLARED_WORDS,
-                'earliest_date' => now()->subDays(self::BACKDATE_DAYS)->toDateString(),
-                'latest_date' => now()->toDateString(),
+                'earliest_date' => $today->copy()->subDays(self::BACKDATE_DAYS)->toDateString(),
+                'latest_date' => $today->toDateString(),
             ],
         ]]);
     }
@@ -77,11 +81,13 @@ class DailyWordLogController extends Controller
     /** Record (or overwrite) one day. Every edit is activity-logged. */
     public function store(Request $request): JsonResponse
     {
+        $today = Timezone::now();
+
         $validated = $request->validate([
             'work_date' => [
                 'required', 'date_format:Y-m-d',
-                'after_or_equal:'.now()->subDays(self::BACKDATE_DAYS)->toDateString(),
-                'before_or_equal:'.now()->toDateString(),
+                'after_or_equal:'.$today->copy()->subDays(self::BACKDATE_DAYS)->toDateString(),
+                'before_or_equal:'.$today->toDateString(),
             ],
             'declared_words' => ['required', 'integer', 'min:0', 'max:'.self::MAX_DECLARED_WORDS],
             'note' => ['nullable', 'string', 'max:500'],

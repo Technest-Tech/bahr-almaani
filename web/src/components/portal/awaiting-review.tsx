@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import { formatRelative } from "@/lib/format";
-import type { Assignment, ProjectFile, StampPosition } from "@/lib/types";
+import type { Assignment, ProjectFile, StampPositions } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useConfirm } from "@/components/confirm";
@@ -93,7 +93,7 @@ function DeliveryCard({
     if (addInput.current) addInput.current.value = "";
   }
 
-  async function submit(placements: Record<number, StampPosition>) {
+  async function submit(placements: Record<number, StampPositions>) {
     setSubmitting(true);
 
     const formData = new FormData();

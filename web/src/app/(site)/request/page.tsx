@@ -2,24 +2,20 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   ArrowLeft,
   BadgeCheck,
   Check,
   Copy,
-  FileText,
-  Flame,
+  FilePlus2,
   Lock,
-  Paperclip,
   Search,
   Timer,
-  Trash2,
-  Upload,
-  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
+import { useClientAuth } from "@/lib/client-auth";
 import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import type { Language, Priority, PublicQuoteRequest } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -37,28 +33,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/field";
 import { FormSection } from "@/components/form-section";
-import { cn } from "@/lib/utils";
-
-interface Limits {
-  max_files: number;
-  max_file_kb: number;
-  extensions: string[];
-}
-
-const PRIORITIES: { value: Priority; label: string; hint: string; icon: typeof Timer }[] = [
-  { value: "normal", label: "عادي", hint: "الجدول المعتاد", icon: Timer },
-  { value: "urgent", label: "عاجل", hint: "أولوية على الطابور", icon: Zap },
-  { value: "critical", label: "حرج", hint: "أسرع تنفيذ ممكن", icon: Flame },
-];
+import { FileDropzone, formatBytes, type UploadLimits as Limits } from "@/components/site/file-dropzone";
+import { PriorityPicker } from "@/components/site/priority-picker";
 
 function Required() {
   return <span className="text-destructive">*</span>;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} م.ب`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} ك.ب`;
-  return `${bytes} بايت`;
 }
 
 export default function QuoteRequestPage() {
@@ -99,10 +78,9 @@ function RequestForm({
   limits?: Limits;
   onSubmitted: (quote: PublicQuoteRequest) => void;
 }) {
-  const fileInput = useRef<HTMLInputElement>(null);
   const { upload } = useFileTransfer();
+  const { client } = useClientAuth();
   const [files, setFiles] = useState<File[]>([]);
-  const [dragging, setDragging] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -131,26 +109,6 @@ function RequestForm({
     value: String(language.id),
     label: language.name_ar,
   }));
-
-  /** Reject what the API would reject anyway, but before the upload wastes their time. */
-  function addFiles(incoming: FileList | null) {
-    if (!incoming) return;
-
-    const accepted: File[] = [];
-    for (const file of Array.from(incoming)) {
-      if (file.size > maxFileBytes) {
-        toast.error(`«${file.name}» أكبر من الحد المسموح (${formatBytes(maxFileBytes)})`);
-        continue;
-      }
-      if (files.length + accepted.length >= maxFiles) {
-        toast.error(`الحد الأقصى ${maxFiles} ملفات لكل طلب`);
-        break;
-      }
-      accepted.push(file);
-    }
-
-    if (accepted.length) setFiles((current) => [...current, ...accepted]);
-  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -223,6 +181,24 @@ function RequestForm({
           </span>
         </div>
       </div>
+
+      {/* The home page and the footer still send everyone here. A signed-in client
+          does not need a quote and a reference number — their project can go
+          straight into their own list. */}
+      {client && (
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-5 py-4">
+          <p className="text-sm leading-relaxed">
+            لديك حساب لدينا يا {client.name} — أضف مشروعك مباشرة من حسابك دون طلب عرض سعر،
+            وتابعه من «مشاريعي».
+          </p>
+          <Button size="sm" asChild>
+            <Link href="/account/projects/new">
+              <FilePlus2 className="size-4" />
+              مشروع جديد
+            </Link>
+          </Button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-10">
         <Card className="gap-0 overflow-hidden py-0">
@@ -391,123 +367,17 @@ function RequestForm({
               title="الأولوية"
               description="الأولوية الأعلى تعني موضعاً أسبق في جدول التنفيذ، وقد تؤثر على التكلفة."
             >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {PRIORITIES.map((option) => {
-                  const active = form.priority === option.value;
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => setForm((f) => ({ ...f, priority: option.value }))}
-                      className={cn(
-                        "flex items-start gap-3 rounded-xl border p-4 text-start transition-all",
-                        active
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "hover:border-primary/40 hover:bg-accent/50",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "flex size-9 shrink-0 items-center justify-center rounded-lg",
-                          active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        <option.icon className="size-4" />
-                      </span>
-                      <span className="grid gap-0.5">
-                        <span className="text-sm font-semibold">{option.label}</span>
-                        <span className="text-xs text-muted-foreground">{option.hint}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <PriorityPicker
+                value={form.priority}
+                onChange={(priority) => setForm((f) => ({ ...f, priority }))}
+              />
             </FormSection>
 
             <FormSection
               title="المرفقات"
               description={`ارفع المستندات المطلوب ترجمتها. حتى ${maxFiles} ملفات، وبحد أقصى ${formatBytes(maxFileBytes)} للملف.`}
             >
-              <div
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragging(true);
-                }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDragging(false);
-                  addFiles(event.dataTransfer.files);
-                }}
-                className={cn(
-                  "rounded-xl border-2 border-dashed p-8 text-center transition-colors",
-                  dragging ? "border-primary bg-primary/5" : "border-border bg-muted/30",
-                )}
-              >
-                <span className="mx-auto flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Upload className="size-5" />
-                </span>
-                <p className="mt-3 text-sm font-medium">اسحب الملفات إلى هنا</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  الصيغ المدعومة:{" "}
-                  {/* Latin extension list — forced LTR so the ellipsis doesn't jump to the front. */}
-                  <span dir="ltr" className="inline-block">
-                    {(limits?.extensions ?? ["pdf", "docx", "xlsx", "jpg", "png"])
-                      .slice(0, 8)
-                      .join(", ")}
-                    {(limits?.extensions?.length ?? 0) > 8 ? "…" : ""}
-                  </span>
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <Paperclip className="size-4" />
-                  اختر من جهازك
-                </Button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  multiple
-                  hidden
-                  onChange={(event) => {
-                    addFiles(event.target.files);
-                    event.target.value = "";
-                  }}
-                />
-              </div>
-
-              {fileError && <p className="text-xs text-destructive">{fileError}</p>}
-
-              {files.length > 0 && (
-                <ul className="divide-y overflow-hidden rounded-xl border">
-                  {files.map((file, index) => (
-                    <li
-                      key={`${file.name}-${index}`}
-                      className="flex items-center gap-3 bg-card px-4 py-2.5"
-                    >
-                      <FileText className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate text-[13px]">{file.name}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatBytes(file.size)}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`حذف ${file.name}`}
-                        onClick={() => setFiles((current) => current.filter((_, i) => i !== index))}
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              <FileDropzone files={files} onChange={setFiles} limits={limits} error={fileError} />
 
               <p className="text-xs text-muted-foreground">
                 لا تملك نسخة إلكترونية؟ صوّر المستند بهاتفك وأرفق الصورة — نتعامل مع

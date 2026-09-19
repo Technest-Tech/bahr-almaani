@@ -38,8 +38,9 @@ import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { UserFormDialog } from "@/components/users/user-form-dialog";
 import { LanguagePairsDialog } from "@/components/users/language-pairs-dialog";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });

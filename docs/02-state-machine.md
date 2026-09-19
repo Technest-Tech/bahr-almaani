@@ -37,7 +37,7 @@ stateDiagram-v2
 | `delivered` | تم التسليم | Deliverable uploaded, awaiting review | **⏱ stops at delivery** |
 | `in_review` | قيد المراجعة | PM reviewing quality | — |
 | `revision_requested` | مطلوب تعديل | Returned to the **same** translator (stays assigned; portal lock stays) | ⏱ revision time tracked separately on the assignment |
-| `approved` | معتمد | Quality approved; PM chooses letterhead + stamp — **both optional** since 2026-09-07, so a plain PDF delivery is a valid finish | — |
+| `approved` | معتمد | Quality approved; PM chooses the letterhead and the seals — **both optional** since 2026-09-07, so a plain PDF delivery is a valid finish; any number of seals since 2026-09-19 | — |
 | `completed` | مكتمل | Final merged file ready; client can be served | — |
 | `archived` | مؤرشف | Read-only, out of active dashboards | — |
 | `cancelled` | ملغي | Terminated; reason mandatory | — |

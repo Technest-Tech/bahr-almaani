@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Models\Project;
 use App\Notifications\Concerns\RespectsMailPreference;
 use App\Support\NotificationPreferences;
+use App\Support\Timezone;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -24,7 +25,7 @@ class ProjectAvailableNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $deadline = $this->project->deadline_at?->timezone(config('app.timezone'))->format('Y-m-d H:i');
+        $deadline = $this->project->deadline_at?->timezone(Timezone::display())->format('Y-m-d H:i');
 
         return (new MailMessage)
             ->subject("ملف جديد متاح — {$this->project->code}")

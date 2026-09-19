@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Client;
+use App\Models\Invoice;
 use App\Models\Language;
 use App\Models\Project;
 use App\Models\User;
@@ -70,5 +71,46 @@ class ClientManagementTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->deleteJson("/api/v1/clients/{$client->id}")
             ->assertStatus(422);
+    }
+
+    public function test_the_client_file_lists_every_invoice_and_project_not_just_the_latest_ten(): void
+    {
+        $this->seed(LanguageSeeder::class);
+        $client = Client::create(['name' => 'عميل قديم', 'type' => 'company', 'created_by' => $this->pm->id]);
+
+        foreach (range(1, 12) as $n) {
+            $project = Project::create([
+                'code' => 'BM-2026-'.str_pad((string) $n, 5, '0', STR_PAD_LEFT),
+                'client_id' => $client->id,
+                'title' => "مشروع {$n}",
+                'source_language_id' => Language::where('code', 'en')->first()->id,
+                'target_language_id' => Language::where('code', 'ar')->first()->id,
+                'service_type' => 'certified',
+                'priority' => 'normal',
+                'status' => Project::STATUS_COMPLETED,
+                'deadline_at' => now()->addDay(),
+                'created_by' => $this->pm->id,
+            ]);
+
+            Invoice::create([
+                'number' => 'INV-2026-'.str_pad((string) $n, 5, '0', STR_PAD_LEFT),
+                'client_id' => $client->id,
+                'total_pages' => 1,
+                'amount' => 100,
+                'line_items' => [['project_id' => $project->id, 'code' => $project->code, 'title' => $project->title, 'pages' => 1, 'words' => null]],
+                'created_by' => $this->pm->id,
+                'issued_at' => now()->subDays($n),
+            ]);
+        }
+
+        $overview = $this->actingAs($this->pm, 'sanctum')
+            ->getJson("/api/v1/clients/{$client->id}/overview")
+            ->assertOk();
+
+        $this->assertCount(12, $overview->json('projects'));
+        $this->assertCount(12, $overview->json('invoices'));
+        // The oldest invoice is there, with the file it bills.
+        $this->assertSame('INV-2026-00012', $overview->json('invoices.11.number'));
+        $this->assertSame('مشروع 12', $overview->json('invoices.11.line_items.0.title'));
     }
 }

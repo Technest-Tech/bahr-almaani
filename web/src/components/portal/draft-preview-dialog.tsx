@@ -8,7 +8,7 @@ import { ApiError, api, apiForm, renderedPdfUrl } from "@/lib/api";
 import {
   type LetterheadTemplate,
   type PlacementPages,
-  type StampPosition,
+  type StampPositions,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,15 +39,16 @@ const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
  * The seal is placed HERE too, not only at delivery: seeing it sit on the
  * signature block is what makes a translator want to move it, so the same
  * drag surface the delivery dialog uses is one button away, and the draft is
- * rendered with the dragged position (the API honours `stamp_placements[0]`).
+ * rendered with the dragged positions (the API honours `stamp_placements[0]`, one
+ * position per seal — a document can carry more than one).
  *
  * The draft renders inside the dialog rather than in a new tab: the render takes
  * long enough that popup blockers eat a `window.open` after it — the office saw
  * a success toast, no tab, and concluded the system "downloads the file".
  *
  * The result is a draft: every page is watermarked, nothing is stored, and the
- * project's own letterhead/stamp are untouched. When it looks right, «متابعة
- * للتسليم» hands this exact file and seal position to the delivery dialog —
+ * project's own letterhead and seals are untouched. When it looks right, «متابعة
+ * للتسليم» hands this exact file and its seal positions to the delivery dialog —
  * without it, the translator had to re-pick the file and re-drag the seal, and
  * several of them looped between preview and delivery without ever submitting.
  */
@@ -58,14 +59,15 @@ export function DraftPreviewDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  /** Stage this exact file (and seal position) for delivery. */
-  onDeliver: (file: File, placement: StampPosition | null) => void;
+  /** Stage this exact file (and its seal positions, by stamp id) for delivery. */
+  onDeliver: (file: File, placements: StampPositions) => void;
 }) {
   const [letterheadId, setLetterheadId] = useState<number | null>(null);
-  const [stampId, setStampId] = useState<number | null>(null);
+  // null until the translator touches the picker, so the lone seal can stay preselected.
+  const [stampIds, setStampIds] = useState<number[] | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [placement, setPlacement] = useState<StampPosition | null>(null);
-  const [positioning, setPositioning] = useState(false);
+  const [placements, setPlacements] = useState<StampPositions>({});
+  const [positioning, setPositioning] = useState<LetterheadTemplate | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -84,9 +86,12 @@ export function DraftPreviewDialog({
   const letterhead =
     letterheads.find((t) => t.id === letterheadId) ??
     (letterheads.length === 1 ? letterheads[0] : null);
-  const stamp = stamps.find((t) => t.id === stampId) ?? (stamps.length === 1 ? stamps[0] : null);
+  const chosenIds = stampIds ?? (stamps.length === 1 ? [stamps[0].id] : []);
+  const chosenStamps = chosenIds
+    .map((id) => stamps.find((t) => t.id === id))
+    .filter((t): t is LetterheadTemplate => !!t);
 
-  const ready = !!file && (letterhead !== null || stamp !== null);
+  const ready = !!file && (letterhead !== null || chosenStamps.length > 0);
 
   /** A stale draft is worse than none — any input change discards the render. */
   function discardPreview() {
@@ -99,17 +104,31 @@ export function DraftPreviewDialog({
   function reset() {
     discardPreview();
     setLetterheadId(null);
-    setStampId(null);
+    setStampIds(null);
     setFile(null);
-    setPlacement(null);
-    setPositioning(false);
+    setPlacements({});
+    setPositioning(null);
     setSubmitting(false);
   }
 
   function chooseFile(next: File | null) {
     setFile(next);
-    setPlacement(null); // measured against the old document's geometry
+    setPlacements({}); // measured against the old document's geometry
     discardPreview();
+  }
+
+  function toggleStamp(id: number) {
+    setStampIds(
+      chosenIds.includes(id) ? chosenIds.filter((other) => other !== id) : [...chosenIds, id],
+    );
+    discardPreview();
+  }
+
+  /** Only the chosen seals' positions — an unchosen one is not on this draft. */
+  function chosenPlacements(): StampPositions {
+    return Object.fromEntries(
+      chosenStamps.filter((t) => placements[t.id]).map((t) => [t.id, placements[t.id]]),
+    );
   }
 
   async function loadSurface(pages: PlacementPages): Promise<StampSurface> {
@@ -131,8 +150,11 @@ export function DraftPreviewDialog({
       const form = new FormData();
       form.append("file", file);
       if (letterhead) form.append("letterhead_id", String(letterhead.id));
-      if (stamp) form.append("stamp_id", String(stamp.id));
-      if (placement) form.append("stamp_placements[0]", JSON.stringify(placement));
+      chosenStamps.forEach((stamp) => form.append("stamp_ids[]", String(stamp.id)));
+      const positions = chosenPlacements();
+      if (Object.keys(positions).length > 0) {
+        form.append("stamp_placements[0]", JSON.stringify(positions));
+      }
 
       const url = await renderedPdfUrl("/portal/preview", form);
       setPreviewUrl((old) => {
@@ -167,8 +189,8 @@ export function DraftPreviewDialog({
           <DialogHeader>
             <DialogTitle>معاينة الملف بالترويسة والختم</DialogTitle>
             <DialogDescription>
-              ارفع ترجمتك واختر الترويسة أو الختم لترى شكل الملف قبل التسليم — ويمكنك سحب الختم إلى
-              موضعه المناسب.
+              ارفع ترجمتك واختر الترويسة أو الأختام لترى شكل الملف قبل التسليم — ويمكنك سحب كل ختم
+              إلى موضعه المناسب.
             </DialogDescription>
           </DialogHeader>
 
@@ -196,12 +218,20 @@ export function DraftPreviewDialog({
               <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
                 {file ? file.name : "لم يُختر ملف بعد"}
               </span>
-              <StampPlacementButton
-                value={placement}
-                onClick={() => setPositioning(true)}
-                disabled={!file || !stamp || submitting}
-              />
             </div>
+            {chosenStamps.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {chosenStamps.map((stamp) => (
+                  <StampPlacementButton
+                    key={stamp.id}
+                    value={placements[stamp.id] ?? null}
+                    label={chosenStamps.length > 1 ? stamp.name : undefined}
+                    onClick={() => setPositioning(stamp)}
+                    disabled={!file || submitting}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-5">
@@ -220,14 +250,11 @@ export function DraftPreviewDialog({
             />
             <TemplatePicker
               kind="stamp"
-              title="الختم"
+              title="الأختام"
               templates={stamps}
               loading={isLoading}
-              selectedId={stamp?.id ?? null}
-              onSelect={(id) => {
-                setStampId(id);
-                discardPreview();
-              }}
+              selectedIds={chosenIds}
+              onSelect={toggleStamp}
               assetPath={portalAssetPath}
               emptyHint={false}
             />
@@ -282,10 +309,10 @@ export function DraftPreviewDialog({
                 type="button"
                 onClick={() => {
                   const chosen = file;
-                  const chosenPlacement = placement;
+                  const positions = chosenPlacements();
                   reset();
                   onClose();
-                  onDeliver(chosen, chosenPlacement);
+                  onDeliver(chosen, positions);
                 }}
               >
                 <Send className="size-4" />
@@ -299,17 +326,31 @@ export function DraftPreviewDialog({
       {positioning && file && (
         <StampPlacementDialog
           open
-          onClose={() => setPositioning(false)}
-          stamp={stamp}
+          onClose={() => setPositioning(null)}
+          stamp={positioning}
           stampAssetPath={portalAssetPath}
           loadSurface={loadSurface}
           surfaceKey={`preview-${file.name}-${file.size}`}
-          value={placement}
+          value={placements[positioning.id] ?? null}
           onSave={(next) => {
-            setPlacement(next);
+            setPlacements((current) => {
+              const rest = { ...current };
+              if (next === null) delete rest[positioning.id];
+              else rest[positioning.id] = next;
+
+              return rest;
+            });
             discardPreview();
           }}
-          title={`موضع الختم — ${file.name}`}
+          // Every chosen seal is on this draft, placed or not, so all are shown.
+          others={chosenStamps
+            .filter((stamp) => stamp.id !== positioning.id)
+            .map((stamp) => ({ stamp, position: placements[stamp.id] ?? null }))}
+          title={
+            chosenStamps.length > 1
+              ? `موضع ${positioning.name} — ${file.name}`
+              : `موضع الختم — ${file.name}`
+          }
         />
       )}
     </>

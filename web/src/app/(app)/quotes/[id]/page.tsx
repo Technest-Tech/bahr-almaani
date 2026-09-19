@@ -42,8 +42,9 @@ import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { ConvertDialog } from "@/components/quotes/convert-dialog";
 import { RespondDialog } from "@/components/quotes/respond-dialog";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });

@@ -88,7 +88,8 @@ await page.screenshot({ path: `${OUT}/draft-inline.png` });
 await page.getByRole("button", { name: "متابعة للتسليم" }).click();
 await page.getByText("تسليم الترجمة").first().waitFor({ timeout: 10000 });
 await page.waitForTimeout(500);
-const custom = await page.getByText("موضع مخصّص").count();
+// The seal's button reads «… مضبوط» once it carries a position of its own.
+const custom = await page.getByRole("button", { name: /مضبوط/ }).count();
 console.log("deliver dialog shows custom position:", custom > 0);
 await page.screenshot({ path: `${OUT}/deliver-bridged.png` });
 

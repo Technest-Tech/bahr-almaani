@@ -22,6 +22,8 @@ class ProjectResource extends JsonResource
             'title_auto' => (bool) $this->title_auto,
             'status' => $this->status,
             'status_label' => __("projects.status.{$this->status}"),
+            // Started by the client from their own area rather than by the office.
+            'client_submitted' => (bool) $this->client_submitted,
             'priority' => $this->priority,
             'service_type' => $this->service_type,
             'country_code' => $this->country_code,
@@ -54,12 +56,14 @@ class ProjectResource extends JsonResource
             'client' => ClientResource::make($this->whenLoaded('client')),
             'source_language' => LanguageResource::make($this->whenLoaded('sourceLanguage')),
             'target_language' => LanguageResource::make($this->whenLoaded('targetLanguage')),
-            'creator' => $this->whenLoaded('creator', fn () => [
+            // Null on a client's submission until a PM takes it (ProjectController::update).
+            'creator' => $this->whenLoaded('creator', fn () => $this->creator ? [
                 'id' => $this->creator->id,
                 'name' => $this->creator->name,
-            ]),
+            ] : null),
             'letterhead' => LetterheadTemplateResource::make($this->whenLoaded('letterhead')),
-            'stamp' => LetterheadTemplateResource::make($this->whenLoaded('stamp')),
+            // The seals, in the order they are drawn; empty when the final is unsealed.
+            'stamps' => LetterheadTemplateResource::collection($this->whenLoaded('stamps')),
             'files' => ProjectFileResource::collection($this->whenLoaded('files')),
             'document_requests' => DocumentRequestResource::collection($this->whenLoaded('documentRequests')),
             'awaiting_documents' => $this->awaitsDocuments(),

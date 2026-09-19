@@ -8,6 +8,7 @@ use App\Models\LetterheadTemplate;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\User;
+use App\Services\DocumentCounter;
 use App\Services\DocumentMergeService;
 use App\Support\PlacementConfig;
 use Database\Seeders\LanguageSeeder;
@@ -20,11 +21,13 @@ use Tests\Concerns\FakesDocumentConversion;
 use Tests\TestCase;
 
 /**
- * Per-document stamp placement — the translator drags the seal onto the blank space
+ * Per-document stamp placement — the translator drags each seal onto the blank space
  * they can actually see, and that is where the certified PDF carries it.
  *
  * The position lives on the FILE, not the project: one delivery round can be a
- * passport, a licence and a contract, and their blank space is in three places.
+ * passport, a licence and a contract, and their blank space is in three places. And it
+ * is kept per SEAL: a document can carry the office's seal and the sworn translator's,
+ * and two seals cannot share a spot.
  */
 class StampPlacementTest extends TestCase
 {
@@ -35,6 +38,11 @@ class StampPlacementTest extends TestCase
     private User $pm;
 
     private User $translator;
+
+    /** The office seal — named to sort first, so it is the one a single-seal screen showed. */
+    private LetterheadTemplate $officeSeal;
+
+    private LetterheadTemplate $translatorSeal;
 
     protected function setUp(): void
     {
@@ -47,6 +55,15 @@ class StampPlacementTest extends TestCase
         $this->admin = User::factory()->create()->assignRole('admin');
         $this->pm = User::factory()->create()->assignRole('project_manager');
         $this->translator = User::factory()->create()->assignRole('translator');
+
+        $this->officeSeal = LetterheadTemplate::factory()->stamp()->create([
+            'name' => 'أ — ختم المكتب',
+            'created_by' => $this->admin->id,
+        ]);
+        $this->translatorSeal = LetterheadTemplate::factory()->stamp()->create([
+            'name' => 'ب — ختم المترجم',
+            'created_by' => $this->admin->id,
+        ]);
     }
 
     public function test_the_translator_places_the_seal_and_the_delivered_file_remembers_it(): void
@@ -57,9 +74,11 @@ class StampPlacementTest extends TestCase
             ->post('/api/v1/portal/deliver', [
                 'files' => [UploadedFile::fake()->create('translation.docx', 12)],
                 'stamp_placements' => [0 => json_encode([
-                    'anchor' => 'top-left',
-                    'offset_x_mm' => 120.4,
-                    'offset_y_mm' => 210.75,
+                    $this->officeSeal->id => [
+                        'anchor' => 'top-left',
+                        'offset_x_mm' => 120.4,
+                        'offset_y_mm' => 210.75,
+                    ],
                 ])],
             ])
             ->assertOk();
@@ -67,13 +86,58 @@ class StampPlacementTest extends TestCase
         $delivered = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
 
         $this->assertSame(
-            ['anchor' => 'top-left', 'offset_x_mm' => 120.4, 'offset_y_mm' => 210.75],
-            $delivered->stamp_placement,
+            [$this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 120.4, 'offset_y_mm' => 210.75]],
+            $delivered->stamp_placements,
         );
         $this->assertArrayNotHasKey(
             'width_mm',
-            $delivered->stamp_placement,
-            'No stamp template is chosen yet, so the size must stay the template\'s to give.',
+            $delivered->stamp_placements[$this->officeSeal->id],
+            'Only what was dragged is stored, so the size stays the template\'s to give.',
+        );
+    }
+
+    /** Two seals on one document each keep their own spot — they cannot share one. */
+    public function test_each_seal_on_one_document_keeps_its_own_position(): void
+    {
+        $project = $this->claimedProject();
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/deliver', [
+                'files' => [UploadedFile::fake()->create('court-ruling.docx', 12)],
+                'stamp_placements' => [0 => json_encode([
+                    $this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 20.5, 'offset_y_mm' => 240.5],
+                    $this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 130.5, 'offset_y_mm' => 240.5, 'pages' => 'all'],
+                ])],
+            ])
+            ->assertOk();
+
+        $placements = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole()->stamp_placements;
+
+        $this->assertSame(20.5, $placements[$this->officeSeal->id]['offset_x_mm']);
+        $this->assertSame(130.5, $placements[$this->translatorSeal->id]['offset_x_mm']);
+        $this->assertSame('all', $placements[$this->translatorSeal->id]['pages']);
+        $this->assertArrayNotHasKey('pages', $placements[$this->officeSeal->id]);
+    }
+
+    /**
+     * A portal tab loaded before several seals were possible still sends one flat
+     * position. It was dragged with the first active seal on screen, so that is the seal
+     * it belongs to — dropping it would silently undo the translator's placement.
+     */
+    public function test_a_single_seal_position_from_an_older_screen_is_kept_for_the_seal_it_showed(): void
+    {
+        $project = $this->claimedProject();
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/deliver', [
+                'files' => [UploadedFile::fake()->create('translation.docx', 12)],
+                'stamp_placements' => [0 => json_encode(['anchor' => 'top-left', 'offset_x_mm' => 55.5])],
+            ])
+            ->assertOk();
+
+        $this->assertSame(
+            [$this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 55.5]],
+            $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole()->stamp_placements,
         );
     }
 
@@ -81,6 +145,7 @@ class StampPlacementTest extends TestCase
     public function test_every_file_of_one_round_keeps_its_own_position(): void
     {
         $project = $this->claimedProject();
+        $seal = $this->officeSeal->id;
 
         $this->actingAs($this->translator, 'sanctum')
             ->post('/api/v1/portal/deliver', [
@@ -89,8 +154,8 @@ class StampPlacementTest extends TestCase
                     UploadedFile::fake()->create('lease.docx', 12),
                 ],
                 'stamp_placements' => [
-                    0 => json_encode(['anchor' => 'top-right', 'offset_y_mm' => 40]),
-                    1 => json_encode(['anchor' => 'bottom-left', 'offset_y_mm' => 25]),
+                    0 => json_encode([$seal => ['anchor' => 'top-right', 'offset_y_mm' => 40]]),
+                    1 => json_encode([$seal => ['anchor' => 'bottom-left', 'offset_y_mm' => 25]]),
                 ],
             ])
             ->assertOk();
@@ -100,8 +165,8 @@ class StampPlacementTest extends TestCase
             ->orderBy('id')
             ->get();
 
-        $this->assertSame('top-right', $files[0]->stamp_placement['anchor']);
-        $this->assertSame('bottom-left', $files[1]->stamp_placement['anchor']);
+        $this->assertSame('top-right', $files[0]->stamp_placements[$seal]['anchor']);
+        $this->assertSame('bottom-left', $files[1]->stamp_placements[$seal]['anchor']);
     }
 
     /** A delivery must never fail because the optional position riding with it was junk. */
@@ -118,7 +183,7 @@ class StampPlacementTest extends TestCase
 
         $delivered = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
 
-        $this->assertNull($delivered->stamp_placement, 'Falls back to the stamp template.');
+        $this->assertNull($delivered->stamp_placements, 'Falls back to the stamp template.');
         $this->assertSame(Project::STATUS_DELIVERED, $project->fresh()->status);
     }
 
@@ -134,33 +199,97 @@ class StampPlacementTest extends TestCase
             ->assertOk();
 
         $this->assertNull(
-            $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole()->stamp_placement,
+            $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole()->stamp_placements,
         );
     }
 
     public function test_the_pm_can_move_the_seal_at_approval(): void
     {
         Notification::fake();
-        $project = $this->approvableProject(['anchor' => 'top-left', 'offset_x_mm' => 10.0]);
+        $project = $this->approvableProject([$this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 10.0]]);
         $deliverable = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
 
         $this->approve($project, [
-            $deliverable->id => ['anchor' => 'bottom-right', 'offset_x_mm' => 30.0, 'offset_y_mm' => 15.0],
+            $deliverable->id => [
+                $this->officeSeal->id => ['anchor' => 'bottom-right', 'offset_x_mm' => 30.0, 'offset_y_mm' => 15.0],
+            ],
         ]);
 
-        $this->assertSame('bottom-right', $deliverable->fresh()->stamp_placement['anchor']);
+        $this->assertSame('bottom-right', $deliverable->fresh()->stamp_placements[$this->officeSeal->id]['anchor']);
     }
 
-    /** Clearing it is how the PM says "put it back where the stamp template wants it". */
-    public function test_the_pm_can_clear_the_translators_position(): void
+    /** Moving one seal leaves the other exactly where the translator put it. */
+    public function test_the_pm_moving_one_seal_leaves_the_other_alone(): void
     {
         Notification::fake();
-        $project = $this->approvableProject(['anchor' => 'top-left', 'offset_x_mm' => 10.0]);
+        $project = $this->approvableProject([
+            $this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 10.0],
+            $this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 140.5],
+        ]);
+        $deliverable = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
+
+        $this->approve($project, [
+            $deliverable->id => [$this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 25.5]],
+        ], [$this->officeSeal->id, $this->translatorSeal->id]);
+
+        $placements = $deliverable->fresh()->stamp_placements;
+        $this->assertSame(25.5, $placements[$this->officeSeal->id]['offset_x_mm']);
+        $this->assertSame(140.5, $placements[$this->translatorSeal->id]['offset_x_mm']);
+    }
+
+    /** Clearing one is how the PM says "put this seal back where its template wants it". */
+    public function test_the_pm_can_clear_one_seals_position(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject([
+            $this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 10.0],
+            $this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 140.5],
+        ]);
+        $deliverable = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
+
+        $this->approve($project, [$deliverable->id => [$this->officeSeal->id => null]], [$this->officeSeal->id, $this->translatorSeal->id]);
+
+        $this->assertSame(
+            [$this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 140.5]],
+            $deliverable->fresh()->stamp_placements,
+        );
+    }
+
+    /** A null for the whole file puts every seal back at its template's position. */
+    public function test_the_pm_can_clear_every_position_on_a_file(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject([$this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 10.0]]);
         $deliverable = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
 
         $this->approve($project, [$deliverable->id => null]);
 
-        $this->assertNull($deliverable->fresh()->stamp_placement);
+        $this->assertNull($deliverable->fresh()->stamp_placements);
+    }
+
+    /**
+     * An approval dialog loaded before several seals were possible sends one stamp_id and
+     * flat positions. They belong to that one seal, so the PM's last move still lands.
+     */
+    public function test_an_older_approval_dialogs_single_seal_position_still_lands(): void
+    {
+        Notification::fake();
+        $project = $this->approvableProject();
+        $deliverable = $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->admin->id])->id,
+                'stamp_id' => $this->translatorSeal->id,
+                'stamp_placements' => [$deliverable->id => ['anchor' => 'top-left', 'offset_x_mm' => 77.5]],
+            ])
+            ->assertOk();
+
+        $this->assertSame([$this->translatorSeal->id], $project->fresh()->stamps->modelKeys());
+        $this->assertSame(
+            [$this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 77.5]],
+            $deliverable->fresh()->stamp_placements,
+        );
     }
 
     /** Approval is the last step of a long review; a stale id must not 422 it. */
@@ -171,9 +300,9 @@ class StampPlacementTest extends TestCase
         $foreign = $this->approvableProject();
         $foreignFile = $foreign->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole();
 
-        $this->approve($project, [$foreignFile->id => ['anchor' => 'top-left']]);
+        $this->approve($project, [$foreignFile->id => [$this->officeSeal->id => ['anchor' => 'top-left']]]);
 
-        $this->assertNull($foreignFile->fresh()->stamp_placement, 'Another project\'s file must not move.');
+        $this->assertNull($foreignFile->fresh()->stamp_placements, 'Another project\'s file must not move.');
         $this->assertSame(Project::STATUS_COMPLETED, $project->fresh()->status);
     }
 
@@ -184,9 +313,9 @@ class StampPlacementTest extends TestCase
         $project = $this->approvableProject();
         $source = $project->files()->where('category', ProjectFile::CATEGORY_SOURCE)->sole();
 
-        $this->approve($project, [$source->id => ['anchor' => 'top-left']]);
+        $this->approve($project, [$source->id => [$this->officeSeal->id => ['anchor' => 'top-left']]]);
 
-        $this->assertNull($source->fresh()->stamp_placement);
+        $this->assertNull($source->fresh()->stamp_placements);
     }
 
     /**
@@ -204,11 +333,9 @@ class StampPlacementTest extends TestCase
 
         $merger = app(DocumentMergeService::class);
 
-        $atTemplatePosition = $merger->mergeStoredFile('deliverables/ready.pdf', 'ready.pdf', null, $stamp);
-        $moved = $merger->mergeStoredFile('deliverables/ready.pdf', 'ready.pdf', null, $stamp, null, [
-            'anchor' => 'top-left',
-            'offset_x_mm' => 15.0,
-            'offset_y_mm' => 15.0,
+        $atTemplatePosition = $merger->mergeStoredFile('deliverables/ready.pdf', 'ready.pdf', null, [$stamp]);
+        $moved = $merger->mergeStoredFile('deliverables/ready.pdf', 'ready.pdf', null, [$stamp], null, [
+            $stamp->id => ['anchor' => 'top-left', 'offset_x_mm' => 15.0, 'offset_y_mm' => 15.0],
         ]);
 
         $this->assertStringStartsWith('%PDF-', $moved);
@@ -216,6 +343,44 @@ class StampPlacementTest extends TestCase
             $atTemplatePosition,
             $moved,
             'Moving the seal must change the page it is drawn on.',
+        );
+    }
+
+    /**
+     * Two seals draw two seals, each from its own position.
+     *
+     * Rendered bytes again: a second seal that never reached the page would leave the
+     * output identical to the one-seal merge, and a position read from the wrong seal
+     * would leave moving the second one without effect.
+     */
+    public function test_the_merge_draws_every_seal_each_at_its_own_position(): void
+    {
+        Storage::disk('local')->put('deliverables/ready.pdf', $this->samplePdf());
+
+        foreach ([$this->officeSeal, $this->translatorSeal] as $seal) {
+            Storage::disk('local')->put($seal->disk_path, $this->stampPng());
+        }
+
+        $merger = app(DocumentMergeService::class);
+        $office = [$this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 15.0, 'offset_y_mm' => 200.0]];
+        $merge = fn (array $seals, array $placements): string => $merger->mergeStoredFile(
+            'deliverables/ready.pdf', 'ready.pdf', null, $seals, null, $placements,
+        );
+
+        $one = $merge([$this->officeSeal], $office);
+        $two = $merge([$this->officeSeal, $this->translatorSeal], $office + [
+            $this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 120.0, 'offset_y_mm' => 200.0],
+        ]);
+        $secondMoved = $merge([$this->officeSeal, $this->translatorSeal], $office + [
+            $this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 120.0, 'offset_y_mm' => 30.0],
+        ]);
+
+        $this->assertNotSame($one, $two, 'The second seal must be drawn.');
+        $this->assertNotSame($two, $secondMoved, 'The second seal must follow its own position.');
+        $this->assertSame(
+            1,
+            app(DocumentCounter::class)->pdfPageCount($two),
+            'Seals are drawn onto the page, never as pages of their own.',
         );
     }
 
@@ -274,13 +439,16 @@ class StampPlacementTest extends TestCase
             ->assertForbidden();
     }
 
-    /** @param  array<int, array|null>  $placements */
-    private function approve(Project $project, array $placements = []): void
+    /**
+     * @param  array<int, array<int, array|null>|null>  $placements  file id → stamp id → position
+     * @param  list<int>|null  $stampIds  defaults to the office seal alone
+     */
+    private function approve(Project $project, array $placements = [], ?array $stampIds = null): void
     {
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->admin->id])->id,
-                'stamp_id' => LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id,
+                'stamp_ids' => $stampIds ?? [$this->officeSeal->id],
                 'stamp_placements' => $placements,
             ])
             ->assertOk();
@@ -300,8 +468,12 @@ class StampPlacementTest extends TestCase
         return $project;
     }
 
-    /** A project in `in_review` with one deliverable, ready to approve. */
-    private function approvableProject(?array $placement = null): Project
+    /**
+     * A project in `in_review` with one deliverable, ready to approve.
+     *
+     * @param  array<int, array>|null  $placements  stamp id → position, as delivered
+     */
+    private function approvableProject(?array $placements = null): Project
     {
         $project = $this->makeProject(Project::STATUS_IN_REVIEW);
 
@@ -325,7 +497,7 @@ class StampPlacementTest extends TestCase
             'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'size_bytes' => 12,
             'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
-            'stamp_placement' => $placement,
+            'stamp_placements' => $placements,
         ]);
 
         $project->assignments()->create([

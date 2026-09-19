@@ -31,7 +31,7 @@ import {
   type Paginated,
   type Project,
   type ProjectFile,
-  type StampPosition,
+  type StampPositions,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -375,7 +375,7 @@ function CurrentAssignmentCard({
   /** Files chosen but not yet handed over — the seal is positioned on these. */
   const [staged, setStaged] = useState<File[]>([]);
   /** Seal positions arriving WITH the staging — from the draft preview's bridge. */
-  const [stagedPlacements, setStagedPlacements] = useState<Record<number, StampPosition>>({});
+  const [stagedPlacements, setStagedPlacements] = useState<Record<number, StampPositions>>({});
   /** Remounts the deliver dialog per staging, so stale placements never leak across. */
   const [deliverRound, setDeliverRound] = useState(0);
   const { confirm } = useConfirm();
@@ -383,7 +383,7 @@ function CurrentAssignmentCard({
   const [uploading, setUploading] = useState(false);
   const project = assignment.project!;
 
-  function stage(files: File[], placements: Record<number, StampPosition> = {}) {
+  function stage(files: File[], placements: Record<number, StampPositions> = {}) {
     setStaged(files);
     setStagedPlacements(placements);
     setDeliverRound((round) => round + 1);
@@ -407,11 +407,11 @@ function CurrentAssignmentCard({
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  async function submitDelivery(placements: Record<number, StampPosition>) {
+  async function submitDelivery(placements: Record<number, StampPositions>) {
     setUploading(true);
 
     // One delivery, however many documents — the merge letterheads each of them
-    // into its own certified file, each with its own seal position.
+    // into its own certified file, each with its own seal positions.
     const formData = new FormData();
     staged.forEach((file) => formData.append("files[]", file));
     Object.entries(placements).forEach(([index, placement]) =>
@@ -575,11 +575,11 @@ function CurrentAssignmentCard({
         <DraftPreviewDialog
           open={previewOpen}
           onClose={() => setPreviewOpen(false)}
-          onDeliver={(file, placement) => {
+          onDeliver={(file, placements) => {
             setPreviewOpen(false);
-            // The previewed file becomes the delivery, seal position included —
+            // The previewed file becomes the delivery, seal positions included —
             // no re-picking, no re-dragging, no way to loop back to the draft.
-            stage([file], placement ? { 0: placement } : {});
+            stage([file], Object.keys(placements).length > 0 ? { 0: placements } : {});
           }}
         />
 

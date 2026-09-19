@@ -9,13 +9,14 @@ import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import type { ClientProject } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/confirm";
+import { officeFormat } from "@/lib/format";
 
 /** Kept in step with ClientPortalController::MAX_CLIENT_FILES / MAX_CLIENT_FILE_KB. */
 const MAX_FILES = 6;
 const MAX_BYTES = 20 * 1024 * 1024;
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.heic,image/*,application/pdf";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" });
+const dateFormatter = officeFormat({ dateStyle: "medium" });
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} بايت`;
@@ -47,8 +48,10 @@ export function ClientUploadsPanel({
   const [deleting, setDeleting] = useState<number | null>(null);
 
   // Theirs, and not the answer to a request — those are listed under the request.
+  // Nor a work file they added to their own new project: those sit with the sources.
   const sent = (project.files ?? []).filter(
-    (file) => file.uploaded_by_client && !file.document_request_id,
+    (file) =>
+      file.uploaded_by_client && !file.document_request_id && file.category === "reference",
   );
   const open = project.stage !== "completed" && project.stage !== "cancelled";
 
@@ -157,9 +160,13 @@ export function ClientUploadsPanel({
 
       {open && (
         <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
-          أرسل أي مستند يحتاجه المكتب لهذا المشروع (هوية، صفحة إضافية، مستند داعم) — صور أو PDF،
-          حتى {MAX_FILES.toLocaleString("ar-EG")} ملفات في المرة و٢٠ ميجابايت للملف. يمكنك الرفع
-          أكثر من مرة.
+          {/* On their own unpublished project a missing page goes in with the files
+              to translate, above — this panel is only what the office needs beside them. */}
+          {project.stage === "submitted"
+            ? "أرسل ما يحتاجه المكتب بجانب الملفات ولا يُترجم (هوية، مستند داعم)"
+            : "أرسل أي مستند يحتاجه المكتب لهذا المشروع (هوية، صفحة إضافية، مستند داعم)"}{" "}
+          — صور أو PDF، حتى {MAX_FILES.toLocaleString("ar-EG")} ملفات في المرة و٢٠ ميجابايت للملف.
+          يمكنك الرفع أكثر من مرة.
         </p>
       )}
 

@@ -26,8 +26,9 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" });
+const dateFormatter = officeFormat({ dateStyle: "medium" });
 const ALL = "all";
 
 export default function QuotesPage() {

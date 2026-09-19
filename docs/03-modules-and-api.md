@@ -64,6 +64,16 @@ Modules map 1:1 to the client's priced contract items (total 85,000 EGP), so sco
 
 - Base: `/api/v1` · Auth: Sanctum bearer tokens · JSON only.
 - **Authorization:** every endpoint behind policy checks; translators can only ever read/write their own assignments.
+- **PM project scope (docs/00 "own/all projects, configurable" — built 2026-09-19):** a PM
+  sees and acts on the projects they own (`projects.created_by`) plus unowned client
+  submissions; any other `/projects/{project}` route answers 403 (`project.visible`
+  middleware). The list, the search, the dashboard, the client file and the invoice
+  dialog are narrowed the same way (`Project::visibleTo()`). `projects.view-all` lifts
+  it: admin and accountant hold it, and granting it to `project_manager` switches the
+  office back to "every PM sees everything". Reports are not narrowed. The admin's list
+  shows each project's PM and translator and filters by them — `created_by` (a user id,
+  or `none` for an untaken client submission) and `translator_id` (withdrawn translators
+  excluded); `GET /projects/filter-options` lists the people, for `projects.view-all` only.
 - **Pagination:** cursor-based for portals/feeds, page-based for admin tables (`per_page` ≤ 100).
 - **Filtering:** query params (`status`, `priority`, `client_id`, `lang_pair`, `date_from/to`, `late=1`, `q` for search).
 - **Errors:** RFC-style envelope `{ "message", "errors": {field: []}, "code" }`; 409 for claim races, 422 for forbidden transitions.
@@ -133,7 +143,10 @@ private-App.Models.User.{id}             owner only
 ```
 POST   /projects/{id}/review/open        (delivered → in_review)
 POST   /projects/{id}/review/request-revision   (note required)
-POST   /projects/{id}/review/approve     (letterhead_id and stamp_id both optional)
+POST   /projects/{id}/review/approve     (letterhead_id and stamp_ids[] both optional;
+                                          stamp_ids is drawn in order; stamp_placements:
+                                          {file_id: {stamp_id: position|null} | null};
+                                          a single stamp_id is still accepted)
 POST   /projects/{id}/merge/retry        (after merge failure)
 GET    /projects/{id}/final-file         (signed download URL)
 ```
@@ -213,6 +226,17 @@ between them, so translated text can never land on the header/footer artwork.
 Stamp assets are trimmed to their ink bounding box on upload
 (`App\Support\ImageTrimmer`): offices scan a stamp on a full sheet, and without the
 trim `width_mm` would size the *paper* rather than the stamp.
+
+**Several seals on one document (2026-09-19).** Approval takes `stamp_ids[]`, stored in
+`project_stamps` and drawn in that order. Positions are per file *and* per seal
+(`project_files.stamp_placements`, keyed by stamp id), because two seals on one page
+cannot share a spot. The translator can place every active seal at delivery; the PM
+chooses which seals the file actually carries and can move any of them. While one seal
+is being dragged, the document's others show faintly where they will land
+(`sealRectMm()` in `web/src/lib/placement.ts` mirrors `PlacementConfig::resolveRect()`
+— **change both together**). A screen loaded before this change sends a single
+`stamp_id` and a flat position; both are still accepted and keyed to that seal
+(`PlacementConfig::sanitizeStampMap()`).
 
 ### M10 — Notifications
 ```
@@ -446,6 +470,6 @@ would leave the attribute clean, and the save would silently not reopen anything
 | Job | Trigger | Does |
 |---|---|---|
 | `CountWordsJob` | source file uploaded | DOCX → parse XML (PHPWord); readable PDF → pdftotext; scanned → mark `not_applicable`, prompt manual count |
-| `MergeFinalFileJob` | approve transition | deliverable → PDF via Gotenberg (PDFs pass through untouched; a .docx has its page margins widened first so the text reflows inside the content band at full size) → FPDI redraw: letterhead behind, deliverable page inside the content band, stamp on top → store as `final` file → transition to `completed`. On failure the project **stays `approved`** with `merge_error` set and PM+admin notified; `POST /projects/{id}/merge/retry` re-runs it |
+| `MergeFinalFileJob` | approve transition | deliverable → PDF via Gotenberg (PDFs pass through untouched; a .docx has its page margins widened first so the text reflows inside the content band at full size) → FPDI redraw: letterhead behind, deliverable page inside the content band, the seals on top in the order chosen, each at its own position → store as `final` file → transition to `completed`. On failure the project **stays `approved`** with `merge_error` set and PM+admin notified; `POST /projects/{id}/merge/retry` re-runs it |
 | `GenerateReportJob` | export request | build xlsx (Laravel Excel) / PDF, store, notify requester |
 | `DeadlineScannerCommand` | scheduler (5 min) | flag due-soon/late, fire one-time notifications per escalation level |

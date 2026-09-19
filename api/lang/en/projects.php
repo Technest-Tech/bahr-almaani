@@ -4,6 +4,7 @@ return [
     'invalid_transition' => 'Cannot move the project from ":from" to ":to".',
     'note_required' => 'A reason is required for this action.',
     'transition_forbidden' => 'You are not allowed to perform this action.',
+    'not_yours' => 'This project belongs to another project manager.',
     'system_transition_only' => 'This action is performed automatically by the system.',
     'actor_required' => 'This action requires an authenticated user.',
     'publish_requires_source' => 'The project cannot be published without at least one work file.',
@@ -27,6 +28,14 @@ return [
     // The client sending files without being asked (2026-09-13)
     'client_files_uploaded' => 'Your files have reached the office.',
     'client_upload_settled' => 'This project is completed or cancelled, so no more files can be added to it.',
+    'client_project_submitted' => 'Project :code has reached the office; our team will review it before work starts.',
+    'client_source_draft_only' => 'The files to translate can only be changed before the office confirms the project. Send anything else as an additional document.',
+    // A project the client adds from their own account (2026-09-19)
+    'client_attributes' => [
+        'title' => 'project name',
+        'deadline_at' => 'requested date',
+        'instructions' => 'notes for the office',
+    ],
     'document_kind' => [
         'identity' => 'Proof of identity',
         'supporting' => 'Supporting document',

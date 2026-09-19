@@ -23,7 +23,8 @@ use Throwable;
  *   1. letterhead (background layer) — full page, under everything
  *   2. the deliverable page itself, scaled into the letterhead's content band so
  *      translated text can never land on the header/footer artwork
- *   3. stamp (foreground layer) — over the text, at its configured anchor
+ *   3. the seals (foreground layer) — over the text, each at its own position, in
+ *      the order chosen; a document may carry several, or none
  *
  * Geometry is physical millimetres from the page's top-left corner throughout
  * (App\Support\PlacementConfig), never RTL-relative — a stamp anchored bottom-right
@@ -153,7 +154,7 @@ class DocumentMergeService
     }
 
     /**
-     * Draw the letterhead and stamp onto every page of $pdfPath.
+     * Draw the letterhead and seals onto every page of $pdfPath.
      *
      * @param  string  $pdfPath  absolute path to the source PDF
      * @param  string|null  $watermark  stamped diagonally across every page when set.
@@ -165,21 +166,25 @@ class DocumentMergeService
      *                                      already reserved in its own page margins, so
      *                                      its pages must be drawn at full size — see
      *                                      convert() and App\Support\DocxPageMargins
-     * @param  array|null  $stampPlacement  this document's own stamp position, overriding
-     *                                      the template's. Null keeps the template's, so
-     *                                      a file that never placed one is unchanged.
-     *                                      The letterhead has no equivalent on purpose:
-     *                                      it is the office's fixed stationery, and a
-     *                                      per-document one would be a different template.
+     * @param  list<LetterheadTemplate>  $stamps  the seals, drawn in this order, so a later
+     *                                          one sits over an earlier one; [] = unsealed
+     * @param  array<int, array>  $stampPlacements  this document's own position for each
+     *                                              seal, keyed by stamp template id. A seal
+     *                                              without one keeps its template's, so a
+     *                                              file that never placed any is unchanged.
+     *                                              The letterhead has no equivalent on
+     *                                              purpose: it is the office's fixed
+     *                                              stationery, and a per-document one would
+     *                                              be a different template.
      * @return string binary PDF
      */
     public function merge(
         string $pdfPath,
         ?LetterheadTemplate $letterhead,
-        ?LetterheadTemplate $stamp,
+        array $stamps = [],
         ?string $watermark = null,
         bool $bandReservedInLayout = false,
-        ?array $stampPlacement = null,
+        array $stampPlacements = [],
     ): string {
         $pdf = new Fpdi('P', 'mm');
         $pdf->setPrintHeader(false);
@@ -191,16 +196,13 @@ class DocumentMergeService
         $letterheadPlacement = $letterhead
             ? PlacementConfig::normalize($letterhead->placement, $letterhead->kind)
             : null;
-        // The project's own placement wins when it has one; normalize() fills whatever
-        // the translator's drag did not set from the template's value, so a position
-        // carrying only x/y still keeps the stamp's true physical width.
-        $stampPlacement = $stamp
-            ? PlacementConfig::normalize(
-                $stampPlacement ?? $stamp->placement,
-                $stamp->kind,
-                $stampPlacement !== null ? PlacementConfig::normalize($stamp->placement, $stamp->kind) : null,
-            )
-            : null;
+        $seals = array_map(
+            fn (LetterheadTemplate $stamp): array => [
+                'template' => $stamp,
+                'placement' => $this->sealPlacement($stamp, $stampPlacements[$stamp->id] ?? null),
+            ],
+            array_values($stamps),
+        );
 
         // Imported templates stay valid after the source file switches, so the
         // letterhead is read once here rather than per page.
@@ -235,11 +237,13 @@ class DocumentMergeService
 
             $pdf->useTemplate($imported, $content['x'], $content['y'], $content['width'], $content['height']);
 
-            if ($stamp && $this->appliesToPage($stampPlacement['pages'], $page, $pageCount)) {
-                $this->draw($pdf, $stamp, $stampPlacement, null, $width, $height);
+            foreach ($seals as $seal) {
+                if ($this->appliesToPage($seal['placement']['pages'], $page, $pageCount)) {
+                    $this->draw($pdf, $seal['template'], $seal['placement'], null, $width, $height);
+                }
             }
 
-            // Last, so it sits over the stamp too — a draft has to stay obviously
+            // Last, so it sits over the seals too — a draft has to stay obviously
             // a draft even on the page carrying the office's seal.
             if ($watermark !== null) {
                 $this->drawWatermark($pdf, $watermark, $width, $height);
@@ -247,6 +251,24 @@ class DocumentMergeService
         }
 
         return $pdf->Output('', 'S');
+    }
+
+    /**
+     * Where one seal goes on this document.
+     *
+     * The document's own position wins when it has one; normalize() fills whatever the
+     * drag did not set from the template's value, so a position carrying only x/y still
+     * keeps the seal's true physical width.
+     */
+    private function sealPlacement(LetterheadTemplate $stamp, ?array $position): array
+    {
+        return $position === null
+            ? PlacementConfig::normalize($stamp->placement, $stamp->kind)
+            : PlacementConfig::normalize(
+                $position,
+                $stamp->kind,
+                PlacementConfig::normalize($stamp->placement, $stamp->kind),
+            );
     }
 
     /**
@@ -290,9 +312,9 @@ class DocumentMergeService
         string $diskPath,
         string $originalName,
         ?LetterheadTemplate $letterhead,
-        ?LetterheadTemplate $stamp,
+        array $stamps = [],
         ?string $watermark = null,
-        ?array $stampPlacement = null,
+        array $stampPlacements = [],
     ): string {
         $placement = $letterhead
             ? PlacementConfig::normalize($letterhead->placement, $letterhead->kind)
@@ -311,10 +333,10 @@ class DocumentMergeService
             return $this->merge(
                 $converted['path'],
                 $letterhead,
-                $stamp,
+                $stamps,
                 $watermark,
                 $converted['reserved'],
-                $stampPlacement,
+                $stampPlacements,
             );
         } finally {
             @unlink($converted['path']);
@@ -331,8 +353,8 @@ class DocumentMergeService
      * margins are widened first, which can push the last line onto a new page. Dragging
      * on the Word file would place the seal against a page that never exists.
      *
-     * The stamp itself is NOT drawn — the browser overlays it as a draggable element, so
-     * what comes back is the blank space the translator is choosing between.
+     * No seal is drawn — the browser overlays them as draggable elements, so what comes
+     * back is the blank space the translator is choosing between.
      *
      * @param  int|null  $page  1-based; null means the last page, where a stamp goes
      * @return array{image: string, width_mm: float, height_mm: float, page: int, pages: int}
@@ -357,7 +379,7 @@ class DocumentMergeService
 
         try {
             $merged = $this->writeTemp(
-                $this->merge($converted['path'], $letterhead, null, null, $converted['reserved']),
+                $this->merge($converted['path'], $letterhead, [], null, $converted['reserved']),
                 'pdf',
             );
         } finally {

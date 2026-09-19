@@ -46,7 +46,7 @@
     <div class="doc">
       <div class="kind">فاتورة</div>
       <div class="num">{{ $invoice->number }}</div>
-      <div class="date">التاريخ: {{ $invoice->issued_at->isoFormat('YYYY/MM/DD') }}</div>
+      <div class="date">التاريخ: {{ $invoice->issued_at->timezone(\App\Support\Timezone::display())->isoFormat('YYYY/MM/DD') }}</div>
     </div>
   </header>
 

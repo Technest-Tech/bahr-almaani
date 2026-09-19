@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureProjectIsVisible;
 use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -39,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'permission' => PermissionMiddleware::class,
             'active' => EnsureUserIsActive::class,
+            'project.visible' => EnsureProjectIsVisible::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

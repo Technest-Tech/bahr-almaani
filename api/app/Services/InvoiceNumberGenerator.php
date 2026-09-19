@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Timezone;
 use Illuminate\Support\Facades\DB;
 
 class InvoiceNumberGenerator
@@ -14,7 +15,8 @@ class InvoiceNumberGenerator
      */
     public function next(): string
     {
-        $year = now()->year;
+        // The office's year: an invoice issued 00:30 Cairo on 1 January is next year's.
+        $year = Timezone::now()->year;
 
         $row = DB::selectOne(
             'INSERT INTO invoice_counters (year, last_number) VALUES (?, 1)

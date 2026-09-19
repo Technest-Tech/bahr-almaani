@@ -115,7 +115,7 @@ class PortalController extends Controller
         $assignment = $this->portal->deliver(
             $request->user(),
             $validated['files'],
-            $this->stampPlacements($request, count($validated['files'])),
+            $this->stampPlacements($request, count($validated['files']), LetterheadTemplate::defaultStampId()),
         );
 
         $assignment->project->creator->notify(new ProjectDeliveredNotification($assignment->project, $request->user()));
@@ -158,7 +158,7 @@ class PortalController extends Controller
             $request->user(),
             $project,
             $validated['files'],
-            $this->stampPlacements($request, count($validated['files'])),
+            $this->stampPlacements($request, count($validated['files']), LetterheadTemplate::defaultStampId()),
             isset($validated['replaces']) ? (int) $validated['replaces'] : null,
         );
 
@@ -231,14 +231,14 @@ class PortalController extends Controller
     }
 
     /**
-     * Draft preview: the translator's own file, merged with a letterhead and stamp
-     * so they can see the text clears the header and the seal misses the last lines.
+     * Draft preview: the translator's own file, merged with a letterhead and seals
+     * so they can see the text clears the header and the seals miss the last lines.
      *
      * This is NOT a certified document and must never become one:
      *   - every page carries a diagonal "مسودة — غير معتمدة" watermark,
      *   - nothing is written to project_files, so it cannot be mistaken for a
      *     delivery or picked up by the merge job,
-     *   - the project's own letterhead_id/stamp_id are untouched; approval still
+     *   - the project's own letterhead and seals are untouched; approval still
      *     decides what the real final file carries.
      *
      * Requires holding the project, so it costs a Gotenberg conversion only for
@@ -252,18 +252,27 @@ class PortalController extends Controller
         $validated = $request->validate([
             'file' => ['required', 'file', 'max:51200'],
             'letterhead_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
+            // The seals, in the order they are drawn.
+            'stamp_ids' => ['sometimes', 'array', 'max:'.Project::MAX_STAMPS],
+            'stamp_ids.*' => ['integer', 'distinct', 'exists:letterhead_templates,id'],
+            // One seal, as a preview screen loaded before several were possible sends it.
             'stamp_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
         ]);
 
-        // So the draft shows the seal where the translator just dragged it, not where
-        // the template would have put it. Index 0: the preview takes one file.
-        $placement = $this->stampPlacements($request, 1)[0] ?? null;
+        $stamps = collect($validated['stamp_ids'] ?? array_filter([$validated['stamp_id'] ?? null]))
+            ->map(fn ($id) => $this->activeTemplate((int) $id, LetterheadTemplate::KIND_STAMP))
+            ->filter()
+            ->values()
+            ->all();
+
+        // So the draft shows each seal where the translator just dragged it, not where
+        // its template would have put it. Index 0: the preview takes one file.
+        $placements = $this->stampPlacements($request, 1, $stamps[0]->id ?? null)[0] ?? [];
 
         $letterhead = $this->activeTemplate($validated['letterhead_id'] ?? null, LetterheadTemplate::KIND_LETTERHEAD);
-        $stamp = $this->activeTemplate($validated['stamp_id'] ?? null, LetterheadTemplate::KIND_STAMP);
 
         abort_if(
-            $letterhead === null && $stamp === null,
+            $letterhead === null && $stamps === [],
             422,
             __('portal.preview_requires_template'),
         );
@@ -277,9 +286,9 @@ class PortalController extends Controller
                 $path,
                 $request->file('file')->getClientOriginalName(),
                 $letterhead,
-                $stamp,
+                $stamps,
                 __('portal.draft_watermark'),
-                $placement,
+                $placements,
             );
         } finally {
             Storage::disk('local')->delete($path);
@@ -350,16 +359,18 @@ class PortalController extends Controller
     }
 
     /**
-     * Normalized stamp placements from a multipart delivery, keyed by file index.
+     * Seal positions from a multipart delivery: file index → stamp id → position.
      *
-     * Multipart can only carry strings, so each entry arrives JSON-encoded — the same
-     * accommodation StoreLetterheadTemplateRequest makes. Anything unparseable is
+     * Multipart can only carry strings, so each file's entry arrives JSON-encoded — the
+     * same accommodation StoreLetterheadTemplateRequest makes. Anything unparseable is
      * dropped rather than rejected: a delivery must never fail because the optional
-     * position that rides along with it was malformed.
+     * positions that ride along with it were malformed.
      *
-     * @return array<int, array>
+     * @param  int|null  $legacyStampId  the seal a flat, single-seal position belongs to
+     *                                   — see PlacementConfig::sanitizeStampMap()
+     * @return array<int, array<int, array>>
      */
-    private function stampPlacements(Request $request, int $fileCount): array
+    private function stampPlacements(Request $request, int $fileCount, ?int $legacyStampId): array
     {
         $raw = $request->input('stamp_placements');
 
@@ -382,10 +393,9 @@ class PortalController extends Controller
                 continue;
             }
 
-            // sanitize(), not normalize(): no stamp template has been chosen yet, so
-            // the gaps must stay gaps for the merge to fill from whichever seal the PM
-            // picks at approval. See PlacementConfig::sanitize().
-            $clean = PlacementConfig::sanitize($placement);
+            // Sanitized, not normalized: the gaps must stay gaps for the merge to fill
+            // from each seal's own template. See PlacementConfig::sanitize().
+            $clean = PlacementConfig::sanitizeStampMap($placement, $legacyStampId);
 
             if ($clean !== []) {
                 $placements[(int) $index] = $clean;

@@ -135,12 +135,12 @@ class LetterheadController extends Controller
         abort_unless(Storage::disk('local')->exists($letterhead->disk_path), 404);
 
         $letterheadTemplate = $letterhead->kind === LetterheadTemplate::KIND_LETTERHEAD ? $letterhead : null;
-        $stampTemplate = $letterhead->kind === LetterheadTemplate::KIND_STAMP ? $letterhead : null;
+        $stamps = $letterhead->kind === LetterheadTemplate::KIND_STAMP ? [$letterhead] : [];
 
         $specimen = $merger->specimenPdf();
 
         try {
-            $pdf = $merger->merge($specimen, $letterheadTemplate, $stampTemplate);
+            $pdf = $merger->merge($specimen, $letterheadTemplate, $stamps);
         } finally {
             @unlink($specimen);
         }

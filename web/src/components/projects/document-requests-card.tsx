@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { CheckCircle2, Download, History, IdCard, RotateCcw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, officeFormat } from "@/lib/format";
 import { isAbort, useFileTransfer } from "@/lib/use-transfer";
 import type { DocumentRequest, Project, ProjectFile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });

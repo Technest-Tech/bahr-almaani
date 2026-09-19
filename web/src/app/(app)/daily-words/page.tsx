@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Info, Target } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
+import { calendarDate, calendarFormat, officeToday } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,13 +49,13 @@ interface MonthResponse {
   };
 }
 
-const WEEKDAY = new Intl.DateTimeFormat("ar-EG", { weekday: "long" });
-const DAY_MONTH = new Intl.DateTimeFormat("ar-EG", { day: "2-digit", month: "2-digit" });
-const MONTH_LABEL = new Intl.DateTimeFormat("ar-EG", { month: "long", year: "numeric" });
+const WEEKDAY = calendarFormat({ weekday: "long" });
+const DAY_MONTH = calendarFormat({ day: "2-digit", month: "2-digit" });
+const MONTH_LABEL = calendarFormat({ month: "long", year: "numeric" });
 
+/** The office's month — at 00:30 Cairo on the 1st it is already the new one. */
 function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return officeToday().slice(0, 7);
 }
 
 function shiftMonth(month: string, delta: number): string {
@@ -186,7 +187,7 @@ export default function DailyWordsPage() {
   });
 
   const summary = data?.summary;
-  const monthLabel = MONTH_LABEL.format(new Date(`${month}-01T00:00:00`));
+  const monthLabel = MONTH_LABEL.format(calendarDate(`${month}-01`));
 
   return (
     <div className="w-full space-y-6">
@@ -280,8 +281,8 @@ export default function DailyWordsPage() {
                 {data.days.map((day) => {
                   const editable =
                     day.date >= data.limits.earliest_date && day.date <= data.limits.latest_date;
-                  const date = new Date(`${day.date}T00:00:00`);
-                  const weekend = [5, 6].includes(date.getDay());
+                  const date = calendarDate(day.date);
+                  const weekend = [5, 6].includes(date.getUTCDay());
 
                   return (
                     <TableRow key={day.date} className={cn(weekend && "bg-muted/40")}>

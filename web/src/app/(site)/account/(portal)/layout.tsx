@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { Loader2, LogOut } from "lucide-react";
+import { FilePlus2, Loader2, LogOut } from "lucide-react";
 import { useClientAuth } from "@/lib/client-auth";
 import { AccountNav } from "@/components/account/account-nav";
 import { Button } from "@/components/ui/button";
@@ -40,17 +41,27 @@ export default function AccountPortalLayout({ children }: { children: React.Reac
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={async () => {
-            await logout();
-            router.replace("/");
-          }}
-        >
-          <LogOut className="size-4" />
-          خروج
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* On every tab: a client should never have to go back to the public
+              quote form to start another job. */}
+          <Button size="sm" asChild>
+            <Link href="/account/projects/new">
+              <FilePlus2 className="size-4" />
+              مشروع جديد
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await logout();
+              router.replace("/");
+            }}
+          >
+            <LogOut className="size-4" />
+            خروج
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6">

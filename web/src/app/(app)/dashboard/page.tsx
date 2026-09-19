@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatDuration } from "@/lib/format";
+import { calendarDate, calendarFormat, formatDuration } from "@/lib/format";
 import { PRIORITY_LABELS, PRIORITY_TONES, STATUS_TONES } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,8 @@ interface WorkloadRow {
     is_late: boolean;
     claimed_at: string | null;
   } | null;
+  /** Holding a file another PM owns — busy, but not on anything this viewer may open. */
+  busy_elsewhere: boolean;
   delivered_this_week: number;
   work_seconds_this_week: number;
 }
@@ -75,8 +77,9 @@ interface AttentionRow {
   hours: number;
 }
 
-const dayFormatter = new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "numeric" });
-const fullDayFormatter = new Intl.DateTimeFormat("ar-EG", {
+// Chart buckets are Cairo calendar days from the API — dates, not instants.
+const dayFormatter = calendarFormat({ day: "numeric", month: "numeric" });
+const fullDayFormatter = calendarFormat({
   weekday: "long",
   day: "numeric",
   month: "long",
@@ -116,14 +119,14 @@ function ManagerDashboard({ name }: { name?: string }) {
   });
 
   const daily: ColumnDatum[] = (throughput?.daily ?? []).map((d) => ({
-    label: dayFormatter.format(new Date(d.date)),
-    full: fullDayFormatter.format(new Date(d.date)),
+    label: dayFormatter.format(calendarDate(d.date)),
+    full: fullDayFormatter.format(calendarDate(d.date)),
     value: d.completed,
   }));
 
   const weekly: ColumnDatum[] = (throughput?.weekly ?? []).map((w) => ({
-    label: dayFormatter.format(new Date(w.week_start)),
-    full: `أسبوع ${dayFormatter.format(new Date(w.week_start))}`,
+    label: dayFormatter.format(calendarDate(w.week_start)),
+    full: `أسبوع ${dayFormatter.format(calendarDate(w.week_start))}`,
     value: w.words,
   }));
 
@@ -288,6 +291,8 @@ function ManagerDashboard({ name }: { name?: string }) {
                               </ToneBadge>
                             )}
                           </Link>
+                        ) : row.busy_elsewhere ? (
+                          <ToneBadge tone="blue">مشغول بمشروع آخر</ToneBadge>
                         ) : (
                           <ToneBadge tone="slate">متفرغ</ToneBadge>
                         )}

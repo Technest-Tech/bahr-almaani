@@ -28,6 +28,8 @@ final class NotificationPreferences
 
     public const DOCUMENT_SUPPLIED = 'document_supplied';
 
+    public const CLIENT_PROJECT = 'client_project';
+
     /**
      * Family key => [label, description, mail default]. Labels are Arabic because the
      * settings screen renders this list verbatim.
@@ -78,6 +80,11 @@ final class NotificationPreferences
         self::DOCUMENT_SUPPLIED => [
             'label' => 'مستندات العملاء',
             'description' => 'عندما يرفع العميل مستنداً — طلبته منه أو أرسله من تلقاء نفسه — أو يسحبه.',
+            'mail' => true,
+        ],
+        self::CLIENT_PROJECT => [
+            'label' => 'مشاريع العملاء',
+            'description' => 'عندما يضيف عميل مشروعاً جديداً من حسابه على الموقع.',
             'mail' => true,
         ],
     ];

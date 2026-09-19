@@ -7,7 +7,7 @@ import { Download, FileSpreadsheet, FileText, Info, Loader2 } from "lucide-react
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useFileTransfer } from "@/lib/use-transfer";
-import { formatRelative } from "@/lib/format";
+import { formatRelative, officeToday } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,13 +68,13 @@ const EXPORT_STATUS: Record<ReportExport["status"], { label: string; tone: Tone 
   failed: { label: "فشل", tone: "red" },
 };
 
+// Report ranges are Cairo days — the API reads them that way too.
 function firstOfMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  return `${officeToday().slice(0, 7)}-01`;
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return officeToday();
 }
 
 export default function ReportsPage() {

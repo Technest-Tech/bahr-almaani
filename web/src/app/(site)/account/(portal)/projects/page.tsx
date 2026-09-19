@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { FileText, Inbox } from "lucide-react";
+import { FilePlus2, Inbox } from "lucide-react";
 import { clientApi } from "@/lib/client-auth";
 import {
   CLIENT_STAGE_LABELS,
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 const STAGES: (ClientStage | "all")[] = [
   "all",
+  "submitted",
   "in_progress",
   "in_review",
   "ready",
@@ -76,9 +77,9 @@ export default function AccountProjectsPage() {
           </p>
           {stage === "all" && (
             <Button className="mt-5" asChild>
-              <Link href="/request">
-                <FileText className="size-4" />
-                اطلب عرض سعر
+              <Link href="/account/projects/new">
+                <FilePlus2 className="size-4" />
+                مشروع جديد
               </Link>
             </Button>
           )}

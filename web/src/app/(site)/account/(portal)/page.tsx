@@ -2,17 +2,18 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowLeft, FileText, Inbox } from "lucide-react";
+import { ArrowLeft, FilePlus2, Inbox } from "lucide-react";
 import { clientApi } from "@/lib/client-auth";
 import type { ClientOverview } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProjectCard } from "@/components/account/project-card";
 import { StatTile } from "@/components/account/stat-tile";
+import { officeFormat } from "@/lib/format";
 
 const numberFormatter = new Intl.NumberFormat("ar-EG");
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "long" });
+const dateFormatter = officeFormat({ dateStyle: "long" });
 
 export default function AccountOverviewPage() {
   const { data, isLoading } = useQuery({
@@ -105,12 +106,12 @@ export default function AccountOverviewPage() {
             <Inbox className="mx-auto size-8 text-muted-foreground" />
             <p className="mt-3 font-medium">لا توجد مشاريع بعد</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              أرسل أول طلب وسيظهر هنا فور اعتماده.
+              أرفق مستنداتك وسيظهر مشروعك هنا فوراً.
             </p>
             <Button className="mt-5" asChild>
-              <Link href="/request">
-                <FileText className="size-4" />
-                اطلب عرض سعر
+              <Link href="/account/projects/new">
+                <FilePlus2 className="size-4" />
+                مشروع جديد
               </Link>
             </Button>
           </div>

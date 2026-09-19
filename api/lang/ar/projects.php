@@ -4,6 +4,7 @@ return [
     'invalid_transition' => 'لا يمكن نقل المشروع من حالة «:from» إلى «:to».',
     'note_required' => 'يجب ذكر السبب لهذا الإجراء.',
     'transition_forbidden' => 'لا تملك صلاحية تنفيذ هذا الإجراء.',
+    'not_yours' => 'هذا المشروع يتبع مدير مشروع آخر.',
     'system_transition_only' => 'هذا الإجراء يتم تلقائياً بواسطة النظام.',
     'actor_required' => 'هذا الإجراء يتطلب مستخدماً مسجلاً.',
     'publish_requires_source' => 'لا يمكن نشر المشروع بدون ملف عمل واحد على الأقل.',
@@ -27,6 +28,14 @@ return [
     // The client sending files without being asked (2026-09-13)
     'client_files_uploaded' => 'وصلت ملفاتك إلى المكتب.',
     'client_upload_settled' => 'اكتمل هذا المشروع أو أُلغي، فلا يمكن إضافة ملفات إليه.',
+    'client_project_submitted' => 'وصل مشروعك :code إلى المكتب، وسيراجعه فريقنا قبل بدء العمل.',
+    'client_source_draft_only' => 'يمكن تغيير الملفات المطلوب ترجمتها قبل أن يعتمد المكتب المشروع فقط. أرسل أي مستند إضافي من «مستندات أرسلتها».',
+    // مشروع يضيفه العميل من حسابه (2026-09-19)
+    'client_attributes' => [
+        'title' => 'اسم المشروع',
+        'deadline_at' => 'الموعد المطلوب',
+        'instructions' => 'ملاحظات للمكتب',
+    ],
     'document_kind' => [
         'identity' => 'إثبات هوية',
         'supporting' => 'مستند داعم',

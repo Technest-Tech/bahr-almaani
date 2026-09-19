@@ -14,6 +14,7 @@ import {
   Eye,
   FileCheck2,
   FileText,
+  Globe,
   History,
   IdCard,
   Paperclip,
@@ -30,7 +31,7 @@ import {
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { isAbort, useFileTransfer } from "@/lib/use-transfer";
-import { formatDuration } from "@/lib/format";
+import { formatDuration, officeFormat } from "@/lib/format";
 import {
   COUNT_STATUS_LABELS,
   PRIORITY_LABELS,
@@ -63,7 +64,7 @@ import { RevisionRequestDialog } from "@/components/projects/revision-request-di
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });
@@ -99,10 +100,13 @@ export default function ProjectDetailPage() {
   /** Set on delete: the cache entries go, and nothing on this page may fetch them back. */
   const [deleted, setDeleted] = useState(false);
 
-  const { data: project, isLoading } = useQuery({
+  const { data: project, isLoading, error } = useQuery({
     queryKey: ["project", id],
     queryFn: () => api<{ data: Project }>(`/projects/${id}`).then((r) => r.data),
     enabled: !deleted,
+    // Another PM's project, or one that is gone: asking again changes nothing.
+    retry: (failures, err) =>
+      !(err instanceof ApiError && (err.status === 403 || err.status === 404)) && failures < 1,
   });
 
   const { data: timeline } = useQuery({
@@ -192,6 +196,28 @@ export default function ProjectDetailPage() {
     onError: (err) => toast.error(err instanceof Error ? err.message : "حدث خطأ"),
   });
 
+  // A PM opening another PM's project (a shared link, an old notification) gets a
+  // 403 — say so, rather than leave the skeleton up forever.
+  if (error && !project) {
+    return (
+      <div className="w-full space-y-6">
+        <Link
+          href="/projects"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
+        >
+          <ArrowRight className="size-4" />
+          عودة إلى المشاريع
+        </Link>
+        <Card>
+          <CardContent className="flex items-center gap-3 py-8 text-sm text-muted-foreground">
+            <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+            {error instanceof ApiError ? error.message : "تعذر تحميل المشروع."}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (isLoading || !project) {
     return (
       <div className="w-full space-y-6">
@@ -244,6 +270,12 @@ export default function ProjectDetailPage() {
               <ToneBadge tone="red">
                 <AlertTriangle />
                 متأخر
+              </ToneBadge>
+            )}
+            {project.client_submitted && project.status === "draft" && (
+              <ToneBadge tone="blue">
+                <Globe />
+                أضافه العميل من حسابه
               </ToneBadge>
             )}
             {/* Not a status: the state machine still says claimed. It is a fact
@@ -601,16 +633,18 @@ export default function ProjectDetailPage() {
           </Card>
         )}
 
-        {(project.letterhead || project.stamp) && (
+        {(project.letterhead || (project.stamps?.length ?? 0) > 0) && (
           <Card className="gap-0 py-0">
             <CardHeader className="border-b py-4!">
               <CardTitle className="flex items-center gap-2 text-sm">
                 <Stamp className="size-4" />
-                الترويسة والختم المعتمدان
+                {(project.stamps?.length ?? 0) > 1
+                  ? "الترويسة والأختام المعتمدة"
+                  : "الترويسة والختم المعتمدان"}
               </CardTitle>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-3 p-4">
-              {[project.letterhead, project.stamp]
+              {[project.letterhead, ...(project.stamps ?? [])]
                 .filter((template) => !!template)
                 .map((template) => (
                   <div key={template.id} className="space-y-1.5">

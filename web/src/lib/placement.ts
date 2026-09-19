@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { Placement } from "@/lib/types";
+import type { Placement, PlacementPages, StampPosition } from "@/lib/types";
 
 /** A4 portrait — the sheet the placement preview draws. */
 export const A4_MM = { width: 210, height: 297 };
@@ -110,4 +110,54 @@ function bandMm(placement: Placement): { top: number; available: number } | null
   const available = A4_MM.height - top - bottom;
 
   return available > 0 ? { top, available } : null;
+}
+
+/**
+ * Where a seal lands on a real page, in millimetres from its top-left corner.
+ *
+ * The rectangle `PlacementConfig::resolveRect()` computes, with the document's own
+ * position laid over the seal's template placement exactly as the merge does — change
+ * them together. Used to show the other seals on a document while one is being dragged,
+ * so two seals are not placed on top of each other.
+ *
+ * @param ratio the seal's height ÷ width, known once its image has loaded
+ */
+export function sealRectMm(
+  template: Placement,
+  position: StampPosition | null | undefined,
+  page: { width_mm: number; height_mm: number },
+  ratio: number,
+): { x: number; y: number; width: number; height: number } {
+  const placement = { ...template, ...position };
+  // A null width is "full bleed", fitted inside the page — PlacementConfig::containedWidth.
+  const width =
+    placement.width_mm ??
+    (ratio > 0 ? Math.min(page.width_mm, page.height_mm / ratio) : page.width_mm);
+  const height = width * ratio;
+  const [vertical, horizontal] = placement.anchor.split("-");
+
+  return {
+    x:
+      horizontal === "left"
+        ? placement.offset_x_mm
+        : horizontal === "right"
+          ? page.width_mm - width - placement.offset_x_mm
+          : (page.width_mm - width) / 2 + placement.offset_x_mm,
+    y:
+      vertical === "top"
+        ? placement.offset_y_mm
+        : vertical === "bottom"
+          ? page.height_mm - height - placement.offset_y_mm
+          : (page.height_mm - height) / 2 + placement.offset_y_mm,
+    width,
+    height,
+  };
+}
+
+/** Whether a seal set to `pages` is drawn on `page` of `pageCount` — the merge's rule. */
+export function sealOnPage(pages: PlacementPages, page: number, pageCount: number): boolean {
+  if (pages === "first") return page === 1;
+  if (pages === "last") return page === pageCount;
+
+  return true;
 }

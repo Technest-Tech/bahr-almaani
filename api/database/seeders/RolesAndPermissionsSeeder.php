@@ -23,6 +23,7 @@ class RolesAndPermissionsSeeder extends Seeder
         'projects.view',
         'projects.manage',   // create / edit / publish / cancel / withdraw
         'projects.review',   // open review / request revision / approve
+        'projects.view-all', // every PM's projects, not only one's own (2026-09-19)
         // M4 — translator portal
         'portal.access',
         // M6/M7 — dashboard & reports
@@ -61,10 +62,13 @@ class RolesAndPermissionsSeeder extends Seeder
         // Pricing an enquiry is accounting work, so the accountant answers clients
         // directly. Converting one into a project is not — that schedules translators,
         // so it stays with the PM.
+        // Billing covers every PM's finished work, hence projects.view-all — it
+        // widens what the invoice dialog lists; it opens no project pages.
         'accountant' => [
             'dashboard.view', 'reports.view', 'reports.export',
             'quotes.view', 'quotes.manage',
             'invoices.view', 'invoices.manage',
+            'projects.view-all',
         ],
     ];
 

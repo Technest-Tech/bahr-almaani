@@ -20,13 +20,18 @@ import { cn } from "@/lib/utils";
  * `assetPath` exists because the two callers read the asset through different
  * endpoints: a translator has no letterheads.view, so the portal serves its own
  * narrower route.
+ *
+ * Passing `selectedIds` instead of `selectedId` makes it a multi-select — a document
+ * can carry several seals. `onSelect` then toggles, and once more than one is chosen
+ * each shows its number: the order they are drawn in.
  */
 export function TemplatePicker({
   kind,
   title,
   templates,
   loading,
-  selectedId,
+  selectedId = null,
+  selectedIds,
   onSelect,
   assetPath,
   emptyHint = true,
@@ -35,7 +40,9 @@ export function TemplatePicker({
   title: string;
   templates: LetterheadTemplate[];
   loading: boolean;
-  selectedId: number | null;
+  selectedId?: number | null;
+  /** Multi-select: the chosen ids, in the order they were picked. */
+  selectedIds?: number[];
   onSelect: (id: number) => void;
   assetPath?: (id: number) => string;
   /** Links to the admin-only templates screen; hidden for translators. */
@@ -45,7 +52,11 @@ export function TemplatePicker({
     <section className="space-y-2">
       <div className="flex items-baseline gap-2">
         <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-muted-foreground">القوالب الفعّالة فقط</span>
+        <span className="text-xs text-muted-foreground">
+          {selectedIds
+            ? "يمكن اختيار أكثر من واحد · القوالب الفعّالة فقط"
+            : "القوالب الفعّالة فقط"}
+        </span>
       </div>
 
       {loading ? (
@@ -74,11 +85,13 @@ export function TemplatePicker({
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {templates.map((template) => {
-            const selected = selectedId === template.id;
+            const order = selectedIds?.indexOf(template.id) ?? -1;
+            const selected = selectedIds ? order >= 0 : selectedId === template.id;
             return (
               <button
                 key={template.id}
                 type="button"
+                aria-pressed={selected}
                 onClick={() => onSelect(template.id)}
                 className={cn(
                   "group relative overflow-hidden rounded-lg border bg-card text-start transition-all",
@@ -106,7 +119,13 @@ export function TemplatePicker({
                 </div>
                 {selected && (
                   <span className="absolute top-1.5 end-1.5 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
-                    <Check className="size-3" />
+                    {selectedIds && selectedIds.length > 1 ? (
+                      <span className="text-[11px] font-semibold">
+                        {(order + 1).toLocaleString("ar-EG")}
+                      </span>
+                    ) : (
+                      <Check className="size-3" />
+                    )}
                   </span>
                 )}
               </button>

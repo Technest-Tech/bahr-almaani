@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, RotateCcw, Stamp } from "lucide-react";
 import { PLACEMENT_PAGES_LABELS, type LetterheadTemplate, type PlacementPages, type StampPosition } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -16,9 +16,16 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTemplateAsset } from "@/components/letterheads/template-asset";
 import { StampPositioner, type StampSurface } from "@/components/letterheads/stamp-positioner";
+import { sealOnPage, sealRectMm } from "@/lib/placement";
 import { cn } from "@/lib/utils";
 
 const PAGE_CHOICES: PlacementPages[] = ["last", "first", "all"];
+
+/** Another seal on the same document, and where it currently sits (null = its template's). */
+export interface OtherSeal {
+  stamp: LetterheadTemplate;
+  position: StampPosition | null;
+}
 
 /**
  * "Put the seal here" — the dialog both roles use.
@@ -27,6 +34,9 @@ const PAGE_CHOICES: PlacementPages[] = ["last", "first", "all"];
  * approval on a file already delivered. Same surface, same geometry, same stored
  * value, so the two can never disagree about where the seal is going. What differs
  * is only where the page image comes from, which is why `loadSurface` is a prop.
+ *
+ * One seal is placed at a time. When the document carries others they are drawn
+ * faintly where they will land, so a second seal is not dropped on top of the first.
  */
 export function StampPlacementDialog({
   open,
@@ -39,6 +49,7 @@ export function StampPlacementDialog({
   onSave,
   title = "موضع الختم",
   description,
+  others = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +64,8 @@ export function StampPlacementDialog({
   onSave: (next: StampPosition | null) => void;
   title?: string;
   description?: string;
+  /** The document's other seals, shown faintly where they will land. */
+  others?: OtherSeal[];
 }) {
   // Seeded once, because the dialog is mounted fresh each time it is opened — the
   // callers render it conditionally. Syncing these from props in an effect instead
@@ -129,9 +142,24 @@ export function StampPlacementDialog({
             stampWidthMm={stampWidthMm}
             value={draft}
             onChange={(next) => setDraft({ ...next, pages })}
-          />
+          >
+            {others.map((other) => (
+              <FaintSeal
+                key={other.stamp.id}
+                seal={other}
+                surface={surface}
+                assetPath={stampAssetPath}
+              />
+            ))}
+          </StampPositioner>
         ) : (
           <Skeleton className="mx-auto aspect-[210/297] w-full max-w-md rounded-md" />
+        )}
+
+        {others.length > 0 && (
+          <p className="text-[12px] text-muted-foreground">
+            الأختام الأخرى على هذا الملف تظهر باهتة في مواضعها، حتى لا يوضع ختم فوق آخر.
+          </p>
         )}
 
         {!stamp && (
@@ -173,20 +201,96 @@ export function StampPlacementDialog({
   );
 }
 
-/** The button that opens the dialog, showing whether a position has been set. */
+/**
+ * Another seal on the document, drawn where the merge will put it. Not draggable —
+ * each seal is placed in its own dialog — and hidden on a page it is not drawn on.
+ */
+function FaintSeal({
+  seal,
+  surface,
+  assetPath,
+}: {
+  seal: OtherSeal;
+  surface: StampSurface;
+  assetPath: (id: number) => string;
+}) {
+  const { src } = useTemplateAsset(seal.stamp.id, assetPath);
+  const imageRef = useRef<HTMLImageElement>(null);
+  const [ratio, setRatio] = useState<number | null>(null);
+
+  // Same as the positioner: a cached image fires no load event.
+  useEffect(() => {
+    const image = imageRef.current;
+    if (image?.complete && image.naturalWidth > 0) {
+      setRatio(image.naturalHeight / image.naturalWidth);
+    }
+  }, [src]);
+
+  const pages = seal.position?.pages ?? seal.stamp.placement.pages;
+  if (!src || !sealOnPage(pages, surface.page, surface.pages)) return null;
+
+  const rect = sealRectMm(seal.stamp.placement, seal.position, surface, ratio ?? 1);
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- streamed asset
+    <img
+      ref={imageRef}
+      src={src}
+      alt=""
+      title={seal.stamp.name}
+      onLoad={(event) =>
+        setRatio(event.currentTarget.naturalHeight / event.currentTarget.naturalWidth)
+      }
+      className="pointer-events-none absolute select-none opacity-40 grayscale"
+      draggable={false}
+      style={{
+        left: `${(rect.x / surface.width_mm) * 100}%`,
+        top: `${(rect.y / surface.height_mm) * 100}%`,
+        width: `${(rect.width / surface.width_mm) * 100}%`,
+        // Its height is unknown until the image loads, and a bottom-anchored seal
+        // would sit in the wrong place until then.
+        visibility: ratio === null ? "hidden" : "visible",
+      }}
+    />
+  );
+}
+
+/**
+ * The button that opens the dialog, showing whether a position has been set.
+ *
+ * `label` names the seal when a document carries more than one, so each button says
+ * which seal it places.
+ */
 export function StampPlacementButton({
   value,
   onClick,
   disabled,
+  label,
 }: {
   value: StampPosition | null;
   onClick: () => void;
   disabled?: boolean;
+  label?: string;
 }) {
+
   return (
-    <Button type="button" variant="outline" size="sm" onClick={onClick} disabled={disabled}>
-      <Stamp className="size-4" />
-      {value ? "الختم مضبوط" : "ضبط موضع الختم"}
+    <Button
+      type="button"
+      variant={value ? "secondary" : "outline"}
+      size="sm"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      className="max-w-full"
+    >
+      <Stamp className="size-4 shrink-0" />
+      <span className="truncate">
+        {value
+          ? label
+            ? `${label}: مضبوط`
+            : "الختم مضبوط"
+          : `ضبط موضع ${label ?? "الختم"}`}
+      </span>
     </Button>
   );
 }

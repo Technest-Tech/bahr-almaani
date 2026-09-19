@@ -38,10 +38,11 @@ import { PageHeader } from "@/components/page-header";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
 import { ClientFormDialog } from "@/components/clients/client-form-dialog";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "medium" });
+const dateFormatter = officeFormat({ dateStyle: "medium" });
 
-const dateTimeFormatter = new Intl.DateTimeFormat("ar-EG", {
+const dateTimeFormatter = officeFormat({
   dateStyle: "medium",
   timeStyle: "short",
 });
@@ -89,6 +90,9 @@ export default function ClientFilePage() {
   }
 
   const { client, stats, projects, invoices, quote_requests: quotes } = data;
+  // A PM's file lists only their own projects, so another PM's work on an
+  // invoice is named but not linked — its page would refuse them.
+  const openable = new Set(projects.map((project) => project.id));
 
   async function downloadInvoice(invoiceId: number, number: string) {
     setBusy(invoiceId);
@@ -172,9 +176,14 @@ export default function ClientFilePage() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-5">
-          <Panel title="المشاريع" icon={FileText} empty="لا توجد مشاريع لهذا العميل بعد.">
+          <Panel
+            title="المشاريع"
+            icon={FileText}
+            count={projects.length}
+            empty="لا توجد مشاريع لهذا العميل بعد."
+          >
             {projects.length > 0 && (
-              <ul className="divide-y">
+              <ul className="max-h-[32rem] divide-y overflow-y-auto">
                 {projects.map((project) => (
                   <li key={project.id}>
                     <Link
@@ -211,40 +220,79 @@ export default function ClientFilePage() {
             )}
           </Panel>
 
-          <Panel title="الفواتير" icon={Receipt} empty="لم تصدر فواتير لهذا العميل.">
+          <Panel
+            title="الفواتير"
+            icon={Receipt}
+            count={invoices.length}
+            empty="لم تصدر فواتير لهذا العميل."
+          >
             {invoices.length > 0 && (
-              <ul className="divide-y">
+              <ul className="max-h-[40rem] divide-y overflow-y-auto">
                 {invoices.map((invoice) => (
-                  <li
-                    key={invoice.id}
-                    className="flex flex-wrap items-center gap-3 px-5 py-3"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-mono text-[13px] font-semibold" dir="ltr">
-                        {invoice.number}
+                  <li key={invoice.id} className="px-5 py-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-[13px] font-semibold" dir="ltr">
+                          {invoice.number}
+                        </p>
+                        <p className="mt-0.5 text-[12px] text-muted-foreground">
+                          {dateFormatter.format(new Date(invoice.issued_at))} ·{" "}
+                          {numberFormatter.format(invoice.total_pages)} صفحة
+                        </p>
+                      </div>
+                      <p className="font-semibold tabular-nums">
+                        {Number(invoice.amount).toLocaleString("ar-EG", {
+                          minimumFractionDigits: 2,
+                        })}{" "}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {invoice.currency}
+                        </span>
                       </p>
-                      <p className="mt-0.5 text-[12px] text-muted-foreground">
-                        {dateFormatter.format(new Date(invoice.issued_at))} ·{" "}
-                        {numberFormatter.format(invoice.total_pages)} صفحة
-                      </p>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="تحميل الفاتورة"
+                        loading={busy === invoice.id}
+                        onClick={() => downloadInvoice(invoice.id, invoice.number)}
+                      >
+                        <Download className="size-4" />
+                      </Button>
                     </div>
-                    <p className="font-semibold tabular-nums">
-                      {Number(invoice.amount).toLocaleString("ar-EG", {
-                        minimumFractionDigits: 2,
-                      })}{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {invoice.currency}
-                      </span>
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="تحميل الفاتورة"
-                      loading={busy === invoice.id}
-                      onClick={() => downloadInvoice(invoice.id, invoice.number)}
-                    >
-                      <Download className="size-4" />
-                    </Button>
+
+                    {/* The files this invoice bills — the snapshot printed on it. */}
+                    {invoice.line_items.length > 0 && (
+                      <ul className="mt-2 space-y-1 border-s-2 ps-3 text-[12.5px] text-muted-foreground">
+                        {invoice.line_items.map((item) => {
+                          const label = (
+                            <>
+                              <span dir="ltr" className="font-mono text-[11.5px]">
+                                {item.code}
+                              </span>{" "}
+                              — {item.title}
+                            </>
+                          );
+                          return (
+                            <li key={item.project_id} className="flex justify-between gap-3">
+                              {openable.has(item.project_id) ? (
+                                <Link
+                                  href={`/projects/${item.project_id}`}
+                                  className="min-w-0 truncate hover:text-foreground hover:underline"
+                                >
+                                  {label}
+                                </Link>
+                              ) : (
+                                <span className="min-w-0 truncate">{label}</span>
+                              )}
+                              {item.pages !== null && (
+                                <span className="shrink-0 tabular-nums">
+                                  {numberFormatter.format(item.pages)} صفحة
+                                </span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -438,11 +486,13 @@ function Stat({
 function Panel({
   title,
   icon: Icon,
+  count,
   empty,
   children,
 }: {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
+  count?: number;
   empty: string;
   children: React.ReactNode;
 }) {
@@ -452,6 +502,11 @@ function Panel({
         <div className="flex items-center gap-2 border-b px-5 py-3.5">
           <Icon className="size-4 text-muted-foreground" />
           <h2 className="text-sm font-semibold">{title}</h2>
+          {count !== undefined && count > 0 && (
+            <span className="text-[12px] tabular-nums text-muted-foreground">
+              ({numberFormatter.format(count)})
+            </span>
+          )}
         </div>
         {/* Callers pass `list.length > 0 && <ul>` — a `false` here means empty. */}
         {children || (

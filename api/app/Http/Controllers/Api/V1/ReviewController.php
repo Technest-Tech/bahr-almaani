@@ -101,11 +101,13 @@ class ReviewController extends Controller
     /**
      * in_review → approved, then the finalize job completes it.
      *
-     * The letterhead and the stamp are both chosen here and persisted on the
+     * The letterhead and the seals are both chosen here and persisted on the
      * project, so the merge job (M9b) reads its overlay configuration straight off
-     * the record. The stamp became optional on the office's request (2026-09-05):
+     * the record. The seal became optional on the office's request (2026-09-05):
      * "عايز أعمل إنهاء وعندي القدرة أختم أو لا" — not every finished document
-     * carries the seal, and the merge has always handled a null stamp.
+     * carries one. And since 2026-09-19 there can be several: some documents need
+     * the office's seal and the sworn translator's, or a small seal on every page
+     * and the full one on the last. `stamp_ids` is drawn in the order given.
      *
      * The letterhead followed on 2026-09-07, for the same reason: some work is
      * delivered on the client's own paper, or as a plain translation that was never
@@ -120,6 +122,10 @@ class ReviewController extends Controller
      */
     public function approve(Request $request, Project $project): ProjectResource
     {
+        $activeStamp = Rule::exists('letterhead_templates', 'id')
+            ->where('kind', LetterheadTemplate::KIND_STAMP)
+            ->where('is_active', true);
+
         $validated = $request->validate([
             'letterhead_id' => [
                 'nullable', 'integer',
@@ -127,40 +133,48 @@ class ReviewController extends Controller
                     ->where('kind', LetterheadTemplate::KIND_LETTERHEAD)
                     ->where('is_active', true),
             ],
-            'stamp_id' => [
-                'nullable', 'integer',
-                Rule::exists('letterhead_templates', 'id')
-                    ->where('kind', LetterheadTemplate::KIND_STAMP)
-                    ->where('is_active', true),
-            ],
-            // The PM's last word on where each seal sits, keyed by deliverable file id.
-            // The translator's own placement is already on the row; anything sent here
-            // replaces it, and anything omitted is left exactly as delivered.
+            'stamp_ids' => ['sometimes', 'nullable', 'array', 'max:'.Project::MAX_STAMPS],
+            'stamp_ids.*' => ['integer', 'distinct', $activeStamp],
+            // One seal, as an approval dialog loaded before several were possible
+            // still sends it. Ignored when `stamp_ids` is present.
+            'stamp_id' => ['nullable', 'integer', $activeStamp],
+            // The PM's last word on where each seal sits: deliverable file id → stamp
+            // id → position. The translator's own positions are already on the row;
+            // anything sent here replaces them, and anything omitted is left exactly
+            // as delivered.
             'stamp_placements' => ['sometimes', 'array'],
             'stamp_placements.*' => ['nullable', 'array'],
         ]);
 
-        $placements = $this->stampPlacements($project, $validated['stamp_placements'] ?? []);
+        // Omitted means unsealed, explicitly: approval decides the whole certification
+        // package, so a seal preset earlier on the record must not sneak into a final
+        // the PM chose to leave unstamped.
+        $stampIds = array_map(
+            'intval',
+            array_values($validated['stamp_ids'] ?? array_filter([$validated['stamp_id'] ?? null])),
+        );
+
+        $placements = $this->stampPlacements($project, $validated['stamp_placements'] ?? [], $stampIds[0] ?? null);
 
         // One transaction: an invalid transition must not leave a selection behind
         // on a project that was never approved.
-        $project = DB::transaction(function () use ($project, $request, $validated, $placements): Project {
+        $project = DB::transaction(function () use ($project, $request, $validated, $stampIds, $placements): Project {
             $project->fill([
-                // Same rule as the stamp below: omitted means "without", not
-                // "keep whatever was on the record" — approval decides the whole
-                // certification package in one go.
+                // Same rule as the seals: omitted means "without", not "keep whatever
+                // was on the record".
                 'letterhead_id' => $validated['letterhead_id'] ?? null,
-                // Omitted means unsealed, explicitly: approval decides the whole
-                // certification package, so a stamp preset earlier on the record
-                // must not sneak into a final the PM chose to leave unstamped.
-                'stamp_id' => $validated['stamp_id'] ?? null,
             ])->save();
+
+            $project->syncStamps($stampIds);
 
             // Loaded and saved rather than mass-updated: a query-builder update
             // skips the model's array cast and would hand the driver a PHP array.
             $project->files()->whereKey(array_keys($placements))->get()
                 ->each(fn (ProjectFile $file) => $file
-                    ->forceFill(['stamp_placement' => $placements[$file->id]])
+                    ->forceFill(['stamp_placements' => $this->applyPlacements(
+                        $file->stamp_placements ?? [],
+                        $placements[$file->id],
+                    )])
                     ->save());
 
             return $this->transitions->transition($project, Project::STATUS_APPROVED, $request->user());
@@ -240,20 +254,22 @@ class ReviewController extends Controller
     }
 
     /**
-     * The PM's stamp positions, filtered to files they are actually allowed to move.
+     * The PM's seal positions, filtered to files they are actually allowed to move.
      *
      * Only deliverables of this project's newest round qualify — those are the files the
      * merge will letterhead. An id belonging to another project, to a source file, or to
      * a superseded round is dropped rather than rejected: approval is the last step of a
      * long review and must not 422 because a stale id rode along in the payload.
      *
-     * An explicit null clears the position, which is how the PM says "put it back where
-     * the stamp template wants it".
+     * Each file carries its positions keyed by stamp id. An explicit null clears one —
+     * how the PM says "put this seal back where its template wants it" — and a null for
+     * the whole file clears them all. A flat position is what a dialog loaded before
+     * several seals were possible sends, and it belongs to the one seal that dialog had.
      *
      * @param  array<int|string, array|null>  $input
-     * @return array<int, array|null>
+     * @return array<int, array<int, array|null>|null>  null = clear every position
      */
-    private function stampPlacements(Project $project, array $input): array
+    private function stampPlacements(Project $project, array $input, ?int $legacyStampId): array
     {
         if ($input === []) {
             return [];
@@ -282,9 +298,9 @@ class ReviewController extends Controller
                 continue;
             }
 
-            // sanitize(), not normalize(): what is stored stays partial so the merge
-            // layers it over whichever stamp template was just chosen above.
-            $clean = PlacementConfig::sanitize($placement);
+            // Sanitized, not normalized: what is stored stays partial so the merge
+            // layers it over the seal's own template placement.
+            $clean = PlacementConfig::sanitizeStampMap($placement, $legacyStampId, keepNulls: true);
 
             if ($clean !== []) {
                 $placements[(int) $fileId] = $clean;
@@ -294,10 +310,34 @@ class ReviewController extends Controller
         return $placements;
     }
 
+    /**
+     * Lay the PM's changes over what the file already carries, seal by seal.
+     *
+     * @param  array<int, array>  $current
+     * @param  array<int, array|null>|null  $changes  null clears every position
+     * @return array<int, array>|null  null when no seal has a position of its own
+     */
+    private function applyPlacements(array $current, ?array $changes): ?array
+    {
+        if ($changes === null) {
+            return null;
+        }
+
+        foreach ($changes as $stampId => $position) {
+            if ($position === null) {
+                unset($current[$stampId]);
+            } else {
+                $current[$stampId] = $position;
+            }
+        }
+
+        return $current === [] ? null : $current;
+    }
+
     private function fresh(Project $project): ProjectResource
     {
         return ProjectResource::make(
-            $project->load(['client', 'sourceLanguage', 'targetLanguage', 'files.uploader:id,name', 'letterhead', 'stamp']),
+            $project->load(['client', 'sourceLanguage', 'targetLanguage', 'files.uploader:id,name', 'letterhead', 'stamps']),
         );
     }
 }

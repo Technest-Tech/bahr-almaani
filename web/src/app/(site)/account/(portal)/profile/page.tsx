@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/select";
 import { Field } from "@/components/field";
 import { FormSection } from "@/components/form-section";
+import { officeFormat } from "@/lib/format";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "long" });
+const dateFormatter = officeFormat({ dateStyle: "long" });
 
 export default function AccountProfilePage() {
   const { client, refresh } = useClientAuth();

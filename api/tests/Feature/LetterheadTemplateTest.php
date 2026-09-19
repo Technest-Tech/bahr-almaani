@@ -293,11 +293,13 @@ class LetterheadTemplateTest extends TestCase
 
         $letterhead = LetterheadTemplate::factory()->create(['created_by' => $this->admin->id]);
         $stamp = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]);
+        // Used only as a project's second seal — still something it was certified with.
+        $secondSeal = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]);
         $unused = LetterheadTemplate::factory()->create(['created_by' => $this->admin->id]);
 
         Storage::disk('local')->put($unused->disk_path, 'binary');
 
-        Project::create([
+        $project = Project::create([
             'code' => 'BM-2026-70001',
             'title' => 'مشروع معتمد',
             'source_language_id' => Language::where('code', 'en')->firstOrFail()->id,
@@ -308,8 +310,8 @@ class LetterheadTemplateTest extends TestCase
             'deadline_at' => now()->addDay(),
             'created_by' => $this->admin->id,
             'letterhead_id' => $letterhead->id,
-            'stamp_id' => $stamp->id,
         ]);
+        $project->syncStamps([$stamp->id, $secondSeal->id]);
 
         $this->actingAs($this->admin, 'sanctum')
             ->deleteJson("/api/v1/letterheads/{$letterhead->id}")
@@ -317,6 +319,10 @@ class LetterheadTemplateTest extends TestCase
 
         $this->actingAs($this->admin, 'sanctum')
             ->deleteJson("/api/v1/letterheads/{$stamp->id}")
+            ->assertStatus(422);
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->deleteJson("/api/v1/letterheads/{$secondSeal->id}")
             ->assertStatus(422);
 
         $this->actingAs($this->admin, 'sanctum')

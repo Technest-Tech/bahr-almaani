@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\ReportExport;
 use App\Notifications\ReportReadyNotification;
 use App\Services\ReportService;
+use App\Support\Timezone;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Http;
@@ -76,7 +77,7 @@ class GenerateReportExportJob implements ShouldQueue
             'columns' => $report['columns'],
             'rows' => $report['rows'],
             'params' => $this->export->params ?? [],
-            'generatedAt' => now(),
+            'generatedAt' => Timezone::now(),
         ])->render();
 
         $response = Http::timeout(60)

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\Timezone;
 use Illuminate\Support\Facades\DB;
 
 class ProjectCodeGenerator
@@ -12,7 +13,8 @@ class ProjectCodeGenerator
      */
     public function next(): string
     {
-        $year = now()->year;
+        // The office's year: a project opened 00:30 Cairo on 1 January is next year's.
+        $year = Timezone::now()->year;
 
         $row = DB::selectOne(
             'INSERT INTO project_counters (year, last_number) VALUES (?, 1)

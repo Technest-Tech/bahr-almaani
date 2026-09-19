@@ -10,13 +10,14 @@ import type { ClientProject, DocumentRequest } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useConfirm } from "@/components/confirm";
+import { officeFormat } from "@/lib/format";
 
 /** Kept in step with ClientPortalController::MAX_CLIENT_FILES / MAX_CLIENT_FILE_KB. */
 const MAX_FILES = 6;
 const MAX_BYTES = 20 * 1024 * 1024;
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.heic,image/*,application/pdf";
 
-const dateFormatter = new Intl.DateTimeFormat("ar-EG", { dateStyle: "long" });
+const dateFormatter = officeFormat({ dateStyle: "long" });
 
 /**
  * "We need a document from you" — the client's side of the loop.

@@ -8,7 +8,9 @@ use App\Models\Client;
 use App\Models\Project;
 use App\Models\QuoteRequest;
 use App\Models\User;
+use App\Support\Timezone;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
@@ -23,21 +25,32 @@ class DashboardController extends Controller
         Project::STATUS_REVISION_REQUESTED,
     ];
 
-    /** Headline counters. Cached briefly — the dashboard is read far more than it changes. */
-    public function summary(): JsonResponse
+    /**
+     * Headline counters. Cached briefly — the dashboard is read far more than it changes.
+     *
+     * The project figures are the viewer's own projects (Project::visibleTo), so a PM's
+     * cache entry is theirs alone; everyone who sees every project shares one. Quotes,
+     * clients and translators are office-wide for everybody.
+     */
+    public function summary(Request $request): JsonResponse
     {
-        $data = Cache::remember('dashboard.summary', 60, function (): array {
+        $user = $request->user();
+        $key = $user->can('projects.view-all') ? 'dashboard.summary' : "dashboard.summary.user.{$user->id}";
+
+        $data = Cache::remember($key, 60, function () use ($user): array {
             $byStatus = Project::query()
+                ->visibleTo($user)
                 ->selectRaw('status, COUNT(*) AS total')
                 ->groupBy('status')
                 ->pluck('total', 'status')
                 ->map(fn ($count) => (int) $count);
 
-            $monthStart = now()->startOfMonth();
+            $monthStart = Timezone::now()->startOfMonth()->utc();
 
             // Delivered-file figures (client request 2026-09-05), matching the
             // reports — the dashboard must not disagree with the monthly report.
             $completedThisMonth = Project::query()
+                ->visibleTo($user)
                 ->where('status', Project::STATUS_COMPLETED)
                 ->where('completed_at', '>=', $monthStart)
                 ->selectRaw('COUNT(*) AS projects, COALESCE(SUM('.Project::deliveredSql('words').'), 0) AS words, COALESCE(SUM('.Project::deliveredSql('pages').'), 0) AS pages')
@@ -46,8 +59,9 @@ class DashboardController extends Controller
             return [
                 'statuses' => $byStatus,
                 'active_total' => collect(self::ACTIVE_STATUSES)->sum(fn ($s) => $byStatus[$s] ?? 0),
-                'late' => Project::late()->count(),
+                'late' => Project::late()->visibleTo($user)->count(),
                 'due_soon' => Project::query()
+                    ->visibleTo($user)
                     ->whereBetween('deadline_at', [now(), now()->addDay()])
                     ->whereNotIn('status', Project::SETTLED_STATUSES)
                     ->count(),
@@ -66,33 +80,47 @@ class DashboardController extends Controller
     }
 
     /** Completed-per-day (30 days) and completed+words per ISO week (12 weeks), zero-filled. */
-    public function throughput(): JsonResponse
+    public function throughput(Request $request): JsonResponse
     {
+        // Buckets are Cairo days, like the daily word log's (ProductionService):
+        // a file completed 01:00 Cairo is 22:00 UTC the day before, and a UTC
+        // bucket would put the office's night shift on the wrong bar — and
+        // disagree with the report that pays them.
+        $tz = Timezone::display();
+
+        // The edges are Cairo midnights bound as the UTC instants they really are:
+        // a zoned Carbon reaching the query builder loses its offset entirely.
+        // @see \App\Support\Timezone
+        $dailyFrom = now()->timezone($tz)->subDays(29)->startOfDay()->utc();
+        $weeklyFrom = now()->timezone($tz)->subWeeks(11)->startOfWeek(Carbon::MONDAY)->utc();
+
         $daily = Project::query()
+            ->visibleTo($request->user())
             ->where('status', Project::STATUS_COMPLETED)
-            ->where('completed_at', '>=', now()->subDays(29)->startOfDay())
-            ->selectRaw("date_trunc('day', completed_at)::date AS day, COUNT(*) AS completed")
+            ->where('completed_at', '>=', $dailyFrom)
+            ->selectRaw("date_trunc('day', completed_at AT TIME ZONE '{$tz}')::date AS day, COUNT(*) AS completed")
             ->groupBy('day')
             ->pluck('completed', 'day');
 
         // date_trunc('week') is ISO (Monday); Carbon's ar locale starts Saturday —
         // pin Monday explicitly or the zero-fill keys never match the SQL buckets.
         $weekly = Project::query()
+            ->visibleTo($request->user())
             ->where('status', Project::STATUS_COMPLETED)
-            ->where('completed_at', '>=', now()->subWeeks(11)->startOfWeek(Carbon::MONDAY))
-            ->selectRaw("date_trunc('week', completed_at)::date AS week, COUNT(*) AS completed, COALESCE(SUM(".Project::deliveredSql('words').'), 0) AS words')
+            ->where('completed_at', '>=', $weeklyFrom)
+            ->selectRaw("date_trunc('week', completed_at AT TIME ZONE '{$tz}')::date AS week, COUNT(*) AS completed, COALESCE(SUM(".Project::deliveredSql('words').'), 0) AS words')
             ->groupBy('week')
             ->get()
             ->keyBy(fn ($row) => (string) $row->week);
 
         return response()->json(['data' => [
-            'daily' => collect(range(29, 0))->map(function (int $ago) use ($daily): array {
-                $day = now()->subDays($ago)->toDateString();
+            'daily' => collect(range(29, 0))->map(function (int $ago) use ($daily, $tz): array {
+                $day = now()->timezone($tz)->subDays($ago)->toDateString();
 
                 return ['date' => $day, 'completed' => (int) ($daily[$day] ?? 0)];
             })->values(),
-            'weekly' => collect(range(11, 0))->map(function (int $ago) use ($weekly): array {
-                $week = now()->subWeeks($ago)->startOfWeek(Carbon::MONDAY);
+            'weekly' => collect(range(11, 0))->map(function (int $ago) use ($weekly, $tz): array {
+                $week = now()->timezone($tz)->subWeeks($ago)->startOfWeek(Carbon::MONDAY);
                 $row = $weekly[$week->toDateString()] ?? null;
 
                 return [
@@ -105,17 +133,23 @@ class DashboardController extends Controller
         ]]);
     }
 
-    /** Per-translator load: what they hold now + what they shipped this week. */
-    public function workload(): JsonResponse
+    /**
+     * Per-translator load: what they hold now + what they shipped this week.
+     *
+     * Office-wide even for a PM — translators serve every PM, and "who is free" is
+     * the question this answers. A file another PM owns shows as busy, unnamed.
+     */
+    public function workload(Request $request): JsonResponse
     {
-        $weekStart = now()->startOfWeek();
+        $weekStart = Timezone::now()->startOfWeek()->utc();
+        $viewer = $request->user();
 
         $translators = User::role('translator')
             ->where('status', User::STATUS_ACTIVE)
             ->orderBy('name')
             ->get(['id', 'name'])
-            ->map(function (User $translator) use ($weekStart): array {
-                $current = Assignment::query()
+            ->map(function (User $translator) use ($weekStart, $viewer): array {
+                $held = Assignment::query()
                     ->where('translator_id', $translator->id)
                     ->where(function ($query): void {
                         $query->where('status', Assignment::STATUS_ACTIVE)
@@ -123,9 +157,12 @@ class DashboardController extends Controller
                                 ->where('status', Assignment::STATUS_DELIVERED)
                                 ->whereHas('project', fn ($p) => $p->where('status', Project::STATUS_REVISION_REQUESTED)));
                     })
-                    ->with('project:id,code,title,priority,status,deadline_at')
+                    ->with('project:id,code,title,priority,status,deadline_at,created_by')
                     ->latest('claimed_at')
                     ->first();
+
+                // Another PM's file: the translator is busy, but on what is not this PM's to see.
+                $current = $held?->project->isVisibleTo($viewer) ? $held : null;
 
                 $week = Assignment::query()
                     ->where('translator_id', $translator->id)
@@ -147,6 +184,7 @@ class DashboardController extends Controller
                         'is_late' => $current->project->isLate(),
                         'claimed_at' => $current->claimed_at?->toIso8601String(),
                     ] : null,
+                    'busy_elsewhere' => $held !== null && $current === null,
                     'delivered_this_week' => (int) $week->delivered,
                     'work_seconds_this_week' => (int) $week->seconds,
                 ];
@@ -155,8 +193,8 @@ class DashboardController extends Controller
         return response()->json(['data' => $translators]);
     }
 
-    /** Attention list: already late + due within 24h, most urgent first. */
-    public function late(): JsonResponse
+    /** Attention list: already late + due within 24h, most urgent first — the viewer's own projects. */
+    public function late(Request $request): JsonResponse
     {
         $present = fn (Project $project, Carbon $now): array => [
             'id' => $project->id,
@@ -180,9 +218,10 @@ class DashboardController extends Controller
             ->limit(50);
 
         return response()->json(['data' => [
-            'late' => $withRefs(Project::late())->get()->map(fn ($p) => $present($p, $now)),
+            'late' => $withRefs(Project::late()->visibleTo($request->user()))->get()->map(fn ($p) => $present($p, $now)),
             'due_soon' => $withRefs(
                 Project::query()
+                    ->visibleTo($request->user())
                     ->whereBetween('deadline_at', [$now, $now->copy()->addDay()])
                     ->whereNotIn('status', Project::SETTLED_STATUSES),
             )->get()->map(fn ($p) => $present($p, $now)),

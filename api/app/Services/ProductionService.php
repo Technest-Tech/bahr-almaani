@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\Assignment;
 use App\Models\DailyWordLog;
 use App\Models\Project;
-use App\Models\Setting;
+use App\Support\Timezone;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -28,13 +28,13 @@ class ProductionService
      * Which day a delivery belongs to. `delivered_at` is timestamptz and the app
      * runs on UTC, so a 01:00 Cairo delivery would otherwise be filed under the
      * previous day — a real off-by-one on numbers people are paid against.
+     *
+     * The office wall clock is one decision for the whole system, so this is now
+     * just the reporting name for it.
      */
     public function workTimezone(): string
     {
-        $timezone = (string) Setting::get('work_timezone', 'Africa/Cairo');
-
-        // Whitelisted before it reaches SQL below, where it is interpolated.
-        return in_array($timezone, timezone_identifiers_list(), true) ? $timezone : 'UTC';
+        return Timezone::display();
     }
 
     /**
@@ -53,7 +53,7 @@ class ProductionService
         return Assignment::query()
             ->join('projects', 'projects.id', '=', 'assignments.project_id')
             ->where('assignments.status', Assignment::STATUS_DELIVERED)
-            ->whereBetween('assignments.delivered_at', [$from, $to])
+            ->whereBetween('assignments.delivered_at', Timezone::between($from, $to))
             ->when($translatorIds !== null, fn ($q) => $q->whereIn('assignments.translator_id', $translatorIds))
             ->selectRaw("assignments.translator_id, {$day} AS work_date")
             // Delivered-file words (client request 2026-09-05): the translator is

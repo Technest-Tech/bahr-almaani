@@ -86,7 +86,7 @@ class LetterheadMergeTest extends TestCase
         $project = $this->approvableProject();
 
         $preset = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]);
-        $project->forceFill(['stamp_id' => $preset->id])->save();
+        $project->syncStamps([$preset->id]);
 
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
@@ -96,7 +96,7 @@ class LetterheadMergeTest extends TestCase
 
         $project = $project->fresh();
         $this->assertSame(Project::STATUS_COMPLETED, $project->status);
-        $this->assertNull($project->stamp_id);
+        $this->assertSame(0, $project->stamps()->count());
 
         $final = $project->files()->where('category', ProjectFile::CATEGORY_FINAL)->firstOrFail();
         $this->assertStringStartsWith('%PDF-', Storage::disk('local')->get($final->disk_path));
@@ -173,7 +173,7 @@ class LetterheadMergeTest extends TestCase
             'modern.pdf',
         );
 
-        $pdf = $merger->merge($converted, null, null);
+        $pdf = $merger->merge($converted, null);
 
         $this->assertStringStartsWith('%PDF-', $pdf);
         $this->assertSame(3, $this->pageCount($pdf), 'Repairing the container must not change the page count.');
@@ -326,7 +326,10 @@ class LetterheadMergeTest extends TestCase
             $merged = $merger->merge(
                 $source,
                 LetterheadTemplate::factory()->create(['created_by' => $this->admin->id]),
-                LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]),
+                [
+                    LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]),
+                    LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id]),
+                ],
             );
 
             $this->assertSame(
@@ -398,7 +401,7 @@ class LetterheadMergeTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => $letterhead->id,
-                'stamp_id' => LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id,
+                'stamp_ids' => [LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id],
             ])
             ->assertOk();
 
@@ -424,7 +427,7 @@ class LetterheadMergeTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => $letterhead->id,
-                'stamp_id' => LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id,
+                'stamp_ids' => [LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id],
             ])
             ->assertOk();
 
@@ -559,7 +562,7 @@ class LetterheadMergeTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->admin->id])->id,
-                'stamp_id' => LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id,
+                'stamp_ids' => [LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->admin->id])->id],
             ])
             ->assertOk();
 

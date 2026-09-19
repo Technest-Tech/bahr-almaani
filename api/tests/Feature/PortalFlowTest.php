@@ -99,7 +99,7 @@ class PortalFlowTest extends TestCase
     {
         return [
             'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->pm->id])->id,
-            'stamp_id' => LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id])->id,
+            'stamp_ids' => [LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id])->id],
         ];
     }
 
@@ -662,10 +662,19 @@ class PortalFlowTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => $stamp->id,
-                'stamp_id' => $letterhead->id,
+                'stamp_ids' => [$letterhead->id],
             ])
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['letterhead_id', 'stamp_id']);
+            ->assertJsonValidationErrors(['letterhead_id', 'stamp_ids.0']);
+
+        // The same seal twice is a slip, not a second seal.
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => $letterhead->id,
+                'stamp_ids' => [$stamp->id, $stamp->id],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('stamp_ids.0');
 
         // Deactivated templates are out of circulation.
         $retired = LetterheadTemplate::factory()->inactive()->create(['created_by' => $this->pm->id]);
@@ -673,7 +682,7 @@ class PortalFlowTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => $retired->id,
-                'stamp_id' => $stamp->id,
+                'stamp_ids' => [$stamp->id],
             ])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('letterhead_id');
@@ -682,7 +691,7 @@ class PortalFlowTest extends TestCase
         $project->refresh();
         $this->assertSame(Project::STATUS_IN_REVIEW, $project->status);
         $this->assertNull($project->letterhead_id);
-        $this->assertNull($project->stamp_id);
+        $this->assertSame(0, $project->stamps()->count());
     }
 
     /**
@@ -699,11 +708,11 @@ class PortalFlowTest extends TestCase
             ->postJson("/api/v1/projects/{$project->id}/review/approve")
             ->assertOk()
             ->assertJsonPath('data.letterhead', null)
-            ->assertJsonPath('data.stamp', null);
+            ->assertJsonPath('data.stamps', []);
 
         $project->refresh();
         $this->assertNull($project->letterhead_id);
-        $this->assertNull($project->stamp_id);
+        $this->assertSame(0, $project->stamps()->count());
         // The merge still runs: it normalises the deliverable to PDF, which is
         // what makes the delivered page count trustworthy.
         $this->assertSame(Project::STATUS_COMPLETED, $project->status);
@@ -736,20 +745,65 @@ class PortalFlowTest extends TestCase
         $this->actingAs($this->pm, 'sanctum')
             ->postJson("/api/v1/projects/{$project->id}/review/approve", [
                 'letterhead_id' => $letterhead->id,
-                'stamp_id' => $stamp->id,
+                'stamp_ids' => [$stamp->id],
             ])
             ->assertOk()
             ->assertJsonPath('data.letterhead.id', $letterhead->id)
-            ->assertJsonPath('data.stamp.id', $stamp->id)
-            ->assertJsonPath('data.stamp.placement.anchor', 'bottom-right');
+            ->assertJsonPath('data.stamps.0.id', $stamp->id)
+            ->assertJsonPath('data.stamps.0.placement.anchor', 'bottom-right');
 
         $project->refresh();
         $this->assertSame($letterhead->id, $project->letterhead_id);
-        $this->assertSame($stamp->id, $project->stamp_id);
+        $this->assertSame([$stamp->id], $project->stamps->modelKeys());
         $this->assertSame(Project::STATUS_COMPLETED, $project->status);
 
         // The chosen templates are now referenced and must survive a delete attempt.
         $this->assertTrue($letterhead->fresh()->isUsedByProjects());
+        $this->assertTrue($stamp->fresh()->isUsedByProjects());
+    }
+
+    /**
+     * Some documents go out under more than one seal — the office's and the sworn
+     * translator's. They are kept in the order chosen, which is the order they are drawn.
+     */
+    public function test_approval_can_carry_several_seals_in_the_order_chosen(): void
+    {
+        Notification::fake();
+        $project = $this->projectAwaitingApproval();
+
+        $office = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id]);
+        $sworn = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->pm->id])->id,
+                'stamp_ids' => [$sworn->id, $office->id],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.stamps.0.id', $sworn->id)
+            ->assertJsonPath('data.stamps.1.id', $office->id);
+
+        $project->refresh();
+        $this->assertSame([$sworn->id, $office->id], $project->stamps->modelKeys());
+        $this->assertSame(Project::STATUS_COMPLETED, $project->status);
+    }
+
+    /** An approval dialog loaded before several seals were possible still sends one. */
+    public function test_approval_still_accepts_a_single_stamp_id(): void
+    {
+        Notification::fake();
+        $project = $this->projectAwaitingApproval();
+        $stamp = LetterheadTemplate::factory()->stamp()->create(['created_by' => $this->pm->id]);
+
+        $this->actingAs($this->pm, 'sanctum')
+            ->postJson("/api/v1/projects/{$project->id}/review/approve", [
+                'letterhead_id' => LetterheadTemplate::factory()->create(['created_by' => $this->pm->id])->id,
+                'stamp_id' => $stamp->id,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.stamps.0.id', $stamp->id);
+
+        $this->assertSame([$stamp->id], $project->fresh()->stamps->modelKeys());
     }
 
     public function test_an_invalid_transition_does_not_persist_the_selection(): void
@@ -766,7 +820,7 @@ class PortalFlowTest extends TestCase
         $project->refresh();
         $this->assertSame(Project::STATUS_AVAILABLE, $project->status);
         $this->assertNull($project->letterhead_id);
-        $this->assertNull($project->stamp_id);
+        $this->assertSame(0, $project->stamps()->count());
     }
 
     public function test_withdraw_releases_translator_and_republishes(): void

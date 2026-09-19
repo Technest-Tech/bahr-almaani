@@ -63,7 +63,7 @@ try {
   const after = (await get(`/projects/${target.id}`)).data;
   console.log(
     `project ${after.code}: status=${after.status} letterhead=${after.letterhead?.name ?? "—"} ` +
-      `stamp=${after.stamp?.name ?? "—"} final_files=${after.files.filter((f) => f.category === "final").length}`,
+      `stamps=${after.stamps?.map((s) => s.name).join(" + ") || "—"} final_files=${after.files.filter((f) => f.category === "final").length}`,
   );
   await context.close();
 } finally {
