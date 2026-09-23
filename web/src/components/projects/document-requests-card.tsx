@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ToneBadge } from "@/components/tone-badge";
 import { useConfirm } from "@/components/confirm";
+import { tooLarge, tooLargeMessage } from "@/lib/uploads";
 
 const dateFormatter = officeFormat({
   dateStyle: "medium",
@@ -191,6 +192,14 @@ function RequestRow({
   async function uploadOnBehalf(event: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     if (picked.length === 0) return;
+
+    const big = tooLarge(picked);
+    if (big) {
+      toast.error(tooLargeMessage(big));
+      event.target.value = "";
+      return;
+    }
+
     setUploading(true);
 
     const form = new FormData();

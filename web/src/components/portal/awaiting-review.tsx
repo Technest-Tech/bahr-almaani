@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useConfirm } from "@/components/confirm";
 import { DeliverDialog } from "@/components/portal/deliver-dialog";
+import { tooLarge, tooLargeMessage } from "@/lib/uploads";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -82,6 +83,14 @@ function DeliveryCard({
   function stage(event: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     if (picked.length === 0) return;
+
+    const big = tooLarge(picked);
+    if (big) {
+      toast.error(tooLargeMessage(big));
+      event.target.value = "";
+      return;
+    }
+
     setStaged(picked);
     setRound((value) => value + 1);
   }

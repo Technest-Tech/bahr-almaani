@@ -8,6 +8,7 @@ use App\Jobs\CountWordsJob;
 use App\Models\DocumentRequest;
 use App\Models\Project;
 use App\Models\ProjectFile;
+use App\Support\Uploads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -24,8 +25,6 @@ use ZipArchive;
 
 class ProjectFileController extends Controller
 {
-    private const MAX_FILE_KB = 51200; // 50 MB
-
     /** A page-by-page photographed document, with room to spare. */
     private const MAX_FILES = 20;
 
@@ -48,7 +47,7 @@ class ProjectFileController extends Controller
             'document_request_id' => $request->input('document_request_id'),
         ], [
             'files' => ['required', 'array', 'min:1', 'max:'.self::MAX_FILES],
-            'files.*' => ['file', 'max:'.self::MAX_FILE_KB],
+            'files.*' => Uploads::rules(),
             'category' => ['required', Rule::in([ProjectFile::CATEGORY_SOURCE, ProjectFile::CATEGORY_REFERENCE])],
             // Both links belong to supporting documents only — a source file is the
             // job itself, never an annotation on another file. Scoped to this

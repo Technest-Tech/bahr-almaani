@@ -10,6 +10,7 @@ import type { ClientProject } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/confirm";
 import { officeFormat } from "@/lib/format";
+import { tooLarge, tooLargeMessage } from "@/lib/uploads";
 
 /** Kept in step with ClientPortalController::MAX_CLIENT_FILES / MAX_CLIENT_FILE_KB. */
 const MAX_FILES = 6;
@@ -70,9 +71,9 @@ export function ClientUploadsPanel({
 
     // Checked here as well as on the server: a 20 MB photo on a slow line should
     // fail before it is uploaded, not after.
-    const tooBig = picked.find((file) => file.size > MAX_BYTES);
+    const tooBig = tooLarge(picked, MAX_BYTES);
     if (tooBig) {
-      toast.error(`«${tooBig.name}» أكبر من ٢٠ ميجابايت`);
+      toast.error(tooLargeMessage(tooBig, MAX_BYTES));
       return;
     }
 

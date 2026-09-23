@@ -1,3 +1,5 @@
+import { uploadTooLargeMessage } from "@/lib/uploads";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 /**
@@ -150,7 +152,15 @@ export function apiForm<T = unknown>(
       if (request.status >= 200 && request.status < 300) {
         resolve(body as T);
       } else {
-        reject(new ApiError(request.status, body.message ?? "حدث خطأ غير متوقع", body.errors));
+        // 413 never reaches the app: nginx refuses the body itself and answers in
+        // HTML, so the only "message" here is XHR's own status text. Overridden,
+        // not defaulted, or the translator reads "Request Entity Too Large".
+        const message =
+          request.status === 413
+            ? uploadTooLargeMessage()
+            : (body.message ?? "حدث خطأ غير متوقع");
+
+        reject(new ApiError(request.status, message, body.errors));
       }
     };
 

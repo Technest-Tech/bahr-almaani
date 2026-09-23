@@ -11,6 +11,7 @@ use App\Http\Resources\PortalTemplateResource;
 use App\Http\Resources\ProjectFileResource;
 use App\Models\Assignment;
 use App\Models\LetterheadTemplate;
+use App\Support\Uploads;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Notifications\ProjectDeliveredNotification;
@@ -109,7 +110,7 @@ class PortalController extends Controller
 
         $validated = Validator::make(['files' => array_values(array_filter($uploads))], [
             'files' => ['required', 'array', 'min:1', 'max:'.self::MAX_DELIVERY_FILES],
-            'files.*' => ['file', 'max:51200'],
+            'files.*' => Uploads::rules(),
         ])->validate();
 
         $assignment = $this->portal->deliver(
@@ -150,7 +151,7 @@ class PortalController extends Controller
             // A swap is one file for one file. Several files replacing one is a removal
             // plus an addition, and the portal offers those as what they are.
             'files' => ['required', 'array', 'min:1', 'max:'.($request->filled('replaces') ? 1 : self::MAX_DELIVERY_FILES)],
-            'files.*' => ['file', 'max:51200'],
+            'files.*' => Uploads::rules(),
             'replaces' => ['nullable', 'integer'],
         ])->validate();
 
@@ -250,7 +251,7 @@ class PortalController extends Controller
         abort_if($assignment === null, 404, __('portal.no_active_assignment'));
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:51200'],
+            'file' => ['required', ...Uploads::rules()],
             'letterhead_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
             // The seals, in the order they are drawn.
             'stamp_ids' => ['sometimes', 'array', 'max:'.Project::MAX_STAMPS],
@@ -322,7 +323,7 @@ class PortalController extends Controller
         abort_if($assignment === null, 404, __('portal.no_active_assignment'));
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'max:51200'],
+            'file' => ['required', ...Uploads::rules()],
             'letterhead_id' => ['nullable', 'integer', 'exists:letterhead_templates,id'],
             'page' => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);

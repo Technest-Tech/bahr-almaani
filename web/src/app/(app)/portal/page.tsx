@@ -50,6 +50,7 @@ import { useConfirm } from "@/components/confirm";
 import { DraftPreviewDialog } from "@/components/portal/draft-preview-dialog";
 import { DeliverDialog } from "@/components/portal/deliver-dialog";
 import { AwaitingReview } from "@/components/portal/awaiting-review";
+import { tooLarge, tooLargeMessage } from "@/lib/uploads";
 
 const ALL = "all";
 
@@ -397,6 +398,15 @@ function CurrentAssignmentCard({
   function handleDeliver(event: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     if (picked.length === 0) return;
+
+    // Refused here rather than after a minute of upload: nginx would answer 413
+    // once the body passed its own ceiling, with nothing the translator can read.
+    const big = tooLarge(picked);
+    if (big) {
+      toast.error(tooLargeMessage(big));
+      if (inputRef.current) inputRef.current.value = "";
+      return;
+    }
 
     stage(picked);
   }

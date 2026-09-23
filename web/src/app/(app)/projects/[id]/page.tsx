@@ -63,6 +63,7 @@ import { ApproveDialog } from "@/components/projects/approve-dialog";
 import { RevisionRequestDialog } from "@/components/projects/revision-request-dialog";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { tooLarge, tooLargeMessage } from "@/lib/uploads";
 
 const dateFormatter = officeFormat({
   dateStyle: "medium",
@@ -838,6 +839,14 @@ function FilesCard({
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const picked = Array.from(event.target.files ?? []);
     if (picked.length === 0) return;
+
+    const big = tooLarge(picked);
+    if (big) {
+      toast.error(tooLargeMessage(big));
+      event.target.value = "";
+      return;
+    }
+
     setUploading(true);
 
     // One request for the whole batch: the office photographs a document page by
