@@ -65,10 +65,10 @@ class LetterheadMergeTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $bytes);
         $this->assertGreaterThan(1000, strlen($bytes));
 
-        // The final's pages are the project's delivered page count: this PDF is
-        // the document the client receives, repagination included (2026-09-05).
+        // The final records its own page count on its row, and nothing more: the
+        // project's delivered pages follow the translator's delivery (2026-10-01).
         $this->assertGreaterThanOrEqual(1, $final->page_count);
-        $this->assertSame($final->page_count, $project->fresh()->delivered_pages);
+        $this->assertSame(3, $project->fresh()->delivered_pages, "The project's pages are the delivery's, not the final's.");
 
         Notification::assertSentTo($this->pm, ProjectCompletedNotification::class);
         Notification::assertSentTo($this->admin, ProjectCompletedNotification::class);
@@ -616,6 +616,8 @@ class LetterheadMergeTest extends TestCase
             'disk_path' => "projects/{$project->id}/deliverable/v1.docx",
             'mime_type' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'size_bytes' => 12,
+            // Pages without words, as a scanned delivery is stored.
+            'page_count' => 3,
             'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
         ]);
 

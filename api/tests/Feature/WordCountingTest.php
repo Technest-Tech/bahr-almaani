@@ -475,19 +475,14 @@ class WordCountingTest extends TestCase
     }
 
     /**
-     * Delivered pages prefer the certified final PDF: the letterhead band
-     * repaginates, and the final is the document the client actually receives.
+     * Delivered pages are the translator's delivery, not the certified final PDF.
+     * The office compared the project screen with the files the translator handed
+     * in and found the final's count there instead (2026-10-01): the letterhead
+     * band repaginates, so the final can run longer than what was translated.
      */
-    public function test_delivered_pages_prefer_the_certified_final_pdf(): void
+    public function test_delivered_pages_follow_the_translators_delivery_not_the_final_pdf(): void
     {
-        $file = fn (array $attrs) => $this->project->files()->create($attrs + [
-            'uploaded_by' => $this->pm->id,
-            'original_name' => 'f.pdf',
-            'disk_path' => 'projects/x/f.pdf',
-            'mime_type' => 'application/pdf',
-            'size_bytes' => 10,
-            'count_status' => ProjectFile::COUNT_DONE,
-        ]);
+        $file = $this->pdfFile();
 
         $file(['category' => 'deliverable', 'version' => 1, 'word_count' => 900, 'page_count' => 2, 'char_count' => 4500]);
         $file(['category' => 'final', 'page_count' => 4, 'count_status' => ProjectFile::COUNT_NOT_APPLICABLE]);
@@ -495,7 +490,69 @@ class WordCountingTest extends TestCase
         $this->project->refreshTotals();
         $this->project->refresh();
 
-        $this->assertSame(4, $this->project->delivered_pages);
+        $this->assertSame(2, $this->project->delivered_pages);
         $this->assertSame(900, $this->project->delivered_words);
+
+        // The final keeps its own count on its row — it is just not the project's figure.
+        $this->assertSame(4, $this->project->files()->where('category', 'final')->value('page_count'));
+    }
+
+    /**
+     * A delivery with no readable page count leaves the figure empty — the
+     * screens then show the source pages marked as such — rather than borrowing
+     * the final's count, which is the very number the office said was wrong.
+     */
+    public function test_the_final_never_stands_in_for_an_uncounted_delivery(): void
+    {
+        $file = $this->pdfFile();
+
+        $file(['category' => 'deliverable', 'version' => 1, 'word_count' => 900, 'page_count' => null, 'char_count' => 4500]);
+        $file(['category' => 'final', 'page_count' => 4, 'count_status' => ProjectFile::COUNT_NOT_APPLICABLE]);
+
+        $this->project->refreshTotals();
+        $this->project->refresh();
+
+        $this->assertNull($this->project->delivered_pages);
+        $this->assertSame(900, $this->project->delivered_words);
+    }
+
+    /**
+     * The backfill's dry run names what it would change and writes nothing —
+     * production needs that list after 2026-10-01, because every project merged
+     * under the old rule still stores the final PDF's pages.
+     */
+    public function test_refresh_totals_dry_run_reports_what_would_change_and_writes_nothing(): void
+    {
+        $file = $this->pdfFile();
+
+        $file(['category' => 'deliverable', 'version' => 1, 'word_count' => 900, 'page_count' => 2, 'char_count' => 4500]);
+        $file(['category' => 'final', 'page_count' => 4, 'count_status' => ProjectFile::COUNT_NOT_APPLICABLE]);
+
+        // Stored under the old rule: the final's pages.
+        $this->project->forceFill(['delivered_words' => 900, 'delivered_pages' => 4, 'delivered_chars' => 4500])->saveQuietly();
+
+        $this->artisan('projects:refresh-totals', ['--dry-run' => true])
+            ->expectsOutputToContain('would change BM-2026-00001: delivered_pages 4 ⇒ 2')
+            ->expectsOutputToContain('1 project(s) would change')
+            ->assertSuccessful();
+
+        $this->assertSame(4, $this->project->fresh()->delivered_pages);
+
+        $this->artisan('projects:refresh-totals')->assertSuccessful();
+
+        $this->assertSame(2, $this->project->fresh()->delivered_pages);
+    }
+
+    /** @return \Closure(array<string, mixed>): ProjectFile */
+    private function pdfFile(): \Closure
+    {
+        return fn (array $attrs) => $this->project->files()->create($attrs + [
+            'uploaded_by' => $this->pm->id,
+            'original_name' => 'f.pdf',
+            'disk_path' => 'projects/x/f.pdf',
+            'mime_type' => 'application/pdf',
+            'size_bytes' => 10,
+            'count_status' => ProjectFile::COUNT_DONE,
+        ]);
     }
 }

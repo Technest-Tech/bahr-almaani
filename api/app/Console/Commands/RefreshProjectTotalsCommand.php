@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\Storage;
  * columns start empty. New merges and new counts maintain both from now on
  * (MergeFinalFileJob, CountWordsJob); this catches up what is already stored.
  *
+ * Needed again after 2026-10-01: delivered pages switched from the certified
+ * final PDF's count to the translator's delivery, and only a refresh rewrites
+ * the stored figure. The dry run lists every project whose totals would change.
+ *
  *   php artisan projects:refresh-totals --dry-run   # report only
  *   php artisan projects:refresh-totals             # write
  *
@@ -31,7 +35,8 @@ class RefreshProjectTotalsCommand extends Command
     {
         $dry = (bool) $this->option('dry-run');
 
-        // Finals first: refreshTotals() prefers their pages over the deliverables'.
+        // Finals still get their page count for the file row; it no longer feeds
+        // the project's totals (2026-10-01).
         $finals = ProjectFile::query()
             ->where('category', ProjectFile::CATEGORY_FINAL)
             ->whereNull('page_count')
@@ -59,7 +64,28 @@ class RefreshProjectTotalsCommand extends Command
         }
 
         if ($dry) {
-            $this->info("dry run: {$finals->count()} final file(s) checked, no totals written.");
+            $changing = 0;
+
+            Project::query()->withTrashed()->each(function (Project $project) use (&$changing): void {
+                $diff = [];
+
+                foreach ($project->computeTotals() as $column => $value) {
+                    if ((int) $project->{$column} !== (int) $value) {
+                        $diff[] = sprintf('%s %s ⇒ %s', $column, $project->{$column} ?? '—', $value ?? '—');
+                    }
+                }
+
+                if ($diff !== []) {
+                    $changing++;
+                    $this->line("would change {$project->code}: ".implode(', ', $diff));
+                }
+            });
+
+            $this->info(sprintf(
+                'dry run: %d final file(s) checked, %d project(s) would change, no totals written.',
+                $finals->count(),
+                $changing,
+            ));
 
             return self::SUCCESS;
         }

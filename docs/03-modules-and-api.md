@@ -32,7 +32,8 @@ Modules map 1:1 to the client's priced contract items (total 85,000 EGP), so sco
 
 > **M14** is the "invoicing & payments" change request from the same list, agreed
 > with the client on 2026-09-05, in its minimal shape: pick the client, the system
-> sums the **delivered** page counts of finished un-invoiced projects, type a
+> sums the **delivered** page counts of finished un-invoiced projects (the
+> translator's newest delivery round, not the certified PDF — 2026-10-01), type a
 > per-page rate or a lump sum, and a numbered PDF invoice (`INV-YYYY-NNNNN`) comes
 > out and is stored. Line items are a snapshot; `projects.invoice_id` guards double
 > billing. Permissions: `invoices.view` / `invoices.manage` (PM, accountant, admin).

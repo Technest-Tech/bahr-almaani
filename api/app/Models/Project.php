@@ -302,6 +302,17 @@ class Project extends Model
     /** Recompute cached totals: source files (quoting) and delivered files (reporting). */
     public function refreshTotals(): void
     {
+        $this->forceFill($this->computeTotals())->saveQuietly();
+    }
+
+    /**
+     * The totals refreshTotals() would store, without storing them — what the
+     * backfill command's dry run reports from.
+     *
+     * @return array{total_words: int|null, total_pages: int|null, total_chars: int|null, delivered_words: int|null, delivered_pages: int|null, delivered_chars: int|null}
+     */
+    public function computeTotals(): array
+    {
         // total_*: source only, deliberately — these totals drive the quote, and the
         // quote is priced off what the client sent, not off what the translator produced.
         $totals = $this->files()
@@ -321,21 +332,22 @@ class Project extends Model
             ->selectRaw('COALESCE(SUM(word_count), 0) AS words, COALESCE(SUM(page_count), 0) AS pages, COALESCE(SUM(char_count), 0) AS chars')
             ->first();
 
-        // Delivered pages prefer the certified final PDFs: they are what the client
-        // receives, and the letterhead band repaginates, so the translator's .docx
-        // can honestly disagree with the document that actually leaves the office.
-        $finalPages = $this->files()
-            ->where('category', ProjectFile::CATEGORY_FINAL)
-            ->sum('page_count');
-
-        $this->forceFill([
+        // Pages included: the office reads "delivered pages" as the pages of the
+        // files the translator handed in, and compared the project screen against
+        // those files (2026-10-01). The certified final PDF repaginates under the
+        // letterhead band, so its own count — kept on the final's row — can run
+        // longer than what was translated, and it does not feed this figure. A
+        // delivery with no readable page count (a .docx whose metadata omits it,
+        // a .txt) leaves the figure empty; the screens then show the source pages
+        // marked as such, and the manual count box on the delivered file settles it.
+        return [
             'total_words' => (int) $totals->words ?: null,
             'total_pages' => (int) $totals->pages ?: null,
             'total_chars' => (int) $totals->chars ?: null,
             'delivered_words' => (int) $delivered->words ?: null,
-            'delivered_pages' => ((int) $finalPages ?: (int) $delivered->pages) ?: null,
+            'delivered_pages' => (int) $delivered->pages ?: null,
             'delivered_chars' => (int) $delivered->chars ?: null,
-        ])->saveQuietly();
+        ];
     }
 
     public function isLate(): bool

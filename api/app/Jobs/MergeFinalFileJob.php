@@ -104,9 +104,11 @@ class MergeFinalFileJob implements ShouldQueue
                     'disk_path' => $finalPath,
                     'mime_type' => 'application/pdf',
                     'size_bytes' => strlen($pdf),
-                    // Words are never counted on a final (letterheaded, often raster),
-                    // but its pages are the project's delivered page count: this PDF is
-                    // the document the client receives, repagination included.
+                    // Words are never counted on a final (letterheaded, often raster).
+                    // Its pages are recorded for the file row only: the project's
+                    // delivered page count is the translator's delivery, not this PDF —
+                    // the letterhead band repaginates, and the office reads the
+                    // translator's figure (2026-10-01).
                     'page_count' => $counter->pdfPageCount($pdf),
                     'count_status' => ProjectFile::COUNT_NOT_APPLICABLE,
                 ]);

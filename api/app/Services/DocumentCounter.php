@@ -78,15 +78,15 @@ class DocumentCounter
 
     /**
      * Page count of a PDF already in memory — the merge job's final files.
-     * Words are meaningless there (letterheaded, often rasterised), pages are
-     * the number the office bills certified work by.
+     * Words are meaningless there (letterheaded, often rasterised); the pages
+     * are shown on the final's row. They do not feed the project's delivered
+     * pages, which follow the translator's delivery (2026-10-01).
      *
      * Deliberately NOT smalot: parsing an image-heavy final holds every
      * decompressed stream in memory on top of TCPDF's own buffers, which blew
      * the 128M limit mid-merge. Finals come from our own TCPDF/FPDI pipeline,
      * whose page-tree dictionaries are plain text — a bounded regex reads them
-     * without allocating anything. Null for a PDF that matches neither shape;
-     * refreshTotals() then falls back to the deliverables' own pages.
+     * without allocating anything. Null for a PDF that matches neither shape.
      */
     public function pdfPageCount(string $binary): ?int
     {

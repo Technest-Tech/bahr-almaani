@@ -123,6 +123,7 @@ what makes the login lookup unambiguous.
 | status | varchar(30) | see [02-state-machine.md](02-state-machine.md) |
 | declared_pages | int | PM's initial estimate, nullable |
 | total_words / total_pages | int | aggregated from source files after counting |
+| delivered_words / delivered_pages / delivered_chars | int, null | the translator's newest delivery round (2026-09-05); reports, the project screens and invoices read `COALESCE(delivered, total)`. Pages are the delivered files' own counts — the certified final PDF's count stays on its file row and stopped feeding this on 2026-10-01, when the office found it disagreeing with the translator's files (the letterhead band repaginates) |
 | deadline_at | timestamptz | |
 | instructions | text | nullable, special instructions |
 | quoted_amount | decimal(12,2) | nullable; currency `EGP` default |
