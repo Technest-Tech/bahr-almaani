@@ -12,6 +12,7 @@ use App\Notifications\MergeFailedNotification;
 use App\Notifications\ProjectCompletedNotification;
 use App\Services\DocumentMergeService;
 use App\Support\AssetOptimizer;
+use App\Support\Ghostscript;
 use App\Support\PlacementConfig;
 use Database\Seeders\LanguageSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -340,6 +341,62 @@ class LetterheadMergeTest extends TestCase
 
             @unlink($source);
         }
+    }
+
+    /**
+     * A scanned stamp is almost all semi-transparent ink. TCPDF's own split drew it
+     * at a fraction of its strength and greyed, which the office read as "a digital
+     * stamp, not the real one" — see App\Support\PngAlpha.
+     */
+    public function test_a_semi_transparent_seal_keeps_its_full_ink_strength(): void
+    {
+        if (! Ghostscript::available()) {
+            $this->markTestSkipped('Rendering the merged page needs ghostscript.');
+        }
+
+        // Stamp blue at GD alpha 64: half-strength ink, edge to edge.
+        $image = imagecreatetruecolor(100, 100);
+        imagealphablending($image, false);
+        imagesavealpha($image, true);
+        imagefill($image, 0, 0, imagecolorallocatealpha($image, 30, 60, 170, 64));
+        ob_start();
+        imagepng($image);
+        Storage::disk('local')->put('letterheads/ink.png', (string) ob_get_clean());
+
+        $stamp = LetterheadTemplate::factory()->stamp()->create([
+            'disk_path' => 'letterheads/ink.png',
+            'placement' => ['pages' => 'all'] + PlacementConfig::defaultsFor(LetterheadTemplate::KIND_STAMP),
+            'created_by' => $this->admin->id,
+        ]);
+
+        $source = $this->plainPdf(3);
+        $merged = app(DocumentMergeService::class)->merge($source, null, [$stamp]);
+        @unlink($source);
+
+        // Drawn as ink, and embedded once (colour + mask) however many pages carry it.
+        $this->assertMatchesRegularExpression('#/BM\s*/Multiply#', $merged);
+        $this->assertSame(2, preg_match_all('#/Subtype\s*/Image#', $merged));
+
+        $pdf = tempnam(sys_get_temp_dir(), 'ink').'.pdf';
+        $png = $pdf.'.png';
+        file_put_contents($pdf, $merged);
+        (new Process([
+            'gs', '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER', '-sDEVICE=png16m', '-r36',
+            '-dFirstPage=1', '-dLastPage=1', "-sOutputFile={$png}", $pdf,
+        ]))->mustRun();
+
+        // Centre of the default seal: 45mm wide, 20mm in from the bottom-right corner.
+        $page = imagecreatefrompng($png);
+        $red = imagecolorsforindex($page, imagecolorat(
+            $page,
+            (int) round((210 - 20 - 22.5) / 25.4 * 36),
+            (int) round((297 - 20 - 22.5) / 25.4 * 36),
+        ))['red'];
+        @unlink($pdf);
+        @unlink($png);
+
+        // Half of 30 over white paper ≈ 143. TCPDF's split rendered ≈ 203.
+        $this->assertEqualsWithDelta(143, $red, 8);
     }
 
     /** A plain FPDI-readable PDF with $pages pages. */

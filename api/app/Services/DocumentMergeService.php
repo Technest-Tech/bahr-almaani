@@ -7,6 +7,7 @@ use App\Support\AssetOptimizer;
 use App\Support\DocxPageMargins;
 use App\Support\Ghostscript;
 use App\Support\PlacementConfig;
+use App\Support\PngAlpha;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -200,57 +201,68 @@ class DocumentMergeService
             fn (LetterheadTemplate $stamp): array => [
                 'template' => $stamp,
                 'placement' => $this->sealPlacement($stamp, $stampPlacements[$stamp->id] ?? null),
+                'planes' => $this->alphaPlanes($stamp),
             ],
             array_values($stamps),
         );
+        $letterheadPlanes = $letterhead ? $this->alphaPlanes($letterhead) : null;
 
-        // Imported templates stay valid after the source file switches, so the
-        // letterhead is read once here rather than per page.
-        $letterheadTemplate = $letterhead && ! $letterhead->isImage()
-            ? $this->importFirstPage($pdf, $letterhead)
-            : null;
+        // Every page draws from the same plane files, so TCPDF embeds each seal once.
+        try {
+            // Imported templates stay valid after the source file switches, so the
+            // letterhead is read once here rather than per page.
+            $letterheadTemplate = $letterhead && ! $letterhead->isImage()
+                ? $this->importFirstPage($pdf, $letterhead)
+                : null;
 
-        $pageCount = $pdf->setSourceFile($pdfPath);
+            $pageCount = $pdf->setSourceFile($pdfPath);
 
-        for ($page = 1; $page <= $pageCount; $page++) {
-            $imported = $pdf->importPage($page);
-            $size = $pdf->getTemplateSize($imported);
-            [$width, $height] = [$size['width'], $size['height']];
+            for ($page = 1; $page <= $pageCount; $page++) {
+                $imported = $pdf->importPage($page);
+                $size = $pdf->getTemplateSize($imported);
+                [$width, $height] = [$size['width'], $size['height']];
 
-            $pdf->AddPage($size['orientation'], [$width, $height]);
+                $pdf->AddPage($size['orientation'], [$width, $height]);
 
-            $carriesLetterhead = $letterhead
-                && $this->appliesToPage($letterheadPlacement['pages'], $page, $pageCount);
+                $carriesLetterhead = $letterhead
+                    && $this->appliesToPage($letterheadPlacement['pages'], $page, $pageCount);
 
-            if ($carriesLetterhead) {
-                $this->draw($pdf, $letterhead, $letterheadPlacement, $letterheadTemplate, $width, $height);
-            }
+                if ($carriesLetterhead) {
+                    $this->draw($pdf, $letterhead, $letterheadPlacement, $letterheadTemplate, $width, $height, $letterheadPlanes);
+                }
 
-            // Only a page that actually carries the artwork has anything to dodge, and
-            // a page whose text was already laid out inside the band must not be
-            // shrunk into it a second time. Both used to shrink regardless: on a
-            // `pages: first` letterhead every page after the first came out at 80%
-            // with blank gutters, dodging artwork that was never drawn on it.
-            $content = $carriesLetterhead && ! $bandReservedInLayout
-                ? PlacementConfig::resolveContentRect($letterheadPlacement, $width, $height)
-                : PlacementConfig::resolveContentRect(null, $width, $height);
+                // Only a page that actually carries the artwork has anything to dodge, and
+                // a page whose text was already laid out inside the band must not be
+                // shrunk into it a second time. Both used to shrink regardless: on a
+                // `pages: first` letterhead every page after the first came out at 80%
+                // with blank gutters, dodging artwork that was never drawn on it.
+                $content = $carriesLetterhead && ! $bandReservedInLayout
+                    ? PlacementConfig::resolveContentRect($letterheadPlacement, $width, $height)
+                    : PlacementConfig::resolveContentRect(null, $width, $height);
 
-            $pdf->useTemplate($imported, $content['x'], $content['y'], $content['width'], $content['height']);
+                $pdf->useTemplate($imported, $content['x'], $content['y'], $content['width'], $content['height']);
 
-            foreach ($seals as $seal) {
-                if ($this->appliesToPage($seal['placement']['pages'], $page, $pageCount)) {
-                    $this->draw($pdf, $seal['template'], $seal['placement'], null, $width, $height);
+                foreach ($seals as $seal) {
+                    if ($this->appliesToPage($seal['placement']['pages'], $page, $pageCount)) {
+                        $this->draw($pdf, $seal['template'], $seal['placement'], null, $width, $height, $seal['planes'], 'Multiply');
+                    }
+                }
+
+                // Last, so it sits over the seals too — a draft has to stay obviously
+                // a draft even on the page carrying the office's seal.
+                if ($watermark !== null) {
+                    $this->drawWatermark($pdf, $watermark, $width, $height);
                 }
             }
 
-            // Last, so it sits over the seals too — a draft has to stay obviously
-            // a draft even on the page carrying the office's seal.
-            if ($watermark !== null) {
-                $this->drawWatermark($pdf, $watermark, $width, $height);
+            return $pdf->Output('', 'S');
+        } finally {
+            PngAlpha::cleanUp($letterheadPlanes);
+
+            foreach ($seals as $seal) {
+                PngAlpha::cleanUp($seal['planes']);
             }
         }
-
-        return $pdf->Output('', 'S');
     }
 
     /**
@@ -410,7 +422,15 @@ class DocumentMergeService
         }
     }
 
-    /** Draw one template at its placement rectangle, honouring opacity. */
+    /**
+     * Draw one template at its placement rectangle, honouring opacity.
+     *
+     * Seals pass `Multiply`: ink on paper darkens what is under it and never covers
+     * it, so the text beneath a seal stays black and readable the way it does under
+     * a real stamp. Drawn `Normal`, the seal sat on the page like a sticker.
+     *
+     * @param  array{plain: string, mask: string}|null  $alphaPlanes  see alphaPlanes()
+     */
     private function draw(
         Fpdi $pdf,
         LetterheadTemplate $template,
@@ -418,18 +438,51 @@ class DocumentMergeService
         mixed $importedTemplate,
         float $pageWidth,
         float $pageHeight,
+        ?array $alphaPlanes = null,
+        string $blendMode = 'Normal',
     ): void {
         $ratio = $this->assetRatio($pdf, $template, $importedTemplate);
         $rect = PlacementConfig::resolveRect($placement, $pageWidth, $pageHeight, $ratio);
 
         $opacity = $placement['opacity'];
+        $blended = $opacity < 1.0 || $blendMode !== 'Normal';
 
-        if ($opacity < 1.0) {
-            $pdf->SetAlpha($opacity);
+        if ($blended) {
+            $pdf->SetAlpha($opacity, $blendMode);
         }
 
         if ($importedTemplate !== null) {
             $pdf->useTemplate($importedTemplate, $rect['x'], $rect['y'], $rect['width'], $rect['height']);
+        } elseif ($alphaPlanes !== null) {
+            $mask = $pdf->Image(
+                $alphaPlanes['mask'],
+                $rect['x'],
+                $rect['y'],
+                $rect['width'],
+                $rect['height'],
+                'PNG',
+                '',
+                '',
+                false,
+                300,
+                '',
+                true,
+            );
+            $pdf->Image(
+                $alphaPlanes['plain'],
+                $rect['x'],
+                $rect['y'],
+                $rect['width'],
+                $rect['height'],
+                'PNG',
+                '',
+                '',
+                false,
+                300,
+                '',
+                false,
+                $mask,
+            );
         } else {
             $path = Storage::disk('local')->path($template->disk_path);
 
@@ -453,9 +506,25 @@ class DocumentMergeService
             );
         }
 
-        if ($opacity < 1.0) {
+        if ($blended) {
             $pdf->SetAlpha(1.0);
         }
+    }
+
+    /**
+     * A transparent PNG's colour plane and soft mask, split by us rather than TCPDF.
+     *
+     * TCPDF's own split crushes the alpha of a scanned stamp to two thirds of its
+     * ink — see App\Support\PngAlpha. Null for a PDF asset, an opaque image, or one
+     * that cannot be read, all of which draw() hands to TCPDF as before.
+     *
+     * @return array{plain: string, mask: string}|null
+     */
+    private function alphaPlanes(LetterheadTemplate $template): ?array
+    {
+        return $template->isImage()
+            ? PngAlpha::split(Storage::disk('local')->path($template->disk_path))
+            : null;
     }
 
     /** Asset height ÷ width — drives the rectangle PlacementConfig resolves. */
