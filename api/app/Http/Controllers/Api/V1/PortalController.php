@@ -113,13 +113,12 @@ class PortalController extends Controller
             'files.*' => Uploads::rules(),
         ])->validate();
 
-        $assignment = $this->portal->deliver(
-            $request->user(),
-            $validated['files'],
-            $this->stampPlacements($request, count($validated['files']), LetterheadTemplate::defaultStampId()),
-        );
+        $placements = $this->stampPlacements($request, count($validated['files']), LetterheadTemplate::defaultStampId());
+        $assignment = $this->portal->deliver($request->user(), $validated['files'], $placements);
 
-        $assignment->project->creator->notify(new ProjectDeliveredNotification($assignment->project, $request->user()));
+        $assignment->project->creator->notify(
+            new ProjectDeliveredNotification($assignment->project, $request->user(), sealed: $placements !== []),
+        );
         $this->broadcastLive(new ProjectDelivered($assignment->project, $request->user()));
 
         return AssignmentResource::make($assignment->load('project'));

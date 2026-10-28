@@ -952,6 +952,15 @@ function FilesCard({
                     </ToneBadge>
                   )}
                   {file.uploaded_by_client && <ToneBadge tone="blue">من العميل</ToneBadge>}
+                  {/* The translator placed seals on this file at delivery; approval
+                      opens on them (ApproveDialog). */}
+                  {category === "deliverable" &&
+                    Object.keys(file.stamp_placements ?? {}).length > 0 && (
+                      <ToneBadge tone="violet">
+                        <Stamp />
+                        ختمه المترجم
+                      </ToneBadge>
+                    )}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatBytes(file.size_bytes)}

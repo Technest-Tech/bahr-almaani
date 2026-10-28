@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { BadgeCheck, FileText } from "lucide-react";
+import { BadgeCheck, FileText, Stamp } from "lucide-react";
 import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import {
@@ -63,6 +63,13 @@ const pageFor = (pages: PlacementPages) => (pages === "last" ? null : 1);
  * before the file becomes a certified document. Positions are per file and per seal,
  * because a delivery round can be three separately certified documents, and two
  * seals on one page cannot share a spot.
+ *
+ * And it opens on **what the translator already did** (2026-10-29). Positions are
+ * keyed by seal, so they only showed once the PM happened to pick the same seal
+ * again — the dialog opened blank, and the office read that as the translator's
+ * sealing never reaching the PM. The seals the translator placed now arrive
+ * selected, with the letterhead their positions were measured on; a revision round
+ * reopens on the previous approval instead. See seedFrom().
  */
 export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
   const [letterheadId, setLetterheadId] = useState<number | null>(null);
@@ -77,6 +84,9 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
     file: ProjectFile;
     stamp: LetterheadTemplate;
   } | null>(null);
+  // Both queries resolve after mount, so the selection is seeded once they have —
+  // during render, not in an effect; the parent remounts the dialog per opening.
+  const [seeded, setSeeded] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["letterheads", "active"],
@@ -106,6 +116,19 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
 
     return all.filter((f) => f.version === latest);
   }, [project]);
+
+  /** The seals the translator placed on this round, in the office's own order. */
+  const placedIds = new Set(
+    deliverables.flatMap((file) => Object.keys(file.stamp_placements ?? {}).map(Number)),
+  );
+  const translatorStamps = stamps.filter((stamp) => placedIds.has(stamp.id));
+
+  if (!seeded && data && project) {
+    const seed = seedFrom(project, letterheads, stamps, translatorStamps);
+    setSeeded(true);
+    setLetterheadId(seed.letterheadId);
+    setStampIds(seed.stampIds);
+  }
 
   /** What the PM sees for one seal on a file: their own edit, else what was delivered. */
   function placementOf(file: ProjectFile, stampId: number): StampPosition | null {
@@ -177,6 +200,20 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
           </DialogHeader>
 
           <div className="space-y-5">
+            {translatorStamps.length > 0 && (
+              <div className="flex gap-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3.5 py-3 text-[13px]">
+                <Stamp className="mt-0.5 size-4 shrink-0 text-primary" />
+                <p>
+                  <span className="font-medium">
+                    ختم المترجم هذا التسليم بـ{" "}
+                    {translatorStamps.map((stamp) => `«${stamp.name}»`).join(" و")}
+                  </span>{" "}
+                  وضبط موضعه على الترويسة. اختياراته محددة أدناه بمواضعها — راجعها، وغيّر ما
+                  تشاء قبل الاعتماد.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-2">
               <TemplatePicker
                 kind="letterhead"
@@ -329,4 +366,41 @@ export function ApproveDialog({ open, projectId, onClose, onApproved }: Props) {
       )}
     </>
   );
+}
+
+/**
+ * The selection the dialog opens on.
+ *
+ * The translator's seals win: they are the latest word on this round, and their
+ * positions were dragged onto the letterhead, so that letterhead comes with them —
+ * the one the portal's positioner draws, unless the project already carries one. Without any, a project approved before (a revision round)
+ * reopens on that approval. Otherwise nothing is chosen, as before: «بدون ترويسة»
+ * stays a deliberate click.
+ */
+function seedFrom(
+  project: Project,
+  letterheads: LetterheadTemplate[],
+  stamps: LetterheadTemplate[],
+  translatorStamps: LetterheadTemplate[],
+): { letterheadId: number | null; stampIds: number[] } {
+  const previousLetterhead = letterheads.find((t) => t.id === project.letterhead?.id)?.id ?? null;
+
+  if (translatorStamps.length > 0) {
+    return {
+      letterheadId: previousLetterhead ?? portalLetterhead(letterheads)?.id ?? null,
+      stampIds: translatorStamps.map((stamp) => stamp.id),
+    };
+  }
+
+  return {
+    letterheadId: previousLetterhead,
+    stampIds: (project.stamps ?? [])
+      .filter((previous) => stamps.some((stamp) => stamp.id === previous.id))
+      .map((stamp) => stamp.id),
+  };
+}
+
+/** The letterhead DeliverDialog drags seals onto: the first by name, as PortalController::templates() lists them. */
+function portalLetterhead(letterheads: LetterheadTemplate[]): LetterheadTemplate | undefined {
+  return [...letterheads].sort((a, b) => a.name.localeCompare(b.name, "ar"))[0];
 }

@@ -8,6 +8,7 @@ use App\Models\LetterheadTemplate;
 use App\Models\Project;
 use App\Models\ProjectFile;
 use App\Models\User;
+use App\Notifications\ProjectDeliveredNotification;
 use App\Services\DocumentCounter;
 use App\Services\DocumentMergeService;
 use App\Support\PlacementConfig;
@@ -200,6 +201,79 @@ class StampPlacementTest extends TestCase
 
         $this->assertNull(
             $project->files()->where('category', ProjectFile::CATEGORY_DELIVERABLE)->sole()->stamp_placements,
+        );
+    }
+
+    /** The office reported the translator's sealing "never reaching" the PM. */
+    public function test_the_pm_is_told_the_translator_sealed_the_delivery(): void
+    {
+        Notification::fake();
+        $project = $this->claimedProject();
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/deliver', [
+                'files' => [UploadedFile::fake()->create('translation.docx', 12)],
+                'stamp_placements' => [0 => json_encode([
+                    $this->officeSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 120, 'offset_y_mm' => 210],
+                ])],
+            ])
+            ->assertOk();
+
+        Notification::assertSentTo(
+            $project->creator,
+            ProjectDeliveredNotification::class,
+            fn (ProjectDeliveredNotification $notification): bool => $notification->sealed
+                && str_ends_with($notification->toArray($project->creator)['message'], 'وختمها'),
+        );
+    }
+
+    /**
+     * The PM's dialog reads positions by seal id. JsonResource re-indexes numeric-keyed
+     * arrays, so this map used to reach the browser as a list and every translator's
+     * position was invisible to the PM.
+     */
+    public function test_the_pm_receives_each_position_under_its_seal(): void
+    {
+        $project = $this->claimedProject();
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/deliver', [
+                'files' => [UploadedFile::fake()->create('translation.docx', 12)],
+                'stamp_placements' => [0 => json_encode([
+                    $this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 30, 'offset_y_mm' => 240],
+                ])],
+            ])
+            ->assertOk();
+
+        $response = $this->actingAs($this->pm, 'sanctum')->getJson("/api/v1/projects/{$project->id}")->assertOk();
+
+        $delivered = collect($response->json('data.files'))->firstWhere('category', ProjectFile::CATEGORY_DELIVERABLE);
+        $this->assertSame(
+            [$this->translatorSeal->id => ['anchor' => 'top-left', 'offset_x_mm' => 30, 'offset_y_mm' => 240]],
+            $delivered['stamp_placements'],
+        );
+        $this->assertStringContainsString(
+            '"stamp_placements":{"'.$this->translatorSeal->id.'":',
+            $response->getContent(),
+            'Must reach the browser as an object keyed by seal id, never a list.',
+        );
+    }
+
+    public function test_an_unsealed_delivery_does_not_claim_a_seal(): void
+    {
+        Notification::fake();
+        $project = $this->claimedProject();
+
+        $this->actingAs($this->translator, 'sanctum')
+            ->post('/api/v1/portal/deliver', [
+                'files' => [UploadedFile::fake()->create('translation.docx', 12)],
+            ])
+            ->assertOk();
+
+        Notification::assertSentTo(
+            $project->creator,
+            ProjectDeliveredNotification::class,
+            fn (ProjectDeliveredNotification $notification): bool => ! $notification->sealed,
         );
     }
 

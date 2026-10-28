@@ -32,9 +32,14 @@ class ProjectFileResource extends JsonResource
             'version' => $this->version,
             // Deliverables only: where each seal goes on this document, keyed by stamp
             // id. A seal with no entry sits at its template's own position, and the
-            // approval dialog shows that rather than an empty box. Always an object:
-            // stamp ids start at 1, so the map never encodes as a JSON list.
-            'stamp_placements' => $this->stamp_placements ?: null,
+            // approval dialog shows that rather than an empty box.
+            //
+            // Cast to an object, or the keys are lost: JsonResource re-indexes any
+            // nested array whose keys are all numeric (removeMissingValues), so
+            // {"15": …} went out as [ … ] and the PM's dialog looked up seal 15 in a
+            // one-item list. Every translator's position was invisible to the PM from
+            // the multi-seal change (2026-09-19) until 2026-10-29.
+            'stamp_placements' => $this->stamp_placements ? (object) $this->stamp_placements : null,
             'uploaded_by' => $this->whenLoaded('uploader', fn () => $this->uploader ? [
                 'id' => $this->uploader->id,
                 'name' => $this->uploader->name,

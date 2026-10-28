@@ -24,6 +24,12 @@ class ProjectDeliveredNotification extends Notification implements ShouldQueue
          * same mail preference governs it.
          */
         public bool $amended = false,
+        /**
+         * The translator placed the seals at delivery. Said in the notification itself
+         * because the office reported the translator's sealing "never reaching" the PM
+         * — approval now opens on it (ApproveDialog), and the PM should know to look.
+         */
+        public bool $sealed = false,
     ) {}
 
     public function via(object $notifiable): array
@@ -51,6 +57,7 @@ class ProjectDeliveredNotification extends Notification implements ShouldQueue
             ->subject("تم تسليم الترجمة — {$this->project->code}")
             ->greeting("مرحباً {$notifiable->name}،")
             ->line("سلّم المترجم {$this->translator->name} ترجمة المشروع «{$this->project->title}».")
+            ->lineIf($this->sealed, 'ختم المترجم الملفات وضبط موضع الختم على الترويسة، وستجد اختياراته محددة عند الاعتماد.')
             ->action('مراجعة التسليم', config('app.frontend_url')."/projects/{$this->project->id}")
             ->line('يمكنك فتح المراجعة واعتماد العمل أو طلب تعديل.');
     }
@@ -63,7 +70,7 @@ class ProjectDeliveredNotification extends Notification implements ShouldQueue
             'code' => $this->project->code,
             'message' => $this->amended
                 ? "عدّل {$this->translator->name} تسليم «{$this->project->title}» قبل المراجعة"
-                : "سلّم {$this->translator->name} ترجمة «{$this->project->title}»",
+                : "سلّم {$this->translator->name} ترجمة «{$this->project->title}»".($this->sealed ? ' وختمها' : ''),
         ];
     }
 }
