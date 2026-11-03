@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\LetterheadTemplate;
 use App\Support\AssetOptimizer;
 use App\Support\DocxPageMargins;
+use App\Support\DocxRtlDates;
 use App\Support\Ghostscript;
 use App\Support\PlacementConfig;
 use App\Support\PngAlpha;
@@ -82,6 +83,11 @@ class DocumentMergeService
 
         if (! in_array($extension, self::CONVERTIBLE, true)) {
             throw new RuntimeException("Cannot convert .{$extension} to PDF for merging.");
+        }
+
+        // Word lays a date out right to left inside an Arabic run; LibreOffice does not.
+        if ($extension === 'docx') {
+            $contents = DocxRtlDates::apply($contents) ?? $contents;
         }
 
         $reserved = false;
